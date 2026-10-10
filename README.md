@@ -9,7 +9,7 @@
 | 前端 | Vue 3 · TypeScript · Vite · Element Plus · Pinia · Vue Router · ECharts · Axios |
 | 后端 | Node.js · Express · mysql2 · JWT · zod · exceljs（模块化单体） |
 | 数据库 | MySQL 8 |
-| 部署 | Docker · Docker Compose · Nginx · GitHub Actions · GHCR（多架构） |
+| 部署 | Docker · Docker Compose · Nginx · GitHub Actions · GHCR（linux/amd64） |
 
 ## 目录结构
 

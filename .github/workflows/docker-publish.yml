@@ -1,11 +1,21 @@
 name: docker-publish
 
 # =============================================================
+# 精简版流水线（两段）：
+#   1) build        —— 前后端安装、单元测试、类型检查与构建（PR / push 均执行）
+#   2) docker       —— 构建并推送镜像到 GHCR（仅 main 分支、版本标签、手动触发）
+#
 # 触发条件：
-#  - push 到 main 分支：构建并发布 latest + sha 标签
-#  - push v1.0.0 形式标签：发布不可变版本标签
-#  - Pull Request：执行测试与构建，不发布镜像
-#  - 手动触发 workflow_dispatch
+#   - push 到 main：发布 latest + sha-<短哈希>
+#   - push v* 标签：额外发布语义化版本标签
+#   - Pull Request：只做校验，不发布镜像
+#   - workflow_dispatch：手动触发
+#
+# 精简说明（相对旧版移除的部分）：
+#   - 移除 linux/arm64 多架构与 QEMU：单架构 amd64，构建时间从十几分钟降到几分钟
+#   - 移除 Trivy 漏洞扫描：第三方 action 版本易失效，且仅为告警性质
+#   - 移除 sbom / provenance 证明：单架构下无需镜像索引附加清单
+#   - 移除 workflow 级 env 与短 SHA 计算步骤（Trivy 移除后不再需要）
 # =============================================================
 on:
   push:
@@ -15,9 +25,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-
 # 只申请必要权限：读源码 + 写 GHCR 包
 permissions:
   contents: read
@@ -25,9 +32,9 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------
-  # 测试与构建校验（PR 与 push 均执行）
+  # 1) 校验：安装依赖、跑测试、类型检查与构建
   # ---------------------------------------------------------
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,53 +46,36 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
-            frontend/package-lock.json
             backend/package-lock.json
+            frontend/package-lock.json
 
-      - name: 后端依赖安装
+      - name: 后端安装与测试
         working-directory: backend
-        run: npm ci || npm install
+        run: |
+          npm ci
+          npm test
+          npm run build
 
-      - name: 后端单元测试
-        working-directory: backend
-        run: npm test
-
-      - name: 后端类型检查与构建
-        working-directory: backend
-        run: npm run build
-
-      - name: 前端依赖安装
+      - name: 前端安装与构建
         working-directory: frontend
-        run: npm ci || npm install
-
-      - name: 前端构建
-        working-directory: frontend
-        run: npm run build
+        run: |
+          npm ci
+          npm run build
 
   # ---------------------------------------------------------
-  # 构建并发布镜像（仅 main 分支与版本标签）
+  # 2) 发布：构建并推送镜像到 GHCR（amd64）
   # ---------------------------------------------------------
-  build-and-push:
-    needs: test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+  docker:
+    needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # 镜像名动态使用仓库所有者/仓库名（matrix 中不可用 env 上下文，直接内联 github.repository）
-          - image: ghcr.io/${{ github.repository }}-frontend
-            context: ./frontend
-            file: ./frontend/Dockerfile
-          - image: ghcr.io/${{ github.repository }}-backend
-            context: ./backend
-            file: ./backend/Dockerfile
+        name: [backend, frontend]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: 设置 QEMU（多架构）
-        uses: docker/setup-qemu-action@v3
 
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -93,7 +83,7 @@ jobs:
       - name: 登录 GHCR（使用 GITHUB_TOKEN，无需长期 PAT）
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -101,49 +91,20 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ matrix.image }}
+          images: ghcr.io/${{ github.repository }}-${{ matrix.name }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-          labels: |
-            org.opencontainers.image.source=${{ github.event.repository.html_url }}
-            org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: 构建并推送镜像（多架构 + SBOM）
+      - name: 构建并推送镜像
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
+          context: ./${{ matrix.name }}
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
-
-      - name: 获取短提交 SHA
-        id: shortsha
-        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-      - name: 镜像漏洞扫描（Trivy，告警不阻断）
-        # 报错原因：原写法 aquasecurity/trivy-action@0.24.0 缺少 v 前缀，该 action 的 tag 统一为 vX.Y.Z，
-        # 因此 0.24.0 解析不到（404）。这里直接升级到最新稳定版 v0.36.0。
-        # 第三方 action 用完整提交 SHA 固定可防 tag 被移动/删除，v0.36.0 为已签名且 immutable 的发布。
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
-          # 新版把 image-ref 更名为 scan-ref（image-ref 仅作向后兼容保留）
-          scan-ref: ${{ matrix.image }}:sha-${{ steps.shortsha.outputs.sha }}
-          format: table
-          exit-code: 0
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-        # 漏洞扫描为附加告警，不应影响镜像发布：拉取镜像/下载漏洞库等基础设施问题也不阻断。
-        continue-on-error: true
-        # 说明：漏洞扫描仅告警、不阻断发布，避免因第三方基础镜像的低危问题导致无法解释的构建失败。
-        # 如需阻断，可将 exit-code 改为 1 并收敛 severity 阈值，同时移除上面的 continue-on-error。
+          # scope 按镜像区分，避免前后端共用缓存键互相覆盖
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
