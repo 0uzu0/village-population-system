@@ -24,7 +24,10 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 OUT_FILE="${BACKUP_DIR}/${DB_NAME}_${STAMP}.sql.gz"
 
 echo "[backup] 开始备份数据库 ${DB_NAME} ..."
-docker exec "$CONTAINER" sh -c "mysqldump -uroot -p'${ROOT_PWD}' --single-transaction --quick --routines --triggers ${DB_NAME}" | gzip > "$OUT_FILE"
+# 通过 MYSQL_PWD 环境变量传密码，避免密码出现在进程命令行（ps 可见）
+docker exec -e MYSQL_PWD="$ROOT_PWD" "$CONTAINER" \
+  mysqldump -uroot --single-transaction --quick --routines --triggers "$DB_NAME" \
+  | gzip > "$OUT_FILE"
 
 echo "[backup] 备份完成：$OUT_FILE"
 ls -lh "$OUT_FILE"

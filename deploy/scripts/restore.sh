@@ -31,10 +31,12 @@ if [[ "$CONFIRM" != "yes" ]]; then
 fi
 
 echo "[restore] 开始恢复..."
+# 通过 MYSQL_PWD 环境变量传密码，避免密码出现在进程命令行（ps 可见）
 if [[ "$BACKUP_FILE" == *.gz ]]; then
-  gunzip -c "$BACKUP_FILE" | docker exec -i "$CONTAINER" sh -c "mysql -uroot -p'${ROOT_PWD}' ${DB_NAME}"
+  gunzip -c "$BACKUP_FILE" \
+    | docker exec -i -e MYSQL_PWD="$ROOT_PWD" "$CONTAINER" mysql -uroot "$DB_NAME"
 else
-  docker exec -i "$CONTAINER" sh -c "mysql -uroot -p'${ROOT_PWD}' ${DB_NAME}" < "$BACKUP_FILE"
+  docker exec -i -e MYSQL_PWD="$ROOT_PWD" "$CONTAINER" mysql -uroot "$DB_NAME" < "$BACKUP_FILE"
 fi
 
 echo "[restore] 恢复完成，请检查数据并验证核心功能"

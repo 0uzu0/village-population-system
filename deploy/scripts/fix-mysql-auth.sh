@@ -63,8 +63,8 @@ echo "== 1) 后端容器实际读到的 DB 配置（密码只显示长度）=="
 echo
 
 echo "== 2) MySQL 中已存在的同名账号（为空说明首次初始化未生效）=="
-"${DC[@]}" exec -T mysql \
-  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B \
+"${DC[@]}" exec -T -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql \
+  mysql -uroot -N -B \
   -e "SELECT CONCAT(user,'@',host,'  plugin=',plugin) FROM mysql.user WHERE user='${MYSQL_USER}';" \
   || echo "（查询失败，请核对 MYSQL_ROOT_PASSWORD）"
 echo
@@ -72,8 +72,8 @@ echo
 echo "== 3) 按当前 .env 重建应用账号密码并授权 =="
 # 转义密码中的单引号，避免破坏 SQL 语法
 ESC_PW="${MYSQL_PASSWORD//\'/\'\'}"
-"${DC[@]}" exec -T mysql \
-  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+"${DC[@]}" exec -T -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql \
+  mysql -uroot -e "
 CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${ESC_PW}';
@@ -85,8 +85,8 @@ SELECT user, host, plugin FROM mysql.user WHERE user='${MYSQL_USER}';
 echo
 
 echo "== 4) 用应用账号自测连接 =="
-if "${DC[@]}" exec -T mysql \
-  mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -h 127.0.0.1 \
+if "${DC[@]}" exec -T -e MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  mysql -u"$MYSQL_USER" -h 127.0.0.1 \
   -e "SELECT 'DB_OK' AS status;" ; then
   echo "✓ 应用账号连接成功"
 else

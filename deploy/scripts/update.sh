@@ -19,8 +19,12 @@ echo "[update] 2/4 拉取镜像版本 ${NEW_VERSION}..."
 VERSION="$NEW_VERSION" docker compose pull frontend backend
 
 echo "[update] 3/4 重启应用..."
-# 写入版本号并启动
-sed -i.bak "s/^VERSION=.*/VERSION=${NEW_VERSION}/" .env 2>/dev/null || true
+# 原地更新 .env 的 VERSION 行。不使用 sed -i.bak：备份文件会遗留明文密码
+if [ -f .env ]; then
+  sed "s/^VERSION=.*/VERSION=${NEW_VERSION}/" .env > .env.tmp
+  grep -q '^VERSION=' .env || echo "VERSION=${NEW_VERSION}" >> .env.tmp
+  mv .env.tmp .env
+fi
 VERSION="$NEW_VERSION" docker compose up -d frontend backend
 
 echo "[update] 4/4 等待服务就绪并健康检查..."

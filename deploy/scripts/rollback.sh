@@ -14,7 +14,12 @@ TARGET_VERSION="${1:?用法: ./rollback.sh <旧版本号，如 v1.0.0>}"
 cd "$DEPLOY_DIR"
 
 echo "[rollback] 将应用回滚到版本 ${TARGET_VERSION} ..."
-sed -i.bak "s/^VERSION=.*/VERSION=${TARGET_VERSION}/" .env 2>/dev/null || true
+# 原地更新 .env 的 VERSION 行。不使用 sed -i.bak：备份文件会遗留明文密码
+if [ -f .env ]; then
+  sed "s/^VERSION=.*/VERSION=${TARGET_VERSION}/" .env > .env.tmp
+  grep -q '^VERSION=' .env || echo "VERSION=${TARGET_VERSION}" >> .env.tmp
+  mv .env.tmp .env
+fi
 
 VERSION="$TARGET_VERSION" docker compose up -d frontend backend
 
