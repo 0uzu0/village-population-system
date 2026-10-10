@@ -5,6 +5,10 @@ test
 .env
 .env.*
 uploads
-scripts
+# 注意：不要忽略 scripts/ —— 构建阶段 `npm run build` 会执行 scripts/copy-assets.cjs，
+# 一旦被 .dockerignore 排除，`COPY scripts ./scripts` 会因上下文缺该目录而报
+# "failed to compute cache key ... \"/scripts\": not found"。
 Dockerfile
 .dockerignore
+.vitest-cache
+*.tsbuildinfo

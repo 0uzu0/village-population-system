@@ -5,3 +5,10 @@ dist
 *.log
 Dockerfile
 .dockerignore
+# 本地 `vue-tsc -b` 生成的中间产物（与 .gitignore 保持一致）。
+# 尤其 vite.config.js：Vite 的配置解析顺序里 .js 优先于 .ts，
+# 若把本地生成的旧 vite.config.js 打进上下文，会覆盖真正的 vite.config.ts。
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.vitest-cache

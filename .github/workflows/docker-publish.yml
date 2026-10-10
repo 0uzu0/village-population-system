@@ -143,5 +143,7 @@ jobs:
           exit-code: 0
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+        # 漏洞扫描为附加告警，不应影响镜像发布：拉取镜像/下载漏洞库等基础设施问题也不阻断。
+        continue-on-error: true
         # 说明：漏洞扫描仅告警、不阻断发布，避免因第三方基础镜像的低危问题导致无法解释的构建失败。
-        # 如需阻断，可将 exit-code 改为 1 并收敛 severity 阈值。
+        # 如需阻断，可将 exit-code 改为 1 并收敛 severity 阈值，同时移除上面的 continue-on-error。
