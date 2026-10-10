@@ -195,6 +195,32 @@ router.post('/:id/members', requirePermission('family:manage'), async (req: Requ
   return ok(res, null, '成员已添加');
 });
 
+/** 删除家庭（物理删除，事务内清理成员关系与家庭标签；成员人员档案保留，仅解除归属） */
+router.delete('/:id', requirePermission('family:manage'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const family = await queryOne<any>('SELECT id, family_no FROM family WHERE id = ?', [id]);
+  if (!family) throw new AppError('家庭不存在', 404, 'NOT_FOUND');
+
+  await withTransaction(async (conn) => {
+    // 清理关联数据（库内无外键约束，需手动处理）
+    await conn.query('DELETE FROM family_tag WHERE family_id = ?', [id]);
+    await conn.query('DELETE FROM family_member WHERE family_id = ?', [id]);
+    // 成员只是解除家庭归属，人员档案不删除
+    await conn.query('UPDATE person SET family_id = NULL, relation = NULL WHERE family_id = ?', [id]);
+    await conn.query('DELETE FROM family WHERE id = ?', [id]);
+  });
+
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'family:delete',
+    request: { id, familyNo: family.family_no },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { id }, '家庭已删除');
+});
+
 /** 移除家庭成员 */
 router.delete('/:id/members/:memberId', requirePermission('family:manage'), async (req: Request, res: Response) => {
   const fid = Number(req.params.id);

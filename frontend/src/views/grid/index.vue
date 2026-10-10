@@ -35,6 +35,10 @@
           <div class="grid-foot">
             <span>负责人：{{ g.manager || '—' }}</span>
             <el-button v-if="auth.hasPermission('grid:manage')" link type="primary" size="small" @click="openEdit(g)">编辑</el-button>
+            <el-button
+              v-if="auth.hasPermission('grid:manage')"
+              link type="danger" size="small" @click="removeGrid(g)"
+            >删除</el-button>
           </div>
         </div>
       </div>
@@ -63,7 +67,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { gridApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 
@@ -87,6 +91,24 @@ async function load() {
 function doSearch() { query.page = 1; load(); }
 function openCreate() { Object.assign(form, { id: null, gridNo: '', name: '', manager: '', staff: '', description: '' }); formVisible.value = true; }
 function openEdit(g: any) { Object.assign(form, { id: g.id, gridNo: g.grid_no, name: g.name, manager: g.manager || '', staff: g.staff || '', description: g.description || '' }); formVisible.value = true; }
+
+/** 删除网格（物理删除，不可恢复；网格下仍有在册人员/家庭时后端会拒绝） */
+async function removeGrid(g: any) {
+  try {
+    await ElMessageBox.confirm(
+      `将删除网格「${g.name}」。若网格下仍有在册人员或家庭，需先转移或删除后才能删除网格。是否继续？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  try {
+    await gridApi.remove(g.id);
+    ElMessage.success('网格已删除');
+    load();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败');
+  }
+}
 async function saveForm() {
   if (!form.gridNo || !form.name) { ElMessage.warning('请填写编号和名称'); return; }
   saving.value = true;

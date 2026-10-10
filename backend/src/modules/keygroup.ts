@@ -42,7 +42,7 @@ const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).default('ANY'),
+  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
   familyTagIds: z.string().optional(),
   gridId: z.coerce.number().optional(),
   minAge: z.coerce.number().optional(),
@@ -73,7 +73,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
 
   if (q.tagIds) {
     const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const tf = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode }, 'p');
+    const tf = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
     if (tf.where) { where.push(tf.where.replace(/^ AND /, '')); params.push(...tf.params); }
     conditions.push(`个人标签(${q.tagMode === 'ALL' ? '交集' : '并集'}): ${tagIds.join(',')}`);
   }

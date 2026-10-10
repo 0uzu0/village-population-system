@@ -254,7 +254,7 @@ const exportSchema = z.object({
   gender: z.string().optional(),
   status: z.string().optional(),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).default('ANY'),
+  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
 });

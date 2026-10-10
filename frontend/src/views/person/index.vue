@@ -63,6 +63,12 @@
           <el-button v-if="selectedIds.size && auth.hasPermission('person:edit')" size="small" @click="openBatchTransfer">
             批量转网格
           </el-button>
+          <el-button
+            v-if="selectedIds.size && auth.hasPermission('person:edit')"
+            size="small" type="danger" plain @click="removeSelected"
+          >
+            批量删除
+          </el-button>
         </div>
         <el-dropdown trigger="click" @command="toggleColumn">
           <el-button size="small"><el-icon><Operation /></el-icon>列显隐</el-button>
@@ -120,11 +126,15 @@
         <el-table-column v-if="columns[9].visible" prop="updated_at" label="更新时间" width="160" sortable="custom">
           <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="$router.push(`/persons/${row.id}`)">详情</el-button>
             <el-button v-if="auth.hasPermission('person:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openTagManager(row)">标签</el-button>
+            <el-button
+              v-if="auth.hasPermission('person:edit')"
+              link type="danger" size="small" @click="removePerson(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -236,7 +246,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import TagPill from '@/components/TagPill.vue';
@@ -384,6 +394,41 @@ async function removeTag(linkId: number) {
   ElMessage.success('标签已移除');
   const d = await personApi.detail(tagTarget.value.id);
   tagTarget.value = d.data;
+}
+
+/** 删除单个人员（物理删除，不可恢复） */
+async function removePerson(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `将删除人员「${row.name}」及其标签、家庭成员关系与变更记录，且不可恢复。是否继续？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  await personApi.remove(row.id);
+  ElMessage.success('人员已删除');
+  selectedIds.value.delete(row.id);
+  load();
+}
+
+/** 批量删除（物理删除，不可恢复） */
+async function removeSelected() {
+  const ids = Array.from(selectedIds.value);
+  if (!ids.length) return;
+  try {
+    await ElMessageBox.confirm(
+      `将删除已选的 ${ids.length} 名人员及其关联数据，且不可恢复。是否继续？`,
+      '批量删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  let failed = 0;
+  for (const id of ids) {
+    try { await personApi.remove(id); } catch { failed++; }
+  }
+  ElMessage[failed ? 'warning' : 'success'](failed ? `已完成，${failed} 条删除失败` : `已删除 ${ids.length} 名人员`);
+  selectedIds.value.clear();
+  load();
 }
 
 function openBatchTag() { batchTagVisible.value = true; }

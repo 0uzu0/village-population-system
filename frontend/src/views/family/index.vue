@@ -34,10 +34,14 @@
             <TagPill v-for="t in row.tags" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
             <el-button v-if="auth.hasPermission('family:manage')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button
+              v-if="auth.hasPermission('family:manage')"
+              link type="danger" size="small" @click="removeFamily(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -110,7 +114,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { familyApi, gridApi, personApi, tagApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import TagPill from '@/components/TagPill.vue';
@@ -154,6 +158,20 @@ async function saveForm() {
     formVisible.value = false;
     load();
   } finally { saving.value = false; }
+}
+
+/** 删除家庭（物理删除，不可恢复；成员人员档案保留，仅解除归属） */
+async function removeFamily(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `将删除家庭「${row.family_no}」及其成员关系与家庭标签，且不可恢复（成员的人员档案会保留，仅解除家庭归属）。是否继续？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  await familyApi.remove(row.id);
+  ElMessage.success('家庭已删除');
+  load();
 }
 
 async function openDetail(row: any) {

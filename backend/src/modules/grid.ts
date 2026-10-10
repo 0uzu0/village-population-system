@@ -45,6 +45,38 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
   return okPage(res, result);
 });
 
+/** 删除网格（物理删除；若网格下仍有人口/家庭则拒绝，需先转移或删除） */
+router.delete('/:id', requirePermission('grid:manage'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const grid = await queryOne<any>('SELECT id, name FROM grid WHERE id = ?', [id]);
+  if (!grid) throw new AppError('网格不存在', 404, 'NOT_FOUND');
+
+  const personCount = Number(
+    (await queryOne<any>("SELECT COUNT(*) AS cnt FROM person WHERE grid_id = ? AND status IN ('NORMAL','MOVED_IN')", [id]))?.cnt || 0
+  );
+  const familyCount = Number(
+    (await queryOne<any>('SELECT COUNT(*) AS cnt FROM family WHERE grid_id = ? AND status = 1', [id]))?.cnt || 0
+  );
+  if (personCount > 0 || familyCount > 0) {
+    throw new AppError(
+      `网格「${grid.name}」下仍有 ${personCount} 名在册人员、${familyCount} 户家庭，请先转移或删除后再删除网格`,
+      409,
+      'GRID_IN_USE'
+    );
+  }
+
+  await execute('DELETE FROM grid WHERE id = ?', [id]);
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'grid:delete',
+    request: { id, name: grid.name },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { id }, '网格已删除');
+});
+
 /** 网格详情 */
 router.get('/:id', requirePermission('grid:view'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);

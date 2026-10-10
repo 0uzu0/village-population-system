@@ -78,7 +78,8 @@ const defSchema = z.object({
   alias: z.string().max(255).optional().or(z.literal('')),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色需为 #RRGGBB').default('#3978F6'),
   description: z.string().max(500).optional().or(z.literal('')),
-  objectType: z.enum(['PERSON', 'FAMILY']),
+  // 写接口：objectType 必填（PERSON/FAMILY），不允许空值落库为 NULL
+  objectType: z.enum(['PERSON', 'FAMILY'], { message: 'objectType 只能为 PERSON 或 FAMILY' }),
   allowDuplicate: z.coerce.number().min(0).max(1).default(0),
   isSensitive: z.coerce.number().min(0).max(1).default(0),
   needAudit: z.coerce.number().min(0).max(1).default(0),
@@ -108,6 +109,34 @@ router.put('/definitions/:id', requirePermission('tag:manage'), async (req: Requ
   return ok(res, { id }, '标签已更新');
 });
 
+/** 删除标签定义（物理删除；已被人员/家庭引用的标签拒绝删除，建议先停用） */
+router.delete('/definitions/:id', requirePermission('tag:manage'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const tag = await queryOne<any>('SELECT id, name FROM tag_definition WHERE id = ?', [id]);
+  if (!tag) throw new AppError('标签不存在', 404, 'NOT_FOUND');
+
+  const used = Number(
+    (await queryOne<any>(
+      'SELECT (SELECT COUNT(*) FROM person_tag WHERE tag_id = ?) + (SELECT COUNT(*) FROM family_tag WHERE tag_id = ?) AS cnt',
+      [id, id]
+    ))?.cnt || 0
+  );
+  if (used > 0) {
+    throw new AppError(`标签「${tag.name}」已被 ${used} 条记录引用，不能删除；可先停用该标签`, 409, 'TAG_IN_USE');
+  }
+
+  await execute('DELETE FROM tag_definition WHERE id = ?', [id]);
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'tag:delete',
+    request: { id, name: tag.name },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { id }, '标签已删除');
+});
+
 /** 启用/停用标签（停用后历史保留） */
 router.post('/definitions/:id/toggle', requirePermission('tag:manage'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
@@ -124,24 +153,33 @@ router.get('/history', requirePermission('tag:view'), async (req: Request, res: 
   const q = z.object({
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(500).default(20),
-    objectType: z.string().optional(),
+    objectType: z.string().optional().or(z.literal('')),
     objectId: z.coerce.number().optional(),
+    tagId: z.coerce.number().optional(),
+    action: z.string().optional().or(z.literal('')),
   }).parse(req.query);
 
   const where: string[] = ['1=1'];
   const params: any[] = [];
   if (q.objectType) { where.push('tcl.object_type = ?'); params.push(q.objectType); }
   if (q.objectId) { where.push('tcl.object_id = ?'); params.push(q.objectId); }
+  if (q.tagId) { where.push('tcl.tag_id = ?'); params.push(q.tagId); }
+  if (q.action) { where.push('tcl.action = ?'); params.push(q.action); }
   const whereSql = where.join(' AND ');
 
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM tag_change_log tcl WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
   const rows = await query<any>(
-    `SELECT tcl.*, td.name AS tag_name, u.real_name AS operator_name
+    `SELECT tcl.*, td.name AS tag_name, u.real_name AS operator_name,
+       CASE tcl.object_type
+         WHEN 'PERSON' THEN (SELECT name FROM person WHERE id = tcl.object_id)
+         WHEN 'FAMILY' THEN (SELECT family_no FROM family WHERE id = tcl.object_id)
+         ELSE NULL
+       END AS object_name
      FROM tag_change_log tcl
      LEFT JOIN tag_definition td ON td.id = tcl.tag_id
      LEFT JOIN sys_user u ON u.id = tcl.operator_id
-     WHERE ${whereSql} ORDER BY tcl.created_at DESC LIMIT ? OFFSET ?`,
+     WHERE ${whereSql} ORDER BY tcl.id DESC LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
   const result: PageResult<any> = { list: rows, total, page: q.page, pageSize: q.pageSize };

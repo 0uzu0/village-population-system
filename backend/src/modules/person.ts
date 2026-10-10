@@ -75,9 +75,9 @@ const listQuerySchema = z.object({
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).default('ANY'),
+  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
   sortBy: z.string().optional(),
-  sortOrder: z.enum(['asc', 'desc']).default('asc'),
+  sortOrder: z.enum(['asc', 'desc']).or(z.literal('')).default('asc'),
 });
 
 /** 人员列表（分页 + 多条件筛选 + 标签筛选） */
@@ -126,7 +126,7 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   // 标签筛选
   if (q.tagIds) {
     const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const tagFilter = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode }, 'p');
+    const tagFilter = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
     if (tagFilter.where) {
       where.push(tagFilter.where.replace(/^ AND /, ''));
       params.push(...tagFilter.params);
@@ -141,7 +141,24 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   );
   const total = Number(totalRow?.cnt || 0);
 
-  const orderBy = q.sortBy ? `p.${q.sortBy}` : 'p.id';
+  // 排序字段白名单：sortBy 来自前端查询参数，禁止直接拼接进 SQL，否则可被注入。
+  // key 同时接受前端表格的 snake_case 与 camelCase 写法
+  const SORTABLE: Record<string, string> = {
+    id: 'p.id',
+    name: 'p.name',
+    person_no: 'p.person_no',
+    personNo: 'p.person_no',
+    age: 'p.birth_date',
+    birth_date: 'p.birth_date',
+    birthDate: 'p.birth_date',
+    gender: 'p.gender',
+    grid_id: 'p.grid_id',
+    gridId: 'p.grid_id',
+    status: 'p.status',
+    updated_at: 'p.updated_at',
+    updatedAt: 'p.updated_at',
+  };
+  const orderBy = q.sortBy && SORTABLE[q.sortBy] ? SORTABLE[q.sortBy] : 'p.id';
   const direction = q.sortOrder === 'desc' ? 'DESC' : 'ASC';
 
   const rows = await query<any>(
@@ -332,6 +349,33 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:edit', request: { id }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id }, '更新成功');
+});
+
+/** 删除人员（物理删除，事务内清理标签/家庭成员/变更日志等关联数据，不可逆） */
+router.delete('/:id', requirePermission('person:edit'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const person = await queryOne<any>('SELECT id, name FROM person WHERE id = ?', [id]);
+  if (!person) throw new AppError('人员不存在', 404, 'NOT_FOUND');
+
+  await withTransaction(async (conn) => {
+    // 清理关联数据，避免留下孤儿记录（库内无外键约束，需手动处理）
+    await conn.query('DELETE FROM person_tag WHERE person_id = ?', [id]);
+    await conn.query('DELETE FROM family_member WHERE person_id = ?', [id]);
+    await conn.query('DELETE FROM person_change_log WHERE person_id = ?', [id]);
+    // 若该人员是某户户主，解除户主引用（家庭本身保留）
+    await conn.query('UPDATE family SET head_person_id = NULL WHERE head_person_id = ?', [id]);
+    await conn.query('DELETE FROM person WHERE id = ?', [id]);
+  });
+
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'person:delete',
+    request: { id, name: person.name },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { id }, '人员已删除');
 });
 
 const statusSchema = z.object({

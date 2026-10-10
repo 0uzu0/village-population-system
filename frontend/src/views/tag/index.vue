@@ -47,10 +47,14 @@
             <el-table-column prop="enabled" label="状态" width="70">
               <template #default="{ row }"><el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="190" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button v-if="auth.hasPermission('tag:manage')" link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggle(row)">{{ row.enabled ? '停用' : '启用' }}</el-button>
+                <el-button
+                  v-if="auth.hasPermission('tag:manage')"
+                  link type="danger" size="small" @click="removeDefinition(row)"
+                >删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -60,19 +64,53 @@
         </el-tab-pane>
 
         <el-tab-pane label="标签历史" name="history">
-          <el-table :data="history" v-loading="historyLoading">
+          <div class="vp-search-bar">
+            <el-select v-model="historyQuery.objectType" placeholder="对象类型" clearable style="width: 120px" @change="doSearchHistory">
+              <el-option label="个人" value="PERSON" /><el-option label="家庭" value="FAMILY" />
+            </el-select>
+            <el-select v-model="historyQuery.action" placeholder="动作" clearable style="width: 120px" @change="doSearchHistory">
+              <el-option label="添加" value="ADD" /><el-option label="移除" value="REMOVE" />
+              <el-option label="停用" value="DISABLE" /><el-option label="启用" value="ENABLE" />
+            </el-select>
+            <el-select v-model="historyQuery.tagId" placeholder="标签" clearable filterable style="width: 180px" @change="doSearchHistory">
+              <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
+            </el-select>
+            <el-button type="primary" @click="doSearchHistory">查询</el-button>
+          </div>
+
+          <el-table :data="history" v-loading="historyLoading" row-key="id">
             <el-table-column prop="tag_name" label="标签" width="140" />
             <el-table-column prop="object_type" label="对象类型" width="90">
               <template #default="{ row }">{{ row.object_type === 'PERSON' ? '个人' : '家庭' }}</template>
             </el-table-column>
-            <el-table-column prop="object_id" label="对象ID" width="90" />
-            <el-table-column prop="action" label="动作" width="90">
-              <template #default="{ row }">{{ actionLabel(row.action) }}</template>
+            <el-table-column prop="object_name" label="对象名称" width="140">
+              <template #default="{ row }">{{ row.object_name || `ID ${row.object_id}` }}</template>
             </el-table-column>
-            <el-table-column prop="operator_name" label="操作人" width="100" />
-            <el-table-column prop="created_at" label="时间" width="160" />
+            <el-table-column prop="action" label="动作" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.action === 'ADD' ? 'success' : 'warning'">{{ actionLabel(row.action) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="operator_name" label="操作人" width="100">
+              <template #default="{ row }">{{ row.operator_name || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.remark || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="时间" width="170">
+              <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+            </el-table-column>
           </el-table>
-          <el-empty v-if="!history.length && !historyLoading" description="暂无标签变更记录" :image-size="60" />
+          <div class="pagination">
+            <el-pagination
+              v-model:current-page="historyQuery.page"
+              v-model:page-size="historyQuery.pageSize"
+              :total="historyTotal"
+              layout="total, prev, pager, next"
+              @current-change="loadHistory"
+            />
+          </div>
+          <el-empty v-if="!history.length && !historyLoading" description="暂无标签变更记录（为人员/家庭添加或移除标签后会在此显示）" :image-size="60" />
         </el-tab-pane>
       </el-tabs>
     </div>
@@ -102,8 +140,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ref, reactive, onMounted, watch } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { tagApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 
@@ -116,6 +154,9 @@ const total = ref(0);
 const categories = ref<any[]>([]);
 const history = ref<any[]>([]);
 const historyLoading = ref(false);
+const historyTotal = ref(0);
+const allTags = ref<any[]>([]);
+const historyQuery = reactive({ page: 1, pageSize: 20, objectType: '', action: '', tagId: null as number | null });
 
 const query = reactive({ page: 1, pageSize: 50, keyword: '', categoryId: null as number | null, objectType: '' });
 const formVisible = ref(false);
@@ -145,6 +186,24 @@ async function saveForm() {
     load();
   } finally { saving.value = false; }
 }
+/** 删除标签定义（物理删除，不可恢复；已被引用的标签后端会拒绝删除并提示先停用） */
+async function removeDefinition(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `将删除标签「${row.name}」。若该标签已被人员或家庭引用，需先解除引用或停用。是否继续？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  try {
+    await tagApi.removeDefinition(row.id);
+    ElMessage.success('标签已删除');
+    load();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败');
+  }
+}
+
 async function toggle(row: any) {
   await tagApi.toggleDefinition(row.id);
   ElMessage.success(row.enabled ? '已停用' : '已启用');
@@ -153,16 +212,37 @@ async function toggle(row: any) {
 async function loadHistory() {
   historyLoading.value = true;
   try {
-    const res = await tagApi.history({ page: 1, pageSize: 50 });
-    history.value = res.data.list;
+    const res = await tagApi.history({ ...historyQuery });
+    history.value = res.data.list || [];
+    historyTotal.value = res.data.total || 0;
+  } catch {
+    history.value = [];
+    historyTotal.value = 0;
   } finally { historyLoading.value = false; }
 }
+function doSearchHistory() { historyQuery.page = 1; loadHistory(); }
+
+function formatTime(v: any) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// 切换到「标签历史」时重新加载，避免看到的是进入页面时的旧数据
+watch(activeTab, (tab) => { if (tab === 'history') loadHistory(); });
 
 onMounted(async () => {
   load();
   loadHistory();
   const c = await tagApi.categories();
   categories.value = c.data;
+  // 历史筛选下拉用的全量标签（不受定义列表分页/筛选影响）
+  try {
+    const t = await tagApi.definitions({ page: 1, pageSize: 500 });
+    allTags.value = t.data?.list || [];
+  } catch { allTags.value = []; }
 });
 </script>
 

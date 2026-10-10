@@ -19,6 +19,7 @@ export const personApi = {
   addTag: (id: number, data: any) => post(`/persons/${id}/tags`, data),
   removeTag: (id: number, linkId: number) => del(`/persons/${id}/tags/${linkId}`),
   batchTags: (data: any) => post('/persons/batch-tags', data),
+  remove: (id: number) => del(`/persons/${id}`),
   options: () => get('/persons/meta/options'),
 };
 
@@ -33,6 +34,7 @@ export const familyApi = {
   changeHead: (id: number, data: any) => post(`/families/${id}/head`, data),
   addTag: (id: number, data: any) => post(`/families/${id}/tags`, data),
   removeTag: (id: number, linkId: number) => del(`/families/${id}/tags/${linkId}`),
+  remove: (id: number) => del(`/families/${id}`),
 };
 
 // ===== 网格 =====
@@ -42,6 +44,7 @@ export const gridApi = {
   create: (data: any) => post('/grids', data),
   update: (id: number, data: any) => put(`/grids/${id}`, data),
   transferPerson: (data: any) => post('/grids/transfer-person', data),
+  remove: (id: number) => del(`/grids/${id}`),
 };
 
 // ===== 标签 =====
@@ -53,6 +56,7 @@ export const tagApi = {
   createDefinition: (data: any) => post('/tags/definitions', data),
   updateDefinition: (id: number, data: any) => put(`/tags/definitions/${id}`, data),
   toggleDefinition: (id: number) => post(`/tags/definitions/${id}/toggle`),
+  removeDefinition: (id: number) => del(`/tags/definitions/${id}`),
   history: (params: any) => get<PageResult>('/tags/history', params),
 };
 
