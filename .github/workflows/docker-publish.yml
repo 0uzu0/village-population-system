@@ -17,9 +17,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # 镜像名使用 GitHub 仓库所有者/仓库名动态生成（不写死示例组织名）
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository }}-frontend
-  BACKEND_IMAGE: ghcr.io/${{ github.repository }}-backend
 
 # 只申请必要权限：读源码 + 写 GHCR 包
 permissions:
@@ -76,10 +73,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: ${{ env.FRONTEND_IMAGE }}
+          # 镜像名动态使用仓库所有者/仓库名（matrix 中不可用 env 上下文，直接内联 github.repository）
+          - image: ghcr.io/${{ github.repository }}-frontend
             context: ./frontend
             file: ./frontend/Dockerfile
-          - image: ${{ env.BACKEND_IMAGE }}
+          - image: ghcr.io/${{ github.repository }}-backend
             context: ./backend
             file: ./backend/Dockerfile
     steps:
