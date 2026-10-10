@@ -16,6 +16,7 @@ name: docker-publish
 #   - 移除 Trivy 漏洞扫描：第三方 action 版本易失效，且仅为告警性质
 #   - 移除 sbom / provenance 证明：单架构下无需镜像索引附加清单
 #   - 移除 workflow 级 env 与短 SHA 计算步骤（Trivy 移除后不再需要）
+#   - 移除 GitHub Actions 缓存（type=gha）：偶发 not_found 导致构建失败
 # =============================================================
 on:
   push:
@@ -105,6 +106,6 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # scope 按镜像区分，避免前后端共用缓存键互相覆盖
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # 说明：此处刻意不使用 GitHub Actions 缓存（cache-from/cache-to: type=gha）。
+          # 该缓存后端偶发 "error writing layer blob: not_found" 导致构建失败，
+          # 收益（省几十秒）小于稳定性风险；如需加速可改用 type=registry 缓存。
