@@ -1,0 +1,140 @@
+name: docker-publish
+
+# =============================================================
+# 触发条件：
+#  - push 到 main 分支：构建并发布 latest + sha 标签
+#  - push v1.0.0 形式标签：发布不可变版本标签
+#  - Pull Request：执行测试与构建，不发布镜像
+#  - 手动触发 workflow_dispatch
+# =============================================================
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # 镜像名使用 GitHub 仓库所有者/仓库名动态生成（不写死示例组织名）
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository }}-frontend
+  BACKEND_IMAGE: ghcr.io/${{ github.repository }}-backend
+
+# 只申请必要权限：读源码 + 写 GHCR 包
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------
+  # 测试与构建校验（PR 与 push 均执行）
+  # ---------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      - name: 后端依赖安装
+        working-directory: backend
+        run: npm ci || npm install
+
+      - name: 后端单元测试
+        working-directory: backend
+        run: npm test
+
+      - name: 后端类型检查与构建
+        working-directory: backend
+        run: npm run build
+
+      - name: 前端依赖安装
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: 前端构建
+        working-directory: frontend
+        run: npm run build
+
+  # ---------------------------------------------------------
+  # 构建并发布镜像（仅 main 分支与版本标签）
+  # ---------------------------------------------------------
+  build-and-push:
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ${{ env.FRONTEND_IMAGE }}
+            context: ./frontend
+            file: ./frontend/Dockerfile
+          - image: ${{ env.BACKEND_IMAGE }}
+            context: ./backend
+            file: ./backend/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 设置 QEMU（多架构）
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR（使用 GITHUB_TOKEN，无需长期 PAT）
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签与元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: 构建并推送镜像（多架构 + SBOM）
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+      - name: 镜像漏洞扫描（Trivy，告警不阻断）
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ matrix.image }}:sha-${{ github.sha }}
+          format: table
+          exit-code: 0
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+        # 说明：漏洞扫描仅告警、不阻断发布，避免因第三方基础镜像的低危问题导致无法解释的构建失败。
+        # 如需阻断，可将 exit-code 改为 1 并收敛 severity 阈值。

@@ -1,0 +1,208 @@
+<template>
+  <div class="page">
+    <div class="vp-page-header">
+      <div>
+        <h2 class="vp-page-title">家庭管理</h2>
+        <div class="vp-page-subtitle">共 {{ total }} 户家庭</div>
+      </div>
+      <el-button v-if="auth.hasPermission('family:manage')" type="primary" @click="openCreate">
+        <el-icon><Plus /></el-icon>新增家庭
+      </el-button>
+    </div>
+
+    <div class="vp-container">
+      <div class="vp-search-bar">
+        <el-input v-model="query.keyword" placeholder="搜索家庭编号 / 户主姓名" clearable style="width: 240px" @keyup.enter="doSearch" @clear="doSearch">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 140px" @change="doSearch">
+          <el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" />
+        </el-select>
+        <el-button type="primary" @click="doSearch">查询</el-button>
+      </div>
+
+      <el-table :data="list" v-loading="loading" row-key="id">
+        <el-table-column prop="family_no" label="家庭编号" width="140" />
+        <el-table-column prop="head_name" label="户主" width="100">
+          <template #default="{ row }">{{ row.head_name || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="address" label="家庭地址" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="grid_name" label="所属网格" width="110" />
+        <el-table-column prop="member_count" label="人数" width="70" />
+        <el-table-column label="家庭标签" min-width="180">
+          <template #default="{ row }">
+            <TagPill v-for="t in row.tags" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
+            <el-button v-if="auth.hasPermission('family:manage')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="pagination">
+        <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[20, 50]" layout="total, sizes, prev, pager, next" @current-change="load" @size-change="doSearch" />
+      </div>
+    </div>
+
+    <!-- 新增/编辑 -->
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑家庭' : '新增家庭'" width="480px">
+      <el-form :model="form" label-width="90px">
+        <el-form-item label="家庭地址"><el-input v-model="form.address" /></el-form-item>
+        <el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item>
+        <el-form-item label="户主"><el-select v-model="form.headPersonId" filterable clearable style="width: 100%"><el-option v-for="p in persons" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="formVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveForm">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 详情抽屉 -->
+    <el-drawer v-model="detailVisible" :title="`家庭详情 - ${detail?.family_no || ''}`" size="560px">
+      <div v-if="detail">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="户主">{{ detail.head_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="所属网格">{{ detail.grid_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="地址" :span="2">{{ detail.address || '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">家庭成员</div>
+        <el-table :data="detail.members" size="small">
+          <el-table-column prop="person.name" label="姓名" width="90" />
+          <el-table-column prop="relation" label="与户主关系" width="100">
+            <template #default="{ row }">{{ relationLabel(row.relation) }}</template>
+          </el-table-column>
+          <el-table-column prop="person.idCard" label="身份证号" show-overflow-tooltip />
+          <el-table-column v-if="auth.hasPermission('family:manage')" label="操作" width="80">
+            <template #default="{ row }">
+              <el-button link type="danger" size="small" @click="removeMember(row.memberId)">移除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div v-if="auth.hasPermission('family:manage')" class="add-member">
+          <el-select v-model="memberForm.personId" placeholder="选择人员" filterable style="flex: 1">
+            <el-option v-for="p in persons" :key="p.id" :label="`${p.name}(${p.person_no})`" :value="p.id" />
+          </el-select>
+          <el-select v-model="memberForm.relation" placeholder="关系" style="width: 110px">
+            <el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" />
+          </el-select>
+          <el-button type="primary" @click="addMember">添加</el-button>
+        </div>
+
+        <div class="section-title">家庭标签</div>
+        <div class="fam-tags">
+          <el-tag v-for="t in detail.tags" :key="t.linkId" closable :color="t.color" style="color: #fff; margin: 4px" @close="removeFamilyTag(t.linkId)">{{ t.name }}</el-tag>
+        </div>
+        <div v-if="auth.hasPermission('tag:manage')" class="add-member" style="margin-top: 8px">
+          <el-select v-model="famTagForm.tagId" placeholder="选择家庭标签" filterable style="flex: 1">
+            <el-option v-for="t in familyTags" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+          <el-button type="primary" @click="addFamilyTag">添加标签</el-button>
+        </div>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
+import { familyApi, gridApi, personApi, tagApi } from '@/api';
+import { useAuthStore } from '@/stores/auth';
+import TagPill from '@/components/TagPill.vue';
+
+const auth = useAuthStore();
+const loading = ref(false);
+const saving = ref(false);
+const list = ref<any[]>([]);
+const total = ref(0);
+const grids = ref<any[]>([]);
+const persons = ref<any[]>([]);
+const familyTags = ref<any[]>([]);
+
+const query = reactive({ page: 1, pageSize: 20, keyword: '', gridId: null as number | null });
+const formVisible = ref(false);
+const form = reactive<any>({ id: null, address: '', gridId: null, headPersonId: null });
+const detailVisible = ref(false);
+const detail = ref<any>(null);
+const memberForm = reactive({ personId: null as number | null, relation: 'OTHER' });
+const famTagForm = reactive({ tagId: null as number | null });
+
+function relationLabel(r: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r] || r; }
+
+async function load() {
+  loading.value = true;
+  try {
+    const res = await familyApi.list({ ...query });
+    list.value = res.data.list;
+    total.value = res.data.total;
+  } finally { loading.value = false; }
+}
+function doSearch() { query.page = 1; load(); }
+function openCreate() { Object.assign(form, { id: null, address: '', gridId: null, headPersonId: null }); formVisible.value = true; }
+function openEdit(row: any) { Object.assign(form, { id: row.id, address: row.address || '', gridId: row.grid_id, headPersonId: row.head_person_id }); formVisible.value = true; }
+async function saveForm() {
+  saving.value = true;
+  try {
+    if (form.id) await familyApi.update(form.id, form);
+    else await familyApi.create(form);
+    ElMessage.success('保存成功');
+    formVisible.value = false;
+    load();
+  } finally { saving.value = false; }
+}
+
+async function openDetail(row: any) {
+  const res = await familyApi.detail(row.id);
+  detail.value = res.data;
+  detailVisible.value = true;
+}
+async function addMember() {
+  if (!detail.value || !memberForm.personId) { ElMessage.warning('请选择人员'); return; }
+  await familyApi.addMember(detail.value.id, { personId: memberForm.personId, relation: memberForm.relation });
+  ElMessage.success('成员已添加');
+  openDetail({ id: detail.value.id });
+}
+async function removeMember(memberId: number) {
+  if (!detail.value) return;
+  await familyApi.removeMember(detail.value.id, memberId);
+  ElMessage.success('成员已移除');
+  openDetail({ id: detail.value.id });
+}
+async function addFamilyTag() {
+  if (!detail.value || !famTagForm.tagId) return;
+  await familyApi.addTag(detail.value.id, { tagId: famTagForm.tagId });
+  ElMessage.success('标签已添加');
+  openDetail({ id: detail.value.id });
+}
+async function removeFamilyTag(linkId: number) {
+  if (!detail.value) return;
+  await familyApi.removeTag(detail.value.id, linkId);
+  ElMessage.success('标签已移除');
+  openDetail({ id: detail.value.id });
+}
+
+onMounted(async () => {
+  load();
+  const [g, p, t] = await Promise.all([
+    gridApi.list({ pageSize: 100 }),
+    personApi.list({ pageSize: 200 }),
+    tagApi.definitions({ pageSize: 200, objectType: 'FAMILY' }),
+  ]);
+  grids.value = g.data.list;
+  persons.value = p.data.list;
+  familyTags.value = t.data.list;
+});
+</script>
+
+<style scoped>
+.page { display: flex; flex-direction: column; gap: 16px; }
+.pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
+.section-title { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+.add-member { display: flex; gap: 8px; margin-top: 8px; }
+.fam-tags { min-height: 20px; }
+</style>

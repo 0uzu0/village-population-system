@@ -1,0 +1,496 @@
+<template>
+  <div class="person-page">
+    <!-- 标题 -->
+    <div class="vp-page-header">
+      <div>
+        <h2 class="vp-page-title">人口档案</h2>
+        <div class="vp-page-subtitle">共 {{ total }} 名村民 · 支持多条件筛选与标签检索</div>
+      </div>
+      <div class="actions">
+        <el-button v-if="auth.hasPermission('excel:import')" @click="$router.push('/excel')">
+          <el-icon><Upload /></el-icon>导入
+        </el-button>
+        <el-button v-if="auth.hasPermission('person:export')" @click="openExport">
+          <el-icon><Download /></el-icon>导出
+        </el-button>
+        <el-button type="primary" v-if="auth.hasPermission('person:create')" @click="openCreate">
+          <el-icon><Plus /></el-icon>新增人员
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 搜索与筛选 -->
+    <div class="vp-container">
+      <div class="vp-search-bar">
+        <el-input v-model="query.keyword" placeholder="搜索姓名 / 人员编号" clearable style="width: 240px" @keyup.enter="doSearch" @clear="doSearch">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-select v-model="query.gender" placeholder="性别" clearable style="width: 100px" @change="doSearch">
+          <el-option label="男" value="MALE" /><el-option label="女" value="FEMALE" />
+        </el-select>
+        <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 140px" @change="doSearch">
+          <el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" />
+        </el-select>
+        <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="doSearch">
+          <el-option label="正常" value="NORMAL" /><el-option label="迁入" value="MOVED_IN" /><el-option label="迁出" value="MOVED_OUT" /><el-option label="注销" value="CANCELLED" />
+        </el-select>
+        <el-select v-model="query.tagIds" placeholder="标签（并集）" clearable multiple filterable collapse-tags style="width: 200px" @change="doSearch">
+          <el-option v-for="t in commonTags" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+        <el-button type="primary" @click="doSearch"><el-icon><Search /></el-icon>查询</el-button>
+        <el-button @click="resetQuery">重置</el-button>
+      </div>
+
+      <!-- 常用标签快捷筛选 -->
+      <div class="quick-tags">
+        <span class="quick-label">常用标签：</span>
+        <span
+          v-for="t in quickTags"
+          :key="t.id"
+          class="quick-chip"
+          :class="{ active: query.tagIds.includes(t.id) }"
+          @click="toggleQuickTag(t.id)"
+        >{{ t.name }}</span>
+      </div>
+
+      <!-- 批量操作 -->
+      <div class="vp-toolbar">
+        <div class="batch-left">
+          <span class="selected-info">已选 <b>{{ selectedIds.size }}</b> 人（跨页保留）</span>
+          <el-button v-if="selectedIds.size && auth.hasPermission('tag:manage')" size="small" @click="openBatchTag">
+            批量打标签
+          </el-button>
+          <el-button v-if="selectedIds.size && auth.hasPermission('person:edit')" size="small" @click="openBatchTransfer">
+            批量转网格
+          </el-button>
+        </div>
+        <el-dropdown trigger="click" @command="toggleColumn">
+          <el-button size="small"><el-icon><Operation /></el-icon>列显隐</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="c in columns" :key="c.prop" :command="c.prop">
+                {{ c.visible ? '✓ ' : '' }}{{ c.label }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
+      <!-- 表格 -->
+      <el-table
+        :data="list"
+        v-loading="loading"
+        row-key="id"
+        height="560"
+        @selection-change="onSelectionChange"
+        @sort-change="onSortChange"
+        border
+      >
+        <el-table-column type="selection" width="44" reserve-selection />
+        <el-table-column v-if="columns[0].visible" prop="name" label="姓名" width="90" fixed sortable="custom">
+          <template #default="{ row }">
+            <el-link type="primary" @click="$router.push(`/persons/${row.id}`)">{{ row.name }}</el-link>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="columns[1].visible" prop="person_no" label="编号" width="120" show-overflow-tooltip />
+        <el-table-column v-if="columns[2].visible" prop="gender" label="性别" width="60">
+          <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
+        </el-table-column>
+        <el-table-column v-if="columns[3].visible" prop="age" label="年龄" width="70" sortable="custom" />
+        <el-table-column v-if="columns[4].visible" prop="phone" label="联系电话" width="120">
+          <template #default="{ row }">{{ row.phone || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="columns[5].visible" prop="family_name" label="所属家庭" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.familyName || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="columns[6].visible" prop="grid_name" label="所属网格" width="100">
+          <template #default="{ row }">{{ row.gridName || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="columns[7].visible" prop="status" label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="columns[8].visible" label="人口标签" min-width="200">
+          <template #default="{ row }">
+            <TagPill v-for="t in row.tags.slice(0, 3)" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
+            <el-tag v-if="row.tags.length > 3" size="small" type="info">+{{ row.tags.length - 3 }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="columns[9].visible" prop="updated_at" label="更新时间" width="160" sortable="custom">
+          <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="$router.push(`/persons/${row.id}`)">详情</el-button>
+            <el-button v-if="auth.hasPermission('person:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openTagManager(row)">标签</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="query.page"
+          v-model:page-size="query.pageSize"
+          :total="total"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="load"
+          @size-change="doSearch"
+        />
+      </div>
+    </div>
+
+    <!-- 新增/编辑弹窗 -->
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑人员' : '新增人员'" width="680px">
+      <el-form :model="form" label-width="100px">
+        <el-row :gutter="16">
+          <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="form.name" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="曾用名"><el-input v-model="form.formerName" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="性别"><el-radio-group v-model="form.gender"><el-radio value="MALE">男</el-radio><el-radio value="FEMALE">女</el-radio></el-radio-group></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="出生日期"><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="所属家庭"><el-select v-model="form.familyId" filterable clearable style="width: 100%"><el-option v-for="f in options.families" :key="f.id" :label="f.family_no" :value="f.id" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="所属村庄"><el-input v-model="form.village" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="户籍地址"><el-input v-model="form.hukouAddress" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="居住地址"><el-input v-model="form.liveAddress" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="formVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveForm">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 标签管理弹窗 -->
+    <el-dialog v-model="tagVisible" :title="`标签管理 - ${tagTarget?.name || ''}`" width="520px">
+      <div class="tag-manager">
+        <div class="tag-add">
+          <el-select v-model="tagForm.tagId" placeholder="选择标签" filterable style="flex: 1">
+            <el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+          <el-button type="primary" @click="addTag">添加</el-button>
+        </div>
+        <el-divider>当前标签</el-divider>
+        <div v-if="tagTarget?.tags?.length" class="tag-list">
+          <el-tag
+            v-for="t in tagTarget.tags"
+            :key="t.linkId"
+            closable
+            :color="t.color"
+            style="color: #fff; margin: 4px"
+            @close="removeTag(t.linkId)"
+          >{{ t.name }}</el-tag>
+        </div>
+        <el-empty v-else description="暂无标签" :image-size="60" />
+      </div>
+    </el-dialog>
+
+    <!-- 批量打标签弹窗 -->
+    <el-dialog v-model="batchTagVisible" title="批量打标签" width="480px">
+      <el-alert :title="`将对已选的 ${selectedIds.size} 人执行操作，请二次确认`" type="warning" :closable="false" style="margin-bottom: 16px" />
+      <el-form label-width="80px">
+        <el-form-item label="操作"><el-radio-group v-model="batchTagForm.action"><el-radio value="ADD">添加标签</el-radio><el-radio value="REMOVE">移除标签</el-radio></el-radio-group></el-form-item>
+        <el-form-item label="标签"><el-select v-model="batchTagForm.tagIds" multiple filterable style="width: 100%"><el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchTagVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitBatchTag">确认执行</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量转网格弹窗 -->
+    <el-dialog v-model="transferVisible" title="批量转网格" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="目标网格"><el-select v-model="transferForm.targetGridId" filterable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item>
+        <el-form-item label="原因"><el-input v-model="transferForm.reason" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="transferVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitTransfer">确认转移</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 导出弹窗 -->
+    <el-dialog v-model="exportVisible" title="导出人员数据" width="560px">
+      <el-form label-width="100px">
+        <el-form-item label="导出字段">
+          <el-checkbox-group v-model="exportForm.fields">
+            <el-checkbox v-for="f in exportFields" :key="f.key" :value="f.key">{{ f.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="exportVisible = false">取消</el-button>
+        <el-button type="primary" :loading="exporting" @click="submitExport">导出</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted, computed } from 'vue';
+import { ElMessage } from 'element-plus';
+import { personApi, tagApi, gridApi, excelApi } from '@/api';
+import { useAuthStore } from '@/stores/auth';
+import TagPill from '@/components/TagPill.vue';
+import type { PersonItem } from '@/types';
+
+const auth = useAuthStore();
+const loading = ref(false);
+const saving = ref(false);
+const exporting = ref(false);
+const list = ref<PersonItem[]>([]);
+const total = ref(0);
+const selectedIds = ref<Set<number>>(new Set());
+const options = reactive({ grids: [] as any[], families: [] as any[] });
+const commonTags = ref<any[]>([]);
+
+const query = reactive<any>({
+  page: 1, pageSize: 20, keyword: '', gender: '', gridId: null, status: '', tagIds: [], tagMode: 'ANY', sortBy: '', sortOrder: '',
+});
+
+const quickTagCodes = ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON', 'ELDERLY', 'MINOR'];
+const quickTags = computed(() => commonTags.value.filter((t) => quickTagCodes.includes(t.code)));
+const personTags = computed(() => commonTags.value.filter((t: any) => t.object_type === 'PERSON' && t.enabled === 1));
+
+const columns = ref([
+  { prop: 'name', label: '姓名', visible: true },
+  { prop: 'person_no', label: '编号', visible: true },
+  { prop: 'gender', label: '性别', visible: true },
+  { prop: 'age', label: '年龄', visible: true },
+  { prop: 'phone', label: '联系电话', visible: true },
+  { prop: 'family_name', label: '所属家庭', visible: true },
+  { prop: 'grid_name', label: '所属网格', visible: true },
+  { prop: 'status', label: '状态', visible: true },
+  { prop: 'tags', label: '人口标签', visible: true },
+  { prop: 'updated_at', label: '更新时间', visible: true },
+]);
+
+const exportFields = [
+  { key: 'person_no', label: '人员编号' },
+  { key: 'name', label: '姓名' },
+  { key: 'gender', label: '性别' },
+  { key: 'birth_date', label: '出生日期' },
+  { key: 'id_card', label: '身份证号' },
+  { key: 'phone', label: '手机号' },
+  { key: 'hukou_address', label: '户籍地址' },
+  { key: 'live_address', label: '实际居住地址' },
+  { key: 'grid_name', label: '所属网格' },
+  { key: 'family_name', label: '所属家庭' },
+  { key: 'status', label: '人员状态' },
+];
+
+// 表单
+const formVisible = ref(false);
+const form = reactive<any>({ id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+
+const tagVisible = ref(false);
+const tagTarget = ref<any>(null);
+const tagForm = reactive({ tagId: null as number | null });
+
+const batchTagVisible = ref(false);
+const batchTagForm = reactive({ action: 'ADD', tagIds: [] as number[] });
+
+const transferVisible = ref(false);
+const transferForm = reactive({ targetGridId: null as number | null, reason: '' });
+
+const exportVisible = ref(false);
+const exportForm = reactive({ fields: exportFields.map((f) => f.key) });
+
+function statusLabel(s: string) { return { NORMAL: '正常', MOVED_IN: '迁入', MOVED_OUT: '迁出', CANCELLED: '注销' }[s] || s; }
+function statusTag(s: string): any { return { NORMAL: 'success', MOVED_IN: 'primary', MOVED_OUT: 'warning', CANCELLED: 'danger' }[s] || 'info'; }
+function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '—'; }
+
+async function load() {
+  loading.value = true;
+  try {
+    const params: any = { ...query };
+    if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
+    else delete params.tagIds;
+    const res = await personApi.list(params);
+    list.value = res.data.list;
+    total.value = res.data.total;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function doSearch() { query.page = 1; load(); }
+function resetQuery() { Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, status: '', tagIds: [], sortBy: '', sortOrder: '' }); load(); }
+
+function toggleQuickTag(id: number) {
+  const idx = query.tagIds.indexOf(id);
+  if (idx >= 0) query.tagIds.splice(idx, 1);
+  else query.tagIds.push(id);
+  doSearch();
+}
+
+function onSelectionChange(rows: any[]) {
+  selectedIds.value = new Set(rows.map((r) => r.id));
+}
+function onSortChange({ prop, order }: any) {
+  if (order === 'ascending') { query.sortBy = prop === 'name' ? 'name' : prop; query.sortOrder = 'asc'; }
+  else if (order === 'descending') { query.sortBy = prop; query.sortOrder = 'desc'; }
+  else { query.sortBy = ''; query.sortOrder = ''; }
+  load();
+}
+function toggleColumn(prop: string) {
+  const c = columns.value.find((x) => x.prop === prop);
+  if (c) c.visible = !c.visible;
+}
+
+function openCreate() {
+  Object.assign(form, { id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+  formVisible.value = true;
+}
+function openEdit(row: any) {
+  Object.assign(form, { id: row.id, name: row.name, formerName: row.formerName || '', gender: row.gender, birthDate: row.birthDate || '', idCard: row.idCard || '', phone: row.phone || '', gridId: row.gridId, familyId: row.familyId, relation: row.relation, village: row.village || '', hukouAddress: row.hukouAddress || '', liveAddress: row.liveAddress || '', remark: row.remark || '' });
+  formVisible.value = true;
+}
+async function saveForm() {
+  if (!form.name) { ElMessage.warning('请填写姓名'); return; }
+  saving.value = true;
+  try {
+    if (form.id) await personApi.update(form.id, form);
+    else await personApi.create(form);
+    ElMessage.success('保存成功');
+    formVisible.value = false;
+    load();
+  } finally { saving.value = false; }
+}
+
+async function openTagManager(row: any) {
+  const detail = await personApi.detail(row.id);
+  tagTarget.value = detail.data;
+  tagVisible.value = true;
+}
+async function addTag() {
+  if (!tagForm.tagId || !tagTarget.value) return;
+  await personApi.addTag(tagTarget.value.id, { tagId: tagForm.tagId });
+  ElMessage.success('标签已添加');
+  const d = await personApi.detail(tagTarget.value.id);
+  tagTarget.value = d.data;
+}
+async function removeTag(linkId: number) {
+  if (!tagTarget.value) return;
+  await personApi.removeTag(tagTarget.value.id, linkId);
+  ElMessage.success('标签已移除');
+  const d = await personApi.detail(tagTarget.value.id);
+  tagTarget.value = d.data;
+}
+
+function openBatchTag() { batchTagVisible.value = true; }
+async function submitBatchTag() {
+  if (!batchTagForm.tagIds.length) { ElMessage.warning('请选择标签'); return; }
+  saving.value = true;
+  try {
+    await personApi.batchTags({ personIds: Array.from(selectedIds.value), tagIds: batchTagForm.tagIds, action: batchTagForm.action });
+    ElMessage.success('批量操作完成');
+    batchTagVisible.value = false;
+    load();
+  } finally { saving.value = false; }
+}
+
+function openBatchTransfer() { transferVisible.value = true; }
+async function submitTransfer() {
+  if (!transferForm.targetGridId) { ElMessage.warning('请选择目标网格'); return; }
+  saving.value = true;
+  try {
+    await gridApi.transferPerson({ personIds: Array.from(selectedIds.value), targetGridId: transferForm.targetGridId, reason: transferForm.reason });
+    ElMessage.success('人员已转移');
+    transferVisible.value = false;
+    load();
+  } finally { saving.value = false; }
+}
+
+function openExport() { exportVisible.value = true; }
+async function submitExport() {
+  exporting.value = true;
+  try {
+    const res: any = await excelApi.export({ ...exportForm, keyword: query.keyword, gridId: query.gridId, status: query.status, gender: query.gender });
+    ElMessage.success(`导出完成，共 ${res.data.total} 条，请到 Excel 页面下载`);
+    exportVisible.value = false;
+  } finally { exporting.value = false; }
+}
+
+onMounted(async () => {
+  load();
+  const [opts, tags] = await Promise.all([personApi.options(), tagApi.definitions({ pageSize: 200, objectType: 'PERSON' })]);
+  options.grids = opts.data.grids;
+  options.families = opts.data.families;
+  commonTags.value = tags.data.list;
+});
+</script>
+
+<style scoped>
+.person-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+}
+.quick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.quick-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.quick-chip {
+  padding: 4px 12px;
+  border-radius: var(--radius-tag);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-regular);
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+.quick-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.quick-chip.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.batch-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.selected-info {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.selected-info b {
+  color: var(--color-primary);
+}
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.tag-manager .tag-add {
+  display: flex;
+  gap: 8px;
+}
+.tag-list {
+  padding: 4px 0;
+}
+</style>

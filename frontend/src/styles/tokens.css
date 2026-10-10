@@ -1,0 +1,79 @@
+/* =============================================================
+ * 村级人口管理系统 - 全局设计 Token（唯一事实来源）
+ * 所有页面统一引用这些变量，禁止散落硬编码圆角/颜色
+ * ============================================================= */
+:root {
+  /* ---- 颜色 ---- */
+  --color-bg-page: #F6F8FC;          /* 整体背景（浅灰白） */
+  --color-bg-card: #FFFFFF;          /* 卡片背景（纯白） */
+  --color-bg-hover: #F5F7FB;         /* 悬浮背景 */
+  --color-bg-subtle: #F8FAFD;        /* 次级浅背景 */
+
+  --color-primary: #3978F6;          /* 主色（清爽蓝） */
+  --color-primary-strong: #2B63D6;   /* 主色深 */
+  --color-primary-light: #EAF1FE;    /* 主色浅底 */
+  --color-primary-faint: #F3F7FF;    /* 主色极浅底 */
+
+  --color-cyan: #0E7C6B;             /* 辅助-青绿 */
+  --color-cyan-light: #E4F4F0;
+  --color-orange: #F76B15;           /* 辅助-橙 */
+  --color-orange-light: #FEF0E6;
+  --color-purple: #5B5BD6;           /* 辅助-紫 */
+  --color-purple-light: #ECECFA;
+  --color-green: #2F9E44;            /* 辅助-绿 */
+  --color-green-light: #E8F5EC;
+  --color-red: #E5484D;              /* 危险/逾期 */
+  --color-red-light: #FDECEC;
+  --color-gray: #8A8F98;             /* 中性灰 */
+
+  --color-success: #2F9E44;
+  --color-warning: #F76B15;
+  --color-danger: #E5484D;
+  --color-info: #3978F6;
+
+  --color-text-primary: #1F2329;     /* 主文字（深灰） */
+  --color-text-regular: #3D424A;     /* 常规文字 */
+  --color-text-secondary: #8A8F98;   /* 次级文字（中性灰） */
+  --color-text-placeholder: #B8BEC7; /* 占位符 */
+
+  --color-border: #EEF1F6;           /* 分割线（极浅灰） */
+  --color-border-light: #F3F5F9;     /* 更浅分割线 */
+  --color-border-dark: #DFE4EC;      /* 输入框边框 */
+
+  /* ---- 圆角（统一管理，禁止页面自行改圆角） ---- */
+  --radius-card: 16px;               /* 卡片圆角 */
+  --radius-container: 20px;          /* 页面大容器圆角 */
+  --radius-button: 10px;             /* 按钮圆角 */
+  --radius-input: 10px;              /* 输入框圆角 */
+  --radius-modal: 18px;              /* 弹窗圆角 */
+  --radius-tag: 999px;               /* 标签圆角（胶囊） */
+  --radius-table: 14px;              /* 表格/列表容器圆角 */
+  --radius-sm: 8px;                  /* 小圆角（小徽标等） */
+
+  /* ---- 间距 ---- */
+  --space-card: 24px;                /* 卡片内边距（20~24px） */
+  --space-card-sm: 20px;
+  --space-section: 20px;             /* 区块间距 */
+  --space-item: 12px;                /* 元素间距 */
+  --space-item-sm: 8px;
+
+  /* ---- 动画 ---- */
+  --transition-fast: 150ms ease;
+  --transition-base: 180ms ease;
+  --transition-slow: 220ms ease;
+
+  /* ---- 阴影（柔和低对比） ---- */
+  --shadow-card: 0 1px 3px rgba(31, 35, 41, 0.04), 0 1px 2px rgba(31, 35, 41, 0.03);
+  --shadow-hover: 0 4px 16px rgba(31, 35, 41, 0.08);
+  --shadow-modal: 0 12px 40px rgba(31, 35, 41, 0.16);
+  --shadow-popover: 0 6px 24px rgba(31, 35, 41, 0.12);
+
+  /* ---- 字体 ---- */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* ---- 布局 ---- */
+  --sidebar-width: 236px;
+  --sidebar-width-collapsed: 68px;
+  --header-height: 60px;
+}

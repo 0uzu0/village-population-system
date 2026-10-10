@@ -1,0 +1,109 @@
+# =============================================================
+# 村级人口管理系统 - 生产部署（Docker Compose）
+# 使用已发布的 GHCR 镜像；版本通过环境变量配置
+# 使用前：cp .env.example .env 并填写真实值
+# =============================================================
+name: village-population
+
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/OWNER/REPO-frontend}:${VERSION:-latest}
+    container_name: vp-frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/OWNER/REPO-backend}:${VERSION:-latest}
+    container_name: vp-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${MYSQL_DATABASE:-village_population}
+      DB_USER: ${MYSQL_USER:-village}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      ADMIN_INIT_USERNAME: ${ADMIN_INIT_USERNAME:-admin}
+      ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD}
+      ADMIN_INIT_NAME: ${ADMIN_INIT_NAME:-系统管理员}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - web
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # 资源限制（按需调整）
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+  mysql:
+    image: mysql:8.0
+    container_name: vp-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-village_population}
+      MYSQL_USER: ${MYSQL_USER:-village}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql_data:/var/lib/mysql   # 持久化数据卷，勿删
+    networks:
+      - internal          # 数据库仅内部网络开放，不对外暴露端口
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+volumes:
+  mysql_data:      # 数据库持久化卷
+  uploads_data:    # 上传/导出文件持久化卷
+
+networks:
+  web:             # 对外网络（仅 frontend 暴露端口）
+  internal:        # 内部网络（mysql 与 backend 互通，不对外）
