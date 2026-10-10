@@ -131,9 +131,14 @@ jobs:
         run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: 镜像漏洞扫描（Trivy，告警不阻断）
-        uses: aquasecurity/trivy-action@0.24.0
+        # 报错原因：原写法 aquasecurity/trivy-action@0.24.0 缺少 v 前缀，该 action 的 tag 统一为 vX.Y.Z，
+        # 因此 0.24.0 解析不到（404）。这里直接升级到最新稳定版 v0.36.0。
+        # 第三方 action 用完整提交 SHA 固定可防 tag 被移动/删除，v0.36.0 为已签名且 immutable 的发布。
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ matrix.image }}:sha-${{ steps.shortsha.outputs.sha }}
+          scan-type: image
+          # 新版把 image-ref 更名为 scan-ref（image-ref 仅作向后兼容保留）
+          scan-ref: ${{ matrix.image }}:sha-${{ steps.shortsha.outputs.sha }}
           format: table
           exit-code: 0
           ignore-unfixed: true
