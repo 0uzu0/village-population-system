@@ -40,7 +40,7 @@ router.put('/categories/:id', requirePermission('tag:manage'), async (req: Reque
 
 const defListSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
   keyword: z.string().optional(),
   categoryId: z.coerce.number().optional(),
   objectType: z.string().optional(),
@@ -123,7 +123,7 @@ router.post('/definitions/:id/toggle', requirePermission('tag:manage'), async (r
 router.get('/history', requirePermission('tag:view'), async (req: Request, res: Response) => {
   const q = z.object({
     page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(100).default(20),
+    pageSize: z.coerce.number().int().min(1).max(500).default(20),
     objectType: z.string().optional(),
     objectId: z.coerce.number().optional(),
   }).parse(req.query);

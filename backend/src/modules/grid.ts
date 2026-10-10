@@ -11,7 +11,7 @@ router.use(authMiddleware);
 
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(500).default(20),
   keyword: z.string().optional(),
 });
 
@@ -25,8 +25,10 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
     params.push(`%${q.keyword}%`, `%${q.keyword}%`);
   }
   const gridFilter = buildGridFilter(req, 'g.id');
-  where.push(gridFilter.where.replace(/^ AND /, ''));
-  params.push(...gridFilter.params);
+  if (gridFilter.where) {
+    where.push(gridFilter.where.replace(/^ AND /, ''));
+    params.push(...gridFilter.params);
+  }
 
   const whereSql = where.join(' AND ');
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM grid g WHERE ${whereSql}`, params);

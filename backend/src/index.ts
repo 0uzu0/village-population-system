@@ -4,6 +4,14 @@ import { runMigrations } from './db/migrate';
 import { pool, queryOne, execute, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
 
+// 双保险：即使有未被路由层捕获的 Promise 拒绝，也只记录日志而不打崩进程
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] 未处理的 Promise 拒绝:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[server] 未捕获的同步异常:', err);
+});
+
 /** 首次启动：创建初始管理员并绑定系统管理员角色 */
 async function bootstrapAdmin(): Promise<void> {
   const admin = await queryOne<any>('SELECT id FROM sys_user WHERE username = ?', [env.adminInitUsername]);

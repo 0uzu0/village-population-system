@@ -111,8 +111,10 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
 
   // 网格数据范围（已简化为全部数据，恒不过滤）
   const gridFilter = buildGridFilter(req, 'p.grid_id');
-  where.push(gridFilter.where.replace(/^ AND /, ''));
-  params.push(...gridFilter.params);
+  if (gridFilter.where) {
+    where.push(gridFilter.where.replace(/^ AND /, ''));
+    params.push(...gridFilter.params);
+  }
 
   // 年龄区间
   const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');

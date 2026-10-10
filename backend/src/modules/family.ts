@@ -17,7 +17,7 @@ function genFamilyNo(): string {
 
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(500).default(20),
   keyword: z.string().optional(),
   gridId: z.coerce.number().optional(),
   tagIds: z.string().optional(),
@@ -38,8 +38,10 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
     params.push(q.gridId);
   }
   const gridFilter = buildGridFilter(req, 'f.grid_id');
-  where.push(gridFilter.where.replace(/^ AND /, ''));
-  params.push(...gridFilter.params);
+  if (gridFilter.where) {
+    where.push(gridFilter.where.replace(/^ AND /, ''));
+    params.push(...gridFilter.params);
+  }
 
   if (q.tagIds) {
     const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));

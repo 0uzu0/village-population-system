@@ -1,3 +1,6 @@
+// 异步错误兜底必须最先加载：包装路由 handle，async 路由的未捕获异常
+// 将转交统一 errorHandler，而不是成为 unhandledRejection 打崩进程
+import './utils/async-shim';
 import express, { Express } from 'express';
 import cors from 'cors';
 import { env } from './config/env';

@@ -208,7 +208,7 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
 
 /** 导入任务列表 */
 router.get('/import-tasks', requirePermission('excel:import'), async (req: Request, res: Response) => {
-  const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(20) }).parse(req.query);
+  const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(500).default(20) }).parse(req.query);
   const totalRow = await queryOne<any>('SELECT COUNT(*) AS cnt FROM excel_import_task');
   const rows = await query<any>(
     `SELECT eit.*, u.real_name AS operator_name FROM excel_import_task eit LEFT JOIN sys_user u ON u.id = eit.created_by

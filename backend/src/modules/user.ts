@@ -12,7 +12,7 @@ router.use(authMiddleware);
 
 /** 用户列表 */
 router.get('/', requirePermission('user:view'), async (req: Request, res: Response) => {
-  const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(20), keyword: z.string().optional() }).parse(req.query);
+  const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(500).default(20), keyword: z.string().optional() }).parse(req.query);
   const where: string[] = ['1=1'];
   const params: any[] = [];
   if (q.keyword) { where.push('(u.username LIKE ? OR u.real_name LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`); }
