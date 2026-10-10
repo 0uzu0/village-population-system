@@ -126,10 +126,14 @@ jobs:
           sbom: true
           provenance: true
 
+      - name: 获取短提交 SHA
+        id: shortsha
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: 镜像漏洞扫描（Trivy，告警不阻断）
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image }}:sha-${{ github.sha }}
+          image-ref: ${{ matrix.image }}:sha-${{ steps.shortsha.outputs.sha }}
           format: table
           exit-code: 0
           ignore-unfixed: true
