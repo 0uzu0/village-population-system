@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import { calcAge } from '../utils/age';
 import { z } from 'zod';
 
 const router = Router();
@@ -66,23 +67,45 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
 
   const gridFilter = buildGridFilter(req, 'p.grid_id');
   if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }
-  if (q.gridId) { where.push('p.grid_id = ?'); params.push(q.gridId); conditions.push(`网格ID=${q.gridId}`); }
+  if (q.gridId) {
+    where.push('p.grid_id = ?'); params.push(q.gridId);
+    const g = await queryOne<any>('SELECT name FROM grid WHERE id = ?', [q.gridId]);
+    conditions.push(`网格：${g?.name || q.gridId}`);
+  }
 
   const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');
   if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); conditions.push(`年龄 ${q.minAge ?? ''}-${q.maxAge ?? ''} 岁`); }
 
-  if (q.tagIds) {
-    const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const tf = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
-    if (tf.where) { where.push(tf.where.replace(/^ AND /, '')); params.push(...tf.params); }
-    conditions.push(`个人标签(${q.tagMode === 'ALL' ? '交集' : '并集'}): ${tagIds.join(',')}`);
+  /** 把标签 ID 翻成名称，避免界面上只显示一串数字 */
+  async function tagNames(ids: number[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await query<any>(
+      `SELECT id, name FROM tag_definition WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    const map = new Map(rows.map((r: any) => [r.id, r.name]));
+    return ids.map((i) => map.get(i) || `#${i}`);
   }
 
-  if (q.familyTagIds) {
-    const ftIds = q.familyTagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const ft = buildFamilyTagFilter(ftIds, 'p');
+  const selectedTagIds: number[] = q.tagIds
+    ? q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n))
+    : [];
+  const selectedFamilyTagIds: number[] = q.familyTagIds
+    ? q.familyTagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n))
+    : [];
+
+  if (selectedTagIds.length) {
+    const tf = buildPersonTagFilter({ tags: selectedTagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
+    if (tf.where) { where.push(tf.where.replace(/^ AND /, '')); params.push(...tf.params); }
+    const names = await tagNames(selectedTagIds);
+    conditions.push(`个人标签(${q.tagMode === 'ALL' ? '交集' : '并集'}): ${names.join('、')}`);
+  }
+
+  if (selectedFamilyTagIds.length) {
+    const ft = buildFamilyTagFilter(selectedFamilyTagIds, 'p');
     if (ft.where) { where.push(ft.where.replace(/^ AND /, '')); params.push(...ft.params); }
-    conditions.push(`家庭标签: ${ftIds.join(',')}`);
+    const names = await tagNames(selectedFamilyTagIds);
+    conditions.push(`家庭标签: ${names.join('、')}`);
   }
 
   const whereSql = where.join(' AND ');
@@ -91,12 +114,28 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const total = Number(totalRow?.cnt || 0);
 
   const rows = await query<any>(
-    `SELECT p.id, p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone,
+    `SELECT p.id, p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone, p.phone_backup,
             p.grid_id, g.name AS grid_name, p.family_id, f.family_no AS family_name, p.status
      FROM person p LEFT JOIN grid g ON g.id = p.grid_id LEFT JOIN family f ON f.id = p.family_id
      WHERE ${whereSql} ORDER BY p.id LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
+
+  // 批量取命中标签，避免 N+1；界面上据此高亮「命中的标签」
+  const personIds = rows.map((r: any) => r.id);
+  const tagMap = new Map<number, any[]>();
+  if (personIds.length) {
+    const tags = await query<any>(
+      `SELECT pt.person_id, td.id, td.name, td.color
+       FROM person_tag pt JOIN tag_definition td ON td.id = pt.tag_id
+       WHERE pt.person_id IN (${personIds.map(() => '?').join(',')}) AND pt.status = 'ACTIVE'`,
+      personIds
+    );
+    for (const t of tags) {
+      if (!tagMap.has(t.person_id)) tagMap.set(t.person_id, []);
+      tagMap.get(t.person_id)!.push({ id: t.id, name: t.name, color: t.color });
+    }
+  }
 
   const list = rows.map((r: any) => ({
     id: r.id,
@@ -104,21 +143,47 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     name: r.name,
     gender: r.gender,
     birthDate: r.birth_date ? new Date(r.birth_date).toISOString().slice(0, 10) : null,
+    age: calcAge(r.birth_date),
     idCard: r.id_card,
     phone: r.phone,
+    phoneBackup: r.phone_backup,
     gridId: r.grid_id,
     gridName: r.grid_name,
     familyName: r.family_name,
     status: r.status,
+    tags: tagMap.get(r.id) || [],
   }));
+
+  // 结果集分布统计（整批结果，而非仅当前页）
+  const genderRows = await query<any>(
+    `SELECT COALESCE(p.gender, 'UNKNOWN') AS k, COUNT(*) AS cnt FROM person p WHERE ${whereSql} GROUP BY p.gender`,
+    params
+  );
+  const gridRows = await query<any>(
+    `SELECT COALESCE(g.name, '未分配网格') AS k, COUNT(*) AS cnt
+     FROM person p LEFT JOIN grid g ON g.id = p.grid_id
+     WHERE ${whereSql} GROUP BY g.name ORDER BY cnt DESC`,
+    params
+  );
 
   const result: PageResult<any> = { list, total, page: q.page, pageSize: q.pageSize };
   return ok(res, {
     page: result,
     filter: {
       conditions,
-      tagMode: q.tagIds ? q.tagMode : null,
+      tagMode: selectedTagIds.length ? q.tagMode : null,
+      tagIds: selectedTagIds,
+      familyTagIds: selectedFamilyTagIds,
+      gridId: q.gridId || null,
+      minAge: q.minAge ?? null,
+      maxAge: q.maxAge ?? null,
+      keyword: q.keyword || null,
+      hasFilter: conditions.length > 0,
       summary: conditions.length ? conditions.join('；') : '全部人口',
+    },
+    stats: {
+      gender: genderRows.map((r: any) => ({ key: r.k, count: Number(r.cnt) })),
+      grids: gridRows.map((r: any) => ({ key: r.k, count: Number(r.cnt) })),
     },
   });
 });

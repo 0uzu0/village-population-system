@@ -50,20 +50,43 @@
         <el-empty v-if="!changes.length" description="暂无变更记录" :image-size="60" />
       </div>
       <div class="vp-card">
-        <div class="card-title">最近导入任务</div>
-        <el-table :data="imports" size="small">
-          <el-table-column prop="batch_no" label="批次号" width="140" show-overflow-tooltip />
-          <el-table-column prop="status" label="状态" width="90">
-            <template #default="{ row }">
-              <el-tag size="small" :type="importTag(row.status)">{{ importLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="成功/失败" width="90">
-            <template #default="{ row }">{{ row.success_count }}/{{ row.fail_count }}</template>
-          </el-table-column>
-          <el-table-column prop="created_at" label="时间" width="160" />
-        </el-table>
-        <el-empty v-if="!imports.length" description="暂无导入记录" :image-size="60" />
+        <div class="card-head">
+          <div class="card-title">最近导入任务</div>
+          <div class="head-actions">
+            <el-button link size="small" :loading="importLoading" @click="loadImports">
+              <el-icon><Refresh /></el-icon>刷新
+            </el-button>
+            <el-button link type="primary" size="small" @click="$router.push('/excel')">去导入</el-button>
+          </div>
+        </div>
+
+        <div v-loading="importLoading" class="import-list">
+          <div v-for="row in imports" :key="row.id" class="import-item">
+            <div class="ii-top">
+              <span class="ii-batch">{{ row.batch_no }}</span>
+              <el-tag size="small" :type="importTag(row.status)" effect="light">{{ importLabel(row.status) }}</el-tag>
+            </div>
+            <div class="ii-bar">
+              <div class="ii-track">
+                <div class="ii-ok" :style="{ width: pct(row, 'success') + '%' }" />
+                <div class="ii-pending" :style="{ width: pct(row, 'pending') + '%' }" />
+                <div class="ii-fail" :style="{ width: pct(row, 'fail') + '%' }" />
+              </div>
+            </div>
+            <div class="ii-meta">
+              <span class="ii-total">共 {{ row.total_rows }} 行</span>
+              <span class="dot-ok">成功 {{ row.success_count }}</span>
+              <span v-if="row.pending_count" class="dot-pending">待核查 {{ row.pending_count }}</span>
+              <span v-if="row.fail_count" class="dot-fail">失败 {{ row.fail_count }}</span>
+              <span class="ii-time">{{ row.created_at }}</span>
+            </div>
+            <div v-if="row.pending_count" class="ii-tip">
+              有 {{ row.pending_count }} 条身份证缺失/非法
+              <el-button link type="warning" size="small" @click="$router.push('/pending')">去核查</el-button>
+            </div>
+          </div>
+          <el-empty v-if="!imports.length && !importLoading" description="暂无导入记录，上传 Excel 后这里会显示任务进度" :image-size="60" />
+        </div>
       </div>
     </div>
   </div>
@@ -149,17 +172,33 @@ function importTag(s: string) {
   return map[s] || 'info';
 }
 
+const importLoading = ref(false);
+
+/** 进度条各段占比（相对总行数），避免出现 NaN */
+function pct(row: any, kind: 'success' | 'pending' | 'fail') {
+  const total = Number(row.total_rows) || 1;
+  const v = kind === 'success' ? row.success_count : kind === 'pending' ? row.pending_count : row.fail_count;
+  return Math.min(100, Math.round((Number(v || 0) / total) * 100));
+}
+
+async function loadImports() {
+  importLoading.value = true;
+  try {
+    const im = await statisticsApi.imports();
+    imports.value = im.data || [];
+  } finally { importLoading.value = false; }
+}
+
 onMounted(async () => {
-  const [d, di, c, im] = await Promise.all([
+  const [d, di, c] = await Promise.all([
     statisticsApi.dashboard(),
     statisticsApi.distributions(),
     statisticsApi.changes(),
-    statisticsApi.imports(),
   ]);
   dash.value = d.data;
   dist.value = di.data;
   changes.value = c.data || [];
-  imports.value = im.data || [];
+  loadImports();
 });
 </script>
 
@@ -219,6 +258,31 @@ onMounted(async () => {
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
+.card-head { display: flex; align-items: center; justify-content: space-between; }
+.card-head .card-title { margin-bottom: 12px; }
+.head-actions { display: flex; align-items: center; gap: 4px; }
+
+/* 最近导入任务：卡片式进度展示 */
+.import-list { min-height: 120px; display: flex; flex-direction: column; gap: 10px; }
+.import-item { border: 1px solid var(--color-border); border-radius: var(--radius-button); padding: 10px 12px; transition: border-color var(--transition-fast); }
+.import-item:hover { border-color: var(--color-primary); }
+.ii-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ii-batch { font-size: 13px; font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ii-bar { margin: 8px 0 6px; }
+.ii-track { display: flex; height: 6px; background: var(--color-border-light); border-radius: 3px; overflow: hidden; }
+.ii-ok { background: #0E7C6B; }
+.ii-pending { background: #F76B15; }
+.ii-fail { background: #E5484D; }
+.ii-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--color-text-secondary); }
+.ii-total { color: var(--color-text-regular); font-weight: 600; }
+.dot-ok::before, .dot-pending::before, .dot-fail::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: 1px;
+}
+.dot-ok::before { background: #0E7C6B; }
+.dot-pending::before { background: #F76B15; }
+.dot-fail::before { background: #E5484D; }
+.ii-time { margin-left: auto; color: var(--color-text-secondary); }
+.ii-tip { margin-top: 6px; font-size: 12px; color: #C2410C; background: #FEF0E6; border-radius: var(--radius-button); padding: 4px 8px; display: flex; align-items: center; gap: 6px; }
 
 @media (max-width: 1100px) {
   .stat-grid {

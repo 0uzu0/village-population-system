@@ -33,11 +33,18 @@
                 <el-button type="primary"><el-icon><Upload /></el-icon>上传并导入</el-button>
               </el-upload>
             </div>
-            <el-alert title="导入规则：身份证号自动校验并查重；已存在的档案不会被覆盖；网格/家庭编号须先存在；同一批次禁止重复提交。" type="info" :closable="false" style="margin-top: 16px" />
+            <el-alert type="info" :closable="false" style="margin-top: 16px">
+              <div class="rule-list">
+                <div>1. 模板共 12 列，依次为：姓名、性别、出生日期、身份证号、手机号、户籍地址、实际居住地址、所属村庄、网格编号、家庭编号、与户主关系、备用手机号（第 12 列可留空）。</div>
+                <div>2. 身份证号自动校验并查重；已存在的档案不会被覆盖；网格/家庭编号须先在系统中建好。</div>
+                <div>3. <b>身份证号为空或非法的行不会进入正式档案</b>，会转入「待核查人员」列表，补录确认后再入库。</div>
+                <div>4. 同一批次号禁止重复提交。</div>
+              </div>
+            </el-alert>
           </div>
 
           <div class="card-title" style="margin-top: 24px">导入任务记录</div>
-          <el-table :data="tasks" v-loading="loading" @row-click="(row:any)=>viewErrors(row)">
+          <el-table :data="tasks" v-loading="loading">
             <el-table-column prop="batch_no" label="批次号" width="160" show-overflow-tooltip />
             <el-table-column prop="status" label="状态" width="100">
               <template #default="{ row }"><el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag></template>
@@ -45,11 +52,19 @@
             <el-table-column prop="total_rows" label="总行数" width="80" />
             <el-table-column prop="success_count" label="成功" width="70" />
             <el-table-column prop="fail_count" label="失败" width="70" />
+            <el-table-column label="待核查" width="90">
+              <template #default="{ row }">
+                <el-button v-if="row.pending_count" link type="warning" size="small" @click="$router.push('/pending')">
+                  {{ row.pending_count }} 条
+                </el-button>
+                <span v-else class="muted">—</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="operator_name" label="导入人" width="100" />
             <el-table-column prop="created_at" label="导入时间" width="160" />
             <el-table-column label="操作" width="120">
               <template #default="{ row }">
-                <el-button v-if="row.fail_count > 0" link type="primary" size="small" @click.stop="downloadErrors(row)">下载错误行</el-button>
+                <el-button v-if="row.fail_count > 0" link type="primary" size="small" @click="downloadErrors(row)">下载错误行</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -114,6 +129,7 @@ const exportFields = [
   { key: 'birth_date', label: '出生日期' },
   { key: 'id_card', label: '身份证号' },
   { key: 'phone', label: '手机号' },
+  { key: 'phone_backup', label: '备用手机号' },
   { key: 'hukou_address', label: '户籍地址' },
   { key: 'live_address', label: '实际居住地址' },
   { key: 'grid_name', label: '所属网格' },
@@ -138,7 +154,9 @@ async function doImport(options: any) {
   loading.value = true;
   try {
     const res: any = await excelApi.import(fd);
-    ElMessage.success(`导入完成：成功 ${res.data.success} 条，失败 ${res.data.fail} 条`);
+    const d = res.data;
+    const pendingTip = d.pending ? `，${d.pending} 条转入待核查` : '';
+    ElMessage.success({ message: `导入完成：成功 ${d.success} 条，失败 ${d.fail} 条${pendingTip}`, duration: 4000 });
     loadTasks();
   } catch (e) {
     // 错误已提示
@@ -164,14 +182,6 @@ async function loadTasks() {
     const res = await excelApi.importTasks({ page: 1, pageSize: 50 });
     tasks.value = res.data.list;
   } finally { loading.value = false; }
-}
-
-async function viewErrors(row: any) {
-  if (row.fail_count > 0) {
-    const res = await excelApi.importErrors(row.id);
-    // 简单弹窗展示
-    ElMessage.info(`批次 ${row.batch_no} 失败 ${row.fail_count} 行，可下载错误行查看详情`);
-  }
 }
 
 async function downloadErrors(row: any) {
@@ -226,4 +236,6 @@ onMounted(() => {
 .steps { margin-bottom: 20px; }
 .import-actions { display: flex; gap: 12px; align-items: center; }
 .export-box { padding: 4px 0; }
+.rule-list { line-height: 1.9; font-size: 13px; }
+.muted { color: var(--color-text-secondary); }
 </style>

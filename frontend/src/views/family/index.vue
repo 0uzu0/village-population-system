@@ -5,9 +5,14 @@
         <h2 class="vp-page-title">家庭管理</h2>
         <div class="vp-page-subtitle">共 {{ total }} 户家庭</div>
       </div>
-      <el-button v-if="auth.hasPermission('family:manage')" type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>新增家庭
-      </el-button>
+      <div class="header-actions">
+        <el-button v-if="auth.hasPermission('family:manage')" @click="openAutoGroup">
+          <el-icon><MagicStick /></el-icon>按门牌号自动归户
+        </el-button>
+        <el-button v-if="auth.hasPermission('family:manage')" type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon>新增家庭
+        </el-button>
+      </div>
     </div>
 
     <div class="vp-container">
@@ -79,7 +84,13 @@
           <el-table-column prop="relation" label="与户主关系" width="100">
             <template #default="{ row }">{{ relationLabel(row.relation) }}</template>
           </el-table-column>
-          <el-table-column prop="person.idCard" label="身份证号" show-overflow-tooltip />
+          <el-table-column prop="person.idCard" label="身份证号" width="170" show-overflow-tooltip />
+          <el-table-column prop="person.phone" label="手机号" width="130">
+            <template #default="{ row }">{{ row.person.phone || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="person.phoneBackup" label="备用手机号" width="130">
+            <template #default="{ row }">{{ row.person.phoneBackup || '—' }}</template>
+          </el-table-column>
           <el-table-column v-if="auth.hasPermission('family:manage')" label="操作" width="80">
             <template #default="{ row }">
               <el-button link type="danger" size="small" @click="removeMember(row.memberId)">移除</el-button>
@@ -109,6 +120,75 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 按门牌号自动归户 -->
+    <el-dialog v-model="autoVisible" title="按门牌号自动归户" width="680px">
+      <el-alert
+        title="同一门牌号的人员将归入同一个家庭；已存在的同地址家庭会被复用，不会重复建户。户主优先取「与户主关系=户主」的人，否则取最年长者。"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 14px"
+      />
+      <el-form label-width="110px">
+        <el-form-item label="归户范围">
+          <el-radio-group v-model="autoForm.scope">
+            <el-radio-button value="UNFAMILIED">仅未归属家庭的人员</el-radio-button>
+            <el-radio-button value="ALL">全部人员重新归户</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="依据地址">
+          <el-radio-group v-model="autoForm.addressField">
+            <el-radio-button value="hukou">户籍地址</el-radio-button>
+            <el-radio-button value="live">实际居住地址</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="所属网格">
+              <el-select v-model="autoForm.gridId" clearable filterable placeholder="全部网格" style="width: 100%">
+                <el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="最小成户人数">
+              <el-input-number v-model="autoForm.minSize" :min="1" :max="50" controls-position="right" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+
+      <div v-if="autoResult" class="auto-result">
+        <div class="section-title">预览结果</div>
+        <div class="auto-stats">
+          <div class="as-item"><span class="as-num">{{ autoResult.groupCount }}</span><span class="as-lbl">门牌号分组</span></div>
+          <div class="as-item"><span class="as-num">{{ autoResult.personsToAssign }}</span><span class="as-lbl">将归入人数</span></div>
+          <div class="as-item create"><span class="as-num">{{ autoResult.familiesToCreate }}</span><span class="as-lbl">新建家庭</span></div>
+          <div class="as-item reuse"><span class="as-num">{{ autoResult.familiesToReuse }}</span><span class="as-lbl">复用已有家庭</span></div>
+          <div class="as-item muted"><span class="as-num">{{ autoResult.skippedNoAddress }}</span><span class="as-lbl">无地址跳过</span></div>
+        </div>
+        <el-table :data="autoResult.preview || []" size="small" max-height="220">
+          <el-table-column prop="address" label="门牌号" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="count" label="人数" width="70" />
+          <el-table-column prop="headName" label="拟定户主" width="100" />
+          <el-table-column label="处理方式" width="110">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.reuse ? 'info' : 'success'">{{ row.reuse ? '并入已有' : '新建家庭' }}</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="auto-tip">仅展示前 20 组；执行后才真正写入数据库。</div>
+      </div>
+
+      <template #footer>
+        <el-button @click="autoVisible = false">取消</el-button>
+        <el-button :loading="autoRunning" @click="previewAutoGroup">预览</el-button>
+        <el-button type="primary" :loading="autoRunning" :disabled="!autoResult || !autoResult.personsToAssign" @click="runAutoGroup">
+          确认执行
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,6 +215,42 @@ const detailVisible = ref(false);
 const detail = ref<any>(null);
 const memberForm = reactive({ personId: null as number | null, relation: 'OTHER' });
 const famTagForm = reactive({ tagId: null as number | null });
+
+// 按门牌号自动归户
+const autoVisible = ref(false);
+const autoRunning = ref(false);
+const autoResult = ref<any>(null);
+const autoForm = reactive<any>({ scope: 'UNFAMILIED', addressField: 'hukou', gridId: null, minSize: 1, dryRun: 1 });
+
+function openAutoGroup() {
+  autoResult.value = null;
+  Object.assign(autoForm, { scope: 'UNFAMILIED', addressField: 'hukou', gridId: null, minSize: 1, dryRun: 1 });
+  autoVisible.value = true;
+}
+async function previewAutoGroup() {
+  autoRunning.value = true;
+  try {
+    const res = await familyApi.autoGroup({ ...autoForm, dryRun: 1 });
+    autoResult.value = res.data;
+    if (!res.data.personsToAssign) ElMessage.info('没有可归户的人员');
+  } finally { autoRunning.value = false; }
+}
+async function runAutoGroup() {
+  try {
+    await ElMessageBox.confirm(
+      `将新建 ${autoResult.value.familiesToCreate} 户家庭、复用 ${autoResult.value.familiesToReuse} 户，归入 ${autoResult.value.personsToAssign} 人。是否执行？`,
+      '自动归户确认',
+      { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
+    );
+  } catch { return; }
+  autoRunning.value = true;
+  try {
+    const res = await familyApi.autoGroup({ ...autoForm, dryRun: 0 });
+    ElMessage.success(res.data?.message || '自动归户完成');
+    autoVisible.value = false;
+    load();
+  } finally { autoRunning.value = false; }
+}
 
 function relationLabel(r: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r] || r; }
 
@@ -219,7 +335,17 @@ onMounted(async () => {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
+.header-actions { display: flex; gap: 10px; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
+.auto-result { margin-top: 8px; }
+.auto-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
+.as-item { background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 10px; text-align: center; }
+.as-item .as-num { display: block; font-size: 20px; font-weight: 700; color: var(--color-primary); }
+.as-item.create .as-num { color: #0E7C6B; }
+.as-item.reuse .as-num { color: #5B5BD6; }
+.as-item.muted .as-num { color: var(--color-text-secondary); }
+.as-item .as-lbl { font-size: 12px; color: var(--color-text-secondary); }
+.auto-tip { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; }
 .section-title { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
 .fam-tags { min-height: 20px; }

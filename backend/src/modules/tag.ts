@@ -44,6 +44,8 @@ const defListSchema = z.object({
   keyword: z.string().optional(),
   categoryId: z.coerce.number().optional(),
   objectType: z.string().optional(),
+  /** 1=只看启用；0=只看停用；不传=全部 */
+  enabled: z.coerce.number().int().min(0).max(1).optional(),
 });
 
 /** 标签定义列表（含使用人数统计） */
@@ -54,6 +56,7 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
   if (q.keyword) { where.push('(td.name LIKE ? OR td.code LIKE ? OR td.alias LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`); }
   if (q.categoryId) { where.push('td.category_id = ?'); params.push(q.categoryId); }
   if (q.objectType) { where.push('td.object_type = ?'); params.push(q.objectType); }
+  if (q.enabled !== undefined) { where.push('td.enabled = ?'); params.push(q.enabled); }
 
   const whereSql = where.join(' AND ');
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM tag_definition td WHERE ${whereSql}`, params);

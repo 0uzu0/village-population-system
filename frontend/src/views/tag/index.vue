@@ -13,53 +13,148 @@
     <div class="vp-container">
       <el-tabs v-model="activeTab">
         <el-tab-pane label="标签定义" name="defs">
+          <!-- 概览 -->
+          <div class="def-summary">
+            <div class="ds-item"><span class="ds-num">{{ total }}</span><span class="ds-lbl">标签总数</span></div>
+            <div class="ds-item"><span class="ds-num ok">{{ enabledCount }}</span><span class="ds-lbl">启用中</span></div>
+            <div class="ds-item"><span class="ds-num muted">{{ total - enabledCount }}</span><span class="ds-lbl">已停用</span></div>
+            <div class="ds-item"><span class="ds-num warn">{{ sensitiveCount }}</span><span class="ds-lbl">敏感标签</span></div>
+            <div class="ds-item ds-grow"><span class="ds-num">{{ categories.length }}</span><span class="ds-lbl">标签分类</span></div>
+          </div>
+
+          <!-- 分类快捷筛选 -->
+          <div class="cat-chips">
+            <span class="cc-label">分类</span>
+            <el-tag :effect="query.categoryId === null ? 'dark' : 'light'" type="primary" class="cc-tag" @click="setCategory(null)">全部</el-tag>
+            <el-tag v-for="c in categories" :key="c.id" :effect="query.categoryId === c.id ? 'dark' : 'light'" type="info" class="cc-tag" @click="setCategory(c.id)">
+              {{ c.name }}
+            </el-tag>
+          </div>
+
           <div class="vp-search-bar">
-            <el-input v-model="query.keyword" placeholder="搜索标签名称/编码/别名" clearable style="width: 220px" @keyup.enter="doSearch" @clear="doSearch" />
-            <el-select v-model="query.categoryId" placeholder="分类" clearable filterable style="width: 150px" @change="doSearch">
-              <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-            </el-select>
+            <el-input v-model="query.keyword" placeholder="搜索标签名称/编码/别名" clearable style="width: 220px" @keyup.enter="doSearch" @clear="doSearch">
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
             <el-select v-model="query.objectType" placeholder="对象类型" clearable style="width: 120px" @change="doSearch">
               <el-option label="个人" value="PERSON" /><el-option label="家庭" value="FAMILY" />
             </el-select>
+            <el-select v-model="query.enabled" placeholder="状态" clearable style="width: 110px" @change="doSearch">
+              <el-option label="启用" :value="1" /><el-option label="停用" :value="0" />
+            </el-select>
             <el-button type="primary" @click="doSearch">查询</el-button>
+            <el-button @click="resetDefQuery">重置</el-button>
+            <div class="grow" />
+            <el-radio-group v-model="viewMode" size="small">
+              <el-radio-button value="table">表格</el-radio-button>
+              <el-radio-button value="card">卡片</el-radio-button>
+            </el-radio-group>
           </div>
 
-          <el-table :data="list" v-loading="loading" row-key="id">
-            <el-table-column prop="name" label="标签名称" width="140">
+          <!-- 表格视图 -->
+          <el-table v-if="viewMode === 'table'" :data="list" v-loading="loading" row-key="id">
+            <el-table-column prop="name" label="标签名称" width="150">
               <template #default="{ row }">
-                <el-tag :color="row.color" style="color: #fff">{{ row.name }}</el-tag>
+                <div class="tag-cell">
+                  <TagPill :name="row.name" :color="row.color" dot />
+                  <el-tooltip v-if="row.description" :content="row.description" placement="top">
+                    <el-icon class="info-icon"><InfoFilled /></el-icon>
+                  </el-tooltip>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column prop="code" label="编码" width="160" show-overflow-tooltip />
+            <el-table-column prop="code" label="编码" width="160" show-overflow-tooltip>
+              <template #default="{ row }"><span class="mono">{{ row.code }}</span></template>
+            </el-table-column>
             <el-table-column prop="alias" label="别名" width="100">
               <template #default="{ row }">{{ row.alias || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="category_name" label="分类" width="110" />
+            <el-table-column prop="category_name" label="分类" width="110">
+              <template #default="{ row }">{{ row.category_name || '—' }}</template>
+            </el-table-column>
             <el-table-column prop="object_type" label="对象" width="70">
-              <template #default="{ row }">{{ row.object_type === 'PERSON' ? '个人' : '家庭' }}</template>
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.object_type === 'PERSON' ? 'primary' : 'success'" effect="plain">
+                  {{ row.object_type === 'PERSON' ? '个人' : '家庭' }}
+                </el-tag>
+              </template>
             </el-table-column>
-            <el-table-column label="使用人数" width="90">
-              <template #default="{ row }">{{ row.object_type === 'PERSON' ? row.person_count : row.family_count }}</template>
+            <el-table-column label="使用数" width="90">
+              <template #default="{ row }">
+                {{ row.object_type === 'PERSON' ? row.person_count : row.family_count }}
+                <span class="unit">{{ row.object_type === 'PERSON' ? '人' : '户' }}</span>
+              </template>
             </el-table-column>
-            <el-table-column label="敏感" width="60">
-              <template #default="{ row }"><el-tag v-if="row.is_sensitive" size="small" type="warning">敏感</el-tag><span v-else>—</span></template>
+            <el-table-column label="属性" width="130">
+              <template #default="{ row }">
+                <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
+                <el-tag v-if="row.need_audit" size="small" type="info" effect="plain">需审核</el-tag>
+                <el-tag v-if="row.allow_duplicate" size="small" effect="plain">可重复</el-tag>
+                <span v-if="!row.is_sensitive && !row.need_audit && !row.allow_duplicate" class="muted">—</span>
+              </template>
             </el-table-column>
-            <el-table-column prop="enabled" label="状态" width="70">
-              <template #default="{ row }"><el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag></template>
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-switch
+                  v-if="auth.hasPermission('tag:manage')"
+                  v-model="row.enabled"
+                  :active-value="1"
+                  :inactive-value="0"
+                  size="small"
+                  @change="() => toggle(row)"
+                />
+                <el-tag v-else size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+              </template>
             </el-table-column>
-            <el-table-column label="操作" width="190" fixed="right">
+            <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-                <el-button v-if="auth.hasPermission('tag:manage')" link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggle(row)">{{ row.enabled ? '停用' : '启用' }}</el-button>
                 <el-button
                   v-if="auth.hasPermission('tag:manage')"
                   link type="danger" size="small" @click="removeDefinition(row)"
                 >删除</el-button>
               </template>
             </el-table-column>
+            <template #empty>
+              <el-empty description="没有符合条件的标签，可新增或调整筛选条件" :image-size="70" />
+            </template>
           </el-table>
+
+          <!-- 卡片视图：按分类分组，一屏看清整套标签体系 -->
+          <div v-else v-loading="loading" class="card-view">
+            <div v-for="g in groupedList" :key="g.key" class="cv-group">
+              <div class="cv-title">
+                {{ g.name }}
+                <span class="cv-count">{{ g.items.length }}</span>
+              </div>
+              <div class="cv-items">
+                <div v-for="row in g.items" :key="row.id" class="cv-item" :class="{ 'is-off': !row.enabled }">
+                  <div class="cvi-head">
+                    <TagPill :name="row.name" :color="row.color" dot />
+                    <el-tag size="small" effect="plain" :type="row.object_type === 'PERSON' ? 'primary' : 'success'">
+                      {{ row.object_type === 'PERSON' ? '个人' : '家庭' }}
+                    </el-tag>
+                    <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
+                    <el-tag v-if="!row.enabled" size="small" type="info" effect="plain">停用</el-tag>
+                  </div>
+                  <div class="cvi-code mono">{{ row.code }}</div>
+                  <div class="cvi-desc">{{ row.description || '暂无说明' }}</div>
+                  <div class="cvi-foot">
+                    <span>{{ row.object_type === 'PERSON' ? row.person_count : row.family_count }}{{ row.object_type === 'PERSON' ? ' 人' : ' 户' }}</span>
+                    <div v-if="auth.hasPermission('tag:manage')" class="cvi-ops">
+                      <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+                      <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggle(row)">
+                        {{ row.enabled ? '停用' : '启用' }}
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <el-empty v-if="!groupedList.length && !loading" description="没有符合条件的标签，可新增或调整筛选条件" :image-size="70" />
+          </div>
+
           <div class="pagination">
-            <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" layout="total, prev, pager, next" @current-change="load" />
+            <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @current-change="load" @size-change="doSearch" />
           </div>
         </el-tab-pane>
 
@@ -140,10 +235,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { tagApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import TagPill from '@/components/TagPill.vue';
 
 const auth = useAuthStore();
 const loading = ref(false);
@@ -158,16 +254,44 @@ const historyTotal = ref(0);
 const allTags = ref<any[]>([]);
 const historyQuery = reactive({ page: 1, pageSize: 20, objectType: '', action: '', tagId: null as number | null });
 
-const query = reactive({ page: 1, pageSize: 50, keyword: '', categoryId: null as number | null, objectType: '' });
+const query = reactive<any>({ page: 1, pageSize: 50, keyword: '', categoryId: null as number | null, objectType: '', enabled: '' });
+const viewMode = ref<'table' | 'card'>('table');
 const formVisible = ref(false);
 const form = reactive<any>({ id: null, name: '', code: '', categoryId: null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0 });
 
 function actionLabel(a: string) { return { ADD: '添加', REMOVE: '移除', DISABLE: '停用', ENABLE: '启用' }[a] || a; }
 
+/** 概览统计：基于当前筛选结果计算 */
+const enabledCount = computed(() => list.value.filter((r: any) => r.enabled).length);
+const sensitiveCount = computed(() => list.value.filter((r: any) => r.is_sensitive).length);
+
+/** 卡片视图：按分类分组展示 */
+const groupedList = computed(() => {
+  const map = new Map<string, { key: string; name: string; items: any[] }>();
+  for (const r of list.value) {
+    const key = String(r.category_id ?? 'none');
+    const name = r.category_name || '未分类';
+    if (!map.has(key)) map.set(key, { key, name, items: [] });
+    map.get(key)!.items.push(r);
+  }
+  return [...map.values()];
+});
+
+function setCategory(id: number | null) { query.categoryId = id; doSearch(); }
+function resetDefQuery() {
+  Object.assign(query, { page: 1, keyword: '', categoryId: null, objectType: '', enabled: '' });
+  load();
+}
+
 async function load() {
   loading.value = true;
   try {
-    const res = await tagApi.definitions({ ...query });
+    const params: any = { ...query };
+    if (params.categoryId === null) delete params.categoryId;
+    if (params.enabled === '' || params.enabled === null) delete params.enabled;
+    if (!params.objectType) delete params.objectType;
+    if (!params.keyword) delete params.keyword;
+    const res = await tagApi.definitions(params);
     list.value = res.data.list;
     total.value = res.data.total;
   } finally { loading.value = false; }
@@ -249,4 +373,47 @@ onMounted(async () => {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
+.grow { flex: 1; }
+.mono { font-family: var(--vp-font-mono, monospace); font-size: 12px; }
+.muted { color: var(--color-text-secondary); }
+.unit { font-size: 12px; color: var(--color-text-secondary); margin-left: 2px; }
+
+/* 概览 */
+.def-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
+.ds-item { background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 12px 14px; }
+.ds-num { display: block; font-size: 22px; font-weight: 700; color: var(--color-primary); }
+.ds-num.ok { color: #0E7C6B; }
+.ds-num.warn { color: #F76B15; }
+.ds-num.muted { color: var(--color-text-secondary); }
+.ds-lbl { font-size: 13px; color: var(--color-text-secondary); }
+
+/* 分类快捷筛选 */
+.cat-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.cc-label { font-size: 13px; color: var(--color-text-secondary); }
+.cc-tag { cursor: pointer; }
+
+/* 表格内标签 */
+.tag-cell { display: flex; align-items: center; gap: 6px; }
+.info-icon { color: var(--color-text-secondary); cursor: help; font-size: 14px; }
+
+/* 卡片视图 */
+.card-view { display: flex; flex-direction: column; gap: 18px; min-height: 160px; }
+.cv-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 10px; }
+.cv-count { font-size: 12px; font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
+.cv-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.cv-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: 12px;
+  transition: all var(--transition-fast);
+}
+.cv-item:hover { border-color: var(--color-primary); box-shadow: var(--shadow-card); }
+.cv-item.is-off { opacity: 0.62; }
+.cvi-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.cvi-code { color: var(--color-text-secondary); margin-bottom: 4px; }
+.cvi-desc { font-size: 12px; color: var(--color-text-regular); min-height: 32px; }
+.cvi-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--color-text-secondary); }
+.cvi-ops { display: flex; gap: 2px; }
+
+@media (max-width: 1100px) { .def-summary { grid-template-columns: repeat(3, 1fr); } }
 </style>

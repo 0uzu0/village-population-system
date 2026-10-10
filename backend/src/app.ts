@@ -16,6 +16,7 @@ import tagModule from './modules/tag';
 import keygroupModule from './modules/keygroup';
 import statisticsModule from './modules/statistics';
 import excelModule from './modules/excel';
+import pendingModule from './modules/pending';
 import auditModule from './modules/audit';
 
 export function createApp(): Express {
@@ -43,6 +44,7 @@ export function createApp(): Express {
   app.use('/api/key-groups', keygroupModule);
   app.use('/api/statistics', statisticsModule);
   app.use('/api/excel', excelModule);
+  app.use('/api/pending', pendingModule);
   app.use('/api/audit-logs', auditModule);
 
   // 未匹配路由与错误处理

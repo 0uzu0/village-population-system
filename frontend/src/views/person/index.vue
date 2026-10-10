@@ -106,24 +106,27 @@
         <el-table-column v-if="columns[4].visible" prop="phone" label="联系电话" width="120">
           <template #default="{ row }">{{ row.phone || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[5].visible" prop="family_name" label="所属家庭" width="110" show-overflow-tooltip>
+        <el-table-column v-if="columns[5].visible" prop="phoneBackup" label="备用手机号" width="130">
+          <template #default="{ row }">{{ row.phoneBackup || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="columns[6].visible" prop="family_name" label="所属家庭" width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.familyName || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[6].visible" prop="grid_name" label="所属网格" width="100">
+        <el-table-column v-if="columns[7].visible" prop="grid_name" label="所属网格" width="100">
           <template #default="{ row }">{{ row.gridName || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[7].visible" prop="status" label="状态" width="80">
+        <el-table-column v-if="columns[8].visible" prop="status" label="状态" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[8].visible" label="人口标签" min-width="200">
+        <el-table-column v-if="columns[9].visible" label="人口标签" min-width="200">
           <template #default="{ row }">
             <TagPill v-for="t in row.tags.slice(0, 3)" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
             <el-tag v-if="row.tags.length > 3" size="small" type="info">+{{ row.tags.length - 3 }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[9].visible" prop="updated_at" label="更新时间" width="160" sortable="custom">
+        <el-table-column v-if="columns[10].visible" prop="updated_at" label="更新时间" width="160" sortable="custom">
           <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
@@ -163,6 +166,7 @@
           <el-col :span="12"><el-form-item label="出生日期"><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="备用手机号"><el-input v-model="form.phoneBackup" placeholder="家属/第二联系人" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="所属家庭"><el-select v-model="form.familyId" filterable clearable style="width: 100%"><el-option v-for="f in options.families" :key="f.id" :label="f.family_no" :value="f.id" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
@@ -276,6 +280,7 @@ const columns = ref([
   { prop: 'gender', label: '性别', visible: true },
   { prop: 'age', label: '年龄', visible: true },
   { prop: 'phone', label: '联系电话', visible: true },
+  { prop: 'phone_backup', label: '备用手机号', visible: true },
   { prop: 'family_name', label: '所属家庭', visible: true },
   { prop: 'grid_name', label: '所属网格', visible: true },
   { prop: 'status', label: '状态', visible: true },
@@ -290,6 +295,7 @@ const exportFields = [
   { key: 'birth_date', label: '出生日期' },
   { key: 'id_card', label: '身份证号' },
   { key: 'phone', label: '手机号' },
+  { key: 'phone_backup', label: '备用手机号' },
   { key: 'hukou_address', label: '户籍地址' },
   { key: 'live_address', label: '实际居住地址' },
   { key: 'grid_name', label: '所属网格' },
@@ -299,7 +305,7 @@ const exportFields = [
 
 // 表单
 const formVisible = ref(false);
-const form = reactive<any>({ id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+const form = reactive<any>({ id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
 
 const tagVisible = ref(false);
 const tagTarget = ref<any>(null);
@@ -357,11 +363,11 @@ function toggleColumn(prop: string) {
 }
 
 function openCreate() {
-  Object.assign(form, { id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+  Object.assign(form, { id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
   formVisible.value = true;
 }
 function openEdit(row: any) {
-  Object.assign(form, { id: row.id, name: row.name, formerName: row.formerName || '', gender: row.gender, birthDate: row.birthDate || '', idCard: row.idCard || '', phone: row.phone || '', gridId: row.gridId, familyId: row.familyId, relation: row.relation, village: row.village || '', hukouAddress: row.hukouAddress || '', liveAddress: row.liveAddress || '', remark: row.remark || '' });
+  Object.assign(form, { id: row.id, name: row.name, formerName: row.formerName || '', gender: row.gender, birthDate: row.birthDate || '', idCard: row.idCard || '', phone: row.phone || '', phoneBackup: row.phoneBackup || '', gridId: row.gridId, familyId: row.familyId, relation: row.relation, village: row.village || '', hukouAddress: row.hukouAddress || '', liveAddress: row.liveAddress || '', remark: row.remark || '' });
   formVisible.value = true;
 }
 async function saveForm() {

@@ -33,15 +33,18 @@ const upload = multer({
   },
 });
 
-/** 导入模板字段定义 */
-const IMPORT_COLUMNS = ['姓名', '性别', '出生日期', '身份证号', '手机号', '户籍地址', '实际居住地址', '所属村庄', '网格编号', '家庭编号', '与户主关系'];
+/**
+ * 导入模板字段定义（严格按列顺序解析）。
+ * 第 12 列「备用手机号」为后加字段，旧的 11 列表格仍可正常导入，该列按空处理。
+ */
+const IMPORT_COLUMNS = ['姓名', '性别', '出生日期', '身份证号', '手机号', '户籍地址', '实际居住地址', '所属村庄', '网格编号', '家庭编号', '与户主关系', '备用手机号'];
 
 /** 下载导入模板 */
 router.get('/template', requirePermission('excel:import'), async (_req: Request, res: Response) => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('人口导入模板');
   ws.columns = IMPORT_COLUMNS.map((c) => ({ header: c, key: c, width: 18 }));
-  ws.addRow(['张三', '男', '1990-01-01', '320102199001011234', '13800000000', '示例村一巷1号', '示例村一巷1号', '幸福村', 'G001', 'F001', '户主']);
+  ws.addRow(['张三', '男', '1990-01-01', '320102199001011234', '13800000000', '示例村一巷1号', '示例村一巷1号', '幸福村', 'G001', 'F001', '户主', '13900000000']);
   ws.getRow(1).font = { bold: true };
   ws.getRow(2).getCell('身份证号').numFmt = '@';
 
@@ -69,8 +72,8 @@ async function readRows(filePath: string): Promise<Record<string, any>[]> {
   return rows;
 }
 
-/** 校验并准备导入行，返回 { valid, error } */
-async function validateImportRow(row: Record<string, any>, rowNo: number, gridMap: Map<string, number>, familyMap: Map<string, number>, seenIdCards: Set<string>): Promise<{ ok: boolean; message?: string; person?: any }> {
+/** 校验并准备导入行，返回 { valid, error }；身份证缺失/非法时返回 { pending } 转待核查表 */
+async function validateImportRow(row: Record<string, any>, rowNo: number, gridMap: Map<string, number>, familyMap: Map<string, number>, seenIdCards: Set<string>, existingIdCards: Set<string>): Promise<{ ok: boolean; message?: string; person?: any; pending?: any }> {
   if (!row['姓名']) return { ok: false, message: '姓名为空' };
 
   const genderText = row['性别'];
@@ -79,16 +82,38 @@ async function validateImportRow(row: Record<string, any>, rowNo: number, gridMa
   else if (genderText === '女') gender = 'FEMALE';
   else if (genderText) return { ok: false, message: `性别必须为「男」或「女」，实际为「${genderText}」` };
 
+  /** 待核查记录的基础字段：身份证不可用时原样留存，供人工补录后确认入库 */
+  const basePending = {
+    name: row['姓名'],
+    gender,
+    birth_date: row['出生日期'] || null,
+    id_card: row['身份证号'] || null,
+    phone: row['手机号'] || null,
+    phone_backup: row['备用手机号'] || null,
+    hukou_address: row['户籍地址'] || null,
+    live_address: row['实际居住地址'] || null,
+    village: row['所属村庄'] || null,
+    grid_no: row['网格编号'] || null,
+    family_no: row['家庭编号'] || null,
+    relation: row['与户主关系'] || null,
+    raw_data: JSON.stringify(row),
+  };
+
   let idCardNormalized: string | null = null;
-  if (row['身份证号']) {
-    const check = validateIdCard(row['身份证号']);
-    if (!check.valid) return { ok: false, message: `身份证号：${check.message}` };
-    idCardNormalized = check.normalized!;
-    if (seenIdCards.has(idCardNormalized)) return { ok: false, message: '文件中存在重复身份证号' };
-    seenIdCards.add(idCardNormalized);
-    const dup = await queryOne<any>('SELECT id FROM person WHERE id_card = ?', [idCardNormalized]);
-    if (dup) return { ok: false, message: '该身份证号已存在于系统档案中（禁止覆盖）' };
+  if (!row['身份证号']) {
+    // 核心规则：身份证号为空不进入正式档案，转入待核查表
+    return { ok: true, pending: { ...basePending, reason: 'ID_CARD_MISSING', reason_text: '身份证号为空，需人工核实补录' } };
   }
+  const check = validateIdCard(row['身份证号']);
+  if (!check.valid) {
+    // 身份证号非法同样无法建立可信档案，一并转待核查
+    return { ok: true, pending: { ...basePending, reason: 'ID_CARD_INVALID', reason_text: `身份证号：${check.message}` } };
+  }
+  idCardNormalized = check.normalized!;
+  if (seenIdCards.has(idCardNormalized)) return { ok: false, message: '文件中存在重复身份证号' };
+  seenIdCards.add(idCardNormalized);
+  // 已有档案身份证在导入前一次性载入内存，避免每行一次数据库往返（万行级导入会拖垮耗时）
+  if (existingIdCards.has(idCardNormalized)) return { ok: false, message: '该身份证号已存在于系统档案中（禁止覆盖）' };
 
   const gridNo = row['网格编号'];
   let gridId: number | null = null;
@@ -115,6 +140,7 @@ async function validateImportRow(row: Record<string, any>, rowNo: number, gridMa
       birth_date: birthDate,
       id_card: idCardNormalized,
       phone: row['手机号'] || null,
+      phone_backup: row['备用手机号'] || null,
       hukou_address: row['户籍地址'] || null,
       live_address: row['实际居住地址'] || null,
       village: row['所属村庄'] || null,
@@ -139,6 +165,10 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
   const familyRows = await query<any>('SELECT family_no, id FROM family');
   const familyMap = new Map(familyRows.map((f: any) => [f.family_no, f.id]));
 
+  // 一次性载入已有身份证号（村里人口量级通常 < 10 万，内存可控）
+  const existingCardRows = await query<any>('SELECT id_card FROM person WHERE id_card IS NOT NULL AND id_card <> \'\'');
+  const existingIdCards = new Set<string>(existingCardRows.map((r: any) => String(r.id_card)));
+
   const rows = await readRows(req.file.path);
   const taskResult = await execute(
     `INSERT INTO excel_import_task (file_id, batch_no, status, total_rows, success_count, fail_count, created_by)
@@ -150,17 +180,19 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
   const seenIdCards = new Set<string>();
   let success = 0;
   const errors: { rowNo: number; message: string; raw: string }[] = [];
+  const pendings: { rowNo: number; pending: any }[] = [];
 
-  const validPersons: { person: any; relation: string | null }[] = [];
+  const validPersons: { person: any }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const rowNo = i + 2; // Excel 实际行号（含表头）
-    const v = await validateImportRow(rows[i], rowNo, gridMap, familyMap, seenIdCards);
+    const v = await validateImportRow(rows[i], rowNo, gridMap, familyMap, seenIdCards, existingIdCards);
     if (!v.ok) {
       errors.push({ rowNo, message: v.message!, raw: rows[i]['姓名'] || '' });
+    } else if (v.pending) {
+      pendings.push({ rowNo, pending: v.pending });
     } else {
-      validPersons.push({ person: v.person!, relation: v.person!.relation });
-      v.person!.relation = null;
+      validPersons.push({ person: v.person! });
     }
   }
 
@@ -168,20 +200,29 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
   if (validPersons.length) {
     await withTransaction(async (conn) => {
       for (const { person } of validPersons) {
+        const relation: string | null = person.relation || null;
         const r: any = await conn.query(
-          `INSERT INTO person (person_no, name, gender, birth_date, id_card, phone,
+          `INSERT INTO person (person_no, name, gender, birth_date, id_card, phone, phone_backup,
             hukou_address, live_address, village, grid_id, family_id, relation, status, data_source, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`,
           [
             `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-            person.name, person.gender, person.birth_date, person.id_card, person.phone,
+            person.name, person.gender, person.birth_date, person.id_card, person.phone, person.phone_backup || null,
             person.hukou_address, person.live_address, person.village,
-            person.grid_id, person.family_id, person.relation || null, req.user!.id, req.user!.id,
+            person.grid_id, person.family_id, relation, req.user!.id, req.user!.id,
           ]
         );
         const newId = (r[0] as any).insertId;
         if (person.family_id) {
-          await conn.query('INSERT IGNORE INTO family_member (family_id, person_id, relation) VALUES (?,?,?)', [person.family_id, newId, person.relation || 'OTHER']);
+          // 保留 Excel 中填写的与户主关系（户主 / 妻 / 子 / 女 …），并标记是否户主
+          await conn.query(
+            'INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)',
+            [person.family_id, newId, relation || 'OTHER', relation === 'HEAD' ? 1 : 0]
+          );
+          // 导入到户主时自动回填家庭的户主字段
+          if (relation === 'HEAD') {
+            await conn.query('UPDATE family SET head_person_id = ? WHERE id = ? AND head_person_id IS NULL', [newId, person.family_id]);
+          }
         }
       }
     });
@@ -193,17 +234,42 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
     await execute('INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)', [taskId, e.rowNo, e.message, e.raw]);
   }
 
-  const finalStatus = success === 0 ? 'FAILED' : (errors.length > 0 ? 'PARTIAL' : 'SUCCESS');
+  // 身份证缺失/非法的行落到待核查表，等待人工补录
+  if (pendings.length) {
+    await withTransaction(async (conn) => {
+      for (const { rowNo, pending } of pendings) {
+        await conn.query(
+          `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date, id_card,
+             phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, raw_data, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            batchNo, rowNo, pending.reason, pending.reason_text, pending.name, pending.gender,
+            pending.birth_date || null, pending.id_card || null, pending.phone, pending.phone_backup,
+            pending.hukou_address, pending.live_address, pending.village, pending.grid_no, pending.family_no,
+            pending.relation, pending.raw_data, req.user!.id,
+          ]
+        );
+      }
+    });
+  }
+  const pendingCount = pendings.length;
+
+  // 待核查行不计为失败，但会标记任务为「部分成功」，提醒人工跟进
+  const finalStatus = success === 0 && pendingCount === 0 ? 'FAILED' : (errors.length > 0 || pendingCount > 0 ? 'PARTIAL' : 'SUCCESS');
   await execute(
-    'UPDATE excel_import_task SET status = ?, success_count = ?, fail_count = ?, finished_at = NOW() WHERE id = ?',
-    [finalStatus, success, errors.length, taskId]
+    'UPDATE excel_import_task SET status = ?, success_count = ?, fail_count = ?, pending_count = ?, finished_at = NOW() WHERE id = ?',
+    [finalStatus, success, errors.length, pendingCount, taskId]
   );
 
   // 清理临时文件
   fs.unlink(req.file.path, () => {});
 
-  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:import', request: { batchNo, total: rows.length, success, fail: errors.length }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { taskId, total: rows.length, success, fail: errors.length, status: finalStatus }, '导入完成');
+  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:import', request: { batchNo, total: rows.length, success, fail: errors.length, pending: pendingCount }, result: 'SUCCESS', ip: req.ip });
+  return ok(
+    res,
+    { taskId, total: rows.length, success, fail: errors.length, pending: pendingCount, status: finalStatus },
+    pendingCount ? `导入完成：成功 ${success} 条，失败 ${errors.length} 条，${pendingCount} 条转入待核查` : '导入完成'
+  );
 });
 
 /** 导入任务列表 */
@@ -267,6 +333,7 @@ const EXPORT_FIELDS: { key: string; label: string }[] = [
   { key: 'birth_date', label: '出生日期' },
   { key: 'id_card', label: '身份证号' },
   { key: 'phone', label: '手机号' },
+  { key: 'phone_backup', label: '备用手机号' },
   { key: 'hukou_address', label: '户籍地址' },
   { key: 'live_address', label: '实际居住地址' },
   { key: 'village', label: '所属村庄' },

@@ -113,7 +113,8 @@ router.get('/changes', requirePermission('dashboard:view'), async (req: Request,
 /** 最近导入任务状态 */
 router.get('/imports', requirePermission('dashboard:view'), async (req: Request, res: Response) => {
   const rows = await query<any>(
-    `SELECT eit.id, eit.batch_no, eit.status, eit.total_rows, eit.success_count, eit.fail_count, eit.created_at, u.real_name AS operator_name
+    `SELECT eit.id, eit.batch_no, eit.status, eit.total_rows, eit.success_count, eit.fail_count,
+            eit.pending_count, eit.created_at, u.real_name AS operator_name
      FROM excel_import_task eit LEFT JOIN sys_user u ON u.id = eit.created_by
      ORDER BY eit.created_at DESC LIMIT 5`
   );

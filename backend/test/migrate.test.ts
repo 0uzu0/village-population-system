@@ -38,12 +38,20 @@ CREATE TABLE sys_user (id BIGINT);
     for (const f of files) {
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf-8');
       const stmts = splitStatements(sql);
-      // 旧实现在 V001/V002 上分别丢弃 23/25 与 14/14 块；修复后必须全部保留
-      expect(stmts.length, `${f} 语句数异常`).toBeGreaterThan(5);
+      expect(stmts.length, `${f} 解析出 0 条语句`).toBeGreaterThan(0);
       for (const s of stmts) {
         expect(s.startsWith('--'), `${f} 语句仍以注释开头`).toBe(false);
         expect(s.length, `${f} 存在空语句`).toBeGreaterThan(3);
       }
+    }
+  });
+
+  it('V001/V002 建表语句不得被注释吞掉（旧解析器事故回归）', () => {
+    // 旧实现按 ';' 拆分后丢弃以 -- 开头的块，V001 丢 23/25 条、V002 丢 14/14 条
+    for (const f of ['V001__init_schema.sql', 'V002__seed_data.sql']) {
+      const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf-8');
+      const stmts = splitStatements(sql);
+      expect(stmts.length, `${f} 语句数异常`).toBeGreaterThan(5);
     }
   });
 

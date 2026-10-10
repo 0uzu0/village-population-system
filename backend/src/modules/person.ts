@@ -33,6 +33,9 @@ function prepareIdentity(body: any) {
   if (body.phone) {
     result.phone = body.phone;
   }
+  if (body.phoneBackup) {
+    result.phone_backup = body.phoneBackup;
+  }
   return result;
 }
 
@@ -48,6 +51,7 @@ function toPersonVO(row: any): any {
     age: calcAge(row.birth_date),
     idCard: row.id_card,
     phone: row.phone,
+    phoneBackup: row.phone_backup,
     hukouAddress: row.hukou_address,
     liveAddress: row.live_address,
     village: row.village,
@@ -249,6 +253,7 @@ const personSchema = z.object({
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '出生日期格式应为 YYYY-MM-DD').optional().or(z.literal('')),
   idCard: z.string().optional().or(z.literal('')),
   phone: z.string().optional().or(z.literal('')),
+  phoneBackup: z.string().optional().or(z.literal('')),
   hukouAddress: z.string().max(255).optional().or(z.literal('')),
   liveAddress: z.string().max(255).optional().or(z.literal('')),
   village: z.string().max(128).optional().or(z.literal('')),
@@ -263,7 +268,7 @@ const personSchema = z.object({
 /** 新增人员 */
 router.post('/', requirePermission('person:create'), async (req: Request, res: Response) => {
   const body = personSchema.parse(req.body);
-  const identity = prepareIdentity({ idCard: body.idCard || undefined, phone: body.phone || undefined });
+  const identity = prepareIdentity({ idCard: body.idCard || undefined, phone: body.phone || undefined, phoneBackup: body.phoneBackup || undefined });
 
   if (identity.id_card) {
     const dup = await queryOne<any>('SELECT id FROM person WHERE id_card = ?', [identity.id_card]);
@@ -272,13 +277,13 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
 
   const personNo = genPersonNo();
   const insertResult = await execute(
-    `INSERT INTO person (person_no, name, former_name, gender, birth_date, id_card, phone,
+    `INSERT INTO person (person_no, name, former_name, gender, birth_date, id_card, phone, phone_backup,
       hukou_address, live_address, village, grid_id, family_id, relation, status, remark, data_source, change_reason, created_by, updated_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       personNo, body.name, body.formerName || null, body.gender || identity.gender || 'MALE',
       body.birthDate || identity.birth_date || null,
-      identity.id_card || null, identity.phone || null,
+      identity.id_card || null, identity.phone || null, identity.phone_backup || null,
       body.hukouAddress || null, body.liveAddress || null, body.village || null,
       body.gridId || null, body.familyId || null, body.relation || null,
       body.status || 'NORMAL', body.remark || null, 'MANUAL', body.changeReason || null,
@@ -307,7 +312,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   if (!existing) throw new AppError('人员不存在', 404, 'NOT_FOUND');
 
   const body = personSchema.partial().parse(req.body);
-  const identity = prepareIdentity({ idCard: body.idCard || undefined, phone: body.phone || undefined });
+  const identity = prepareIdentity({ idCard: body.idCard || undefined, phone: body.phone || undefined, phoneBackup: body.phoneBackup || undefined });
 
   if (identity.id_card) {
     const dup = await queryOne<any>('SELECT id FROM person WHERE id_card = ? AND id <> ?', [identity.id_card, id]);
@@ -319,6 +324,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   const params: any[] = [];
   const fieldMap: Record<string, string> = {
     name: 'name', formerName: 'former_name', gender: 'gender', birthDate: 'birth_date',
+    phoneBackup: 'phone_backup',
     hukouAddress: 'hukou_address', liveAddress: 'live_address', village: 'village',
     gridId: 'grid_id', familyId: 'family_id', relation: 'relation', remark: 'remark', changeReason: 'change_reason',
   };

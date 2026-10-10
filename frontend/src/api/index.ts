@@ -35,6 +35,8 @@ export const familyApi = {
   addTag: (id: number, data: any) => post(`/families/${id}/tags`, data),
   removeTag: (id: number, linkId: number) => del(`/families/${id}/tags/${linkId}`),
   remove: (id: number) => del(`/families/${id}`),
+  /** 按门牌号（地址）自动归户；dryRun=1 仅预览 */
+  autoGroup: (data: any) => post('/families/auto-group', data),
 };
 
 // ===== 网格 =====
@@ -84,6 +86,18 @@ export const excelApi = {
   exportTasks: () => get('/excel/export-tasks'),
   downloadExport: (id: number) => request.get(`/excel/export-tasks/${id}/download`, { responseType: 'blob' }),
   downloadErrors: (id: number) => request.get(`/excel/import-tasks/${id}/errors/download`, { responseType: 'blob' }),
+};
+
+// ===== 导入待核查人员 =====
+export const pendingApi = {
+  list: (params: any) => get<PageResult>('/pending', params),
+  summary: () => get('/pending/summary'),
+  detail: (id: number) => get(`/pending/${id}`),
+  update: (id: number, data: any) => put(`/pending/${id}`, data),
+  confirm: (id: number, data?: any) => post(`/pending/${id}/confirm`, data || {}),
+  ignore: (id: number, data?: any) => post(`/pending/${id}/ignore`, data || {}),
+  remove: (id: number) => del(`/pending/${id}`),
+  batchDelete: (ids: number[]) => post('/pending/batch-delete', { ids }),
 };
 
 // ===== 用户与权限 =====

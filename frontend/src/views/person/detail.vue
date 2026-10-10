@@ -28,6 +28,7 @@
           </el-descriptions-item>
           <el-descriptions-item label="身份证号">{{ person?.idCard || '—' }}</el-descriptions-item>
           <el-descriptions-item label="联系电话">{{ person?.phone || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="备用手机号">{{ person?.phoneBackup || '—' }}</el-descriptions-item>
           <el-descriptions-item label="数据来源">{{ person?.dataSource === 'EXCEL_IMPORT' ? 'Excel导入' : '手工录入' }}</el-descriptions-item>
         </el-descriptions>
       </div>

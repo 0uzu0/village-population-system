@@ -22,6 +22,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'key-groups', name: 'keygroup', component: () => import('@/views/keygroup/index.vue'), meta: { title: '重点人群', perm: 'keygroup:view' } },
       { path: 'statistics', name: 'statistics', component: () => import('@/views/statistics/index.vue'), meta: { title: '数据统计', perm: 'statistics:view' } },
       { path: 'excel', name: 'excel', component: () => import('@/views/excel/index.vue'), meta: { title: 'Excel 导入导出', perm: 'excel:import' } },
+      { path: 'pending', name: 'pending', component: () => import('@/views/pending/index.vue'), meta: { title: '待核查人员', perm: 'excel:import' } },
       { path: 'users', name: 'user', component: () => import('@/views/user/index.vue'), meta: { title: '用户与权限', perm: 'user:view' } },
       { path: 'system', name: 'system', component: () => import('@/views/system/index.vue'), meta: { title: '系统设置', perm: 'system:view' } },
     ],

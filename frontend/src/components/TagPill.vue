@@ -1,5 +1,5 @@
 <template>
-  <div class="vp-pill" :style="{ background: bg, color }">
+  <div class="vp-pill" :class="{ 'is-highlight': highlight }" :style="{ background: bg, color }">
     <span v-if="dot" class="dot" :style="{ background: color }"></span>
     {{ name }}
   </div>
@@ -8,7 +8,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-const props = defineProps<{ name: string; color: string; dot?: boolean }>();
+const props = defineProps<{ name: string; color: string; dot?: boolean; highlight?: boolean }>();
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
@@ -37,5 +37,10 @@ const bg = computed(() => hexToRgba(props.color, 0.12));
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+/* 命中当前筛选条件的标签：加描边强调 */
+.vp-pill.is-highlight {
+  box-shadow: 0 0 0 1.5px currentColor inset;
+  font-weight: 600;
 }
 </style>

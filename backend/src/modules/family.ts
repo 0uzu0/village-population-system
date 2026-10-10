@@ -91,6 +91,167 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
   return okPage(res, result);
 });
 
+// ==================== 按门牌号（地址）自动归户 ====================
+
+/** 地址归一化：全角转半角、统一连字符、去空白与括号，保证「100－1号」与「100-1号」归为同一户 */
+export function normalizeAddress(raw: string): string {
+  if (!raw) return '';
+  return String(raw)
+    .replace(/[\uFF01-\uFF5E]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[－—–−~～]/g, '-')
+    .replace(/[（）()]/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+const autoGroupSchema = z.object({
+  /** UNFAMILIED=仅未归属家庭的人员（默认，安全）；ALL=全部人员重新归户 */
+  scope: z.enum(['UNFAMILIED', 'ALL']).default('UNFAMILIED'),
+  gridId: z.coerce.number().optional(),
+  /** hukou=按户籍地址门牌号（默认）；live=按实际居住地址 */
+  addressField: z.enum(['hukou', 'live']).default('hukou'),
+  /** 少于该人数的门牌号不单独成户 */
+  minSize: z.coerce.number().int().min(1).max(50).default(1),
+  /** 1=只预览不落库（默认）；0=执行 */
+  dryRun: z.coerce.number().int().min(0).max(1).default(1),
+});
+
+/** 户主判定：优先 relation=HEAD，其次年龄最大者，最后取组内第一条 */
+function pickHead(list: any[]): any {
+  const head = list.find((p) => p.relation === 'HEAD');
+  if (head) return head;
+  const withBirth = list.filter((p) => p.birth_date);
+  if (withBirth.length) {
+    return withBirth.sort((a, b) => new Date(a.birth_date).getTime() - new Date(b.birth_date).getTime())[0];
+  }
+  return list[0];
+}
+
+/**
+ * 按门牌号自动归户：把同一门牌号的人员归入同一个家庭。
+ * 默认只处理尚未归属家庭的人员，且默认只预览不落库，避免误操作覆盖已有家庭结构。
+ */
+router.post('/auto-group', requirePermission('family:manage'), async (req: Request, res: Response) => {
+  const body = autoGroupSchema.parse(req.body);
+  const dryRun = body.dryRun === 1;
+  const field = body.addressField === 'live' ? 'live_address' : 'hukou_address';
+
+  const where: string[] = [`p.${field} IS NOT NULL`, `p.${field} <> ''`];
+  const params: any[] = [];
+  if (body.scope === 'UNFAMILIED') where.push('p.family_id IS NULL');
+  if (body.gridId) { where.push('p.grid_id = ?'); params.push(body.gridId); }
+
+  const persons = await query<any>(
+    `SELECT p.id, p.name, p.relation, p.grid_id, p.birth_date, p.hukou_address, p.live_address
+     FROM person p WHERE ${where.join(' AND ')}`,
+    params
+  );
+
+  // 按归一化门牌号分组
+  const groups = new Map<string, { key: string; address: string; members: any[] }>();
+  let skippedNoAddress = 0;
+  for (const p of persons) {
+    const key = normalizeAddress(p[field]);
+    if (!key) { skippedNoAddress++; continue; }
+    if (!groups.has(key)) groups.set(key, { key, address: String(p[field]).trim(), members: [] });
+    groups.get(key)!.members.push(p);
+  }
+
+  // 已有家庭（按归一化地址匹配，避免重复建户）
+  const existingFamilies = await query<any>('SELECT id, address, grid_id FROM family WHERE status = 1');
+  const familyByAddr = new Map<string, any>();
+  for (const f of existingFamilies) {
+    const k = normalizeAddress(f.address);
+    if (k && !familyByAddr.has(k)) familyByAddr.set(k, f);
+  }
+
+  const plans: { key: string; address: string; count: number; headName: string; familyId: number | null; reuse: boolean }[] = [];
+  let personsToAssign = 0;
+  let familiesToCreate = 0;
+  let familiesToReuse = 0;
+  let skippedSmall = 0;
+
+  for (const g of [...groups.values()].sort((a, b) => b.members.length - a.members.length)) {
+    if (g.members.length < body.minSize) { skippedSmall += g.members.length; continue; }
+    const head = pickHead(g.members);
+    const existing = familyByAddr.get(g.key) || null;
+    if (existing) familiesToReuse++; else familiesToCreate++;
+    personsToAssign += g.members.length;
+    plans.push({
+      key: g.key,
+      address: g.address,
+      count: g.members.length,
+      headName: head.name,
+      familyId: existing ? existing.id : null,
+      reuse: !!existing,
+    });
+  }
+
+  const summary = {
+    dryRun,
+    scope: body.scope,
+    addressField: body.addressField,
+    totalPersons: persons.length,
+    skippedNoAddress,
+    skippedSmall,
+    groupCount: plans.length,
+    familiesToCreate,
+    familiesToReuse,
+    personsToAssign,
+  };
+
+  if (dryRun) {
+    return ok(res, { ...summary, preview: plans.slice(0, 20) }, '预览完成，未写入数据');
+  }
+
+  // 正式执行
+  let created = 0;
+  let assigned = 0;
+  await withTransaction(async (conn) => {
+    for (const g of [...groups.values()]) {
+      if (g.members.length < body.minSize) continue;
+      const head = pickHead(g.members);
+      let familyId: number = familyByAddr.get(g.key)?.id;
+
+      if (!familyId) {
+        const familyNo = genFamilyNo();
+        const r: any = await conn.query(
+          'INSERT INTO family (family_no, address, grid_id, head_person_id) VALUES (?,?,?,?)',
+          [familyNo, g.address, head.grid_id || null, null]
+        );
+        familyId = (r[0] as any).insertId;
+        familyByAddr.set(g.key, { id: familyId, address: g.address });
+        created++;
+      }
+
+      for (const m of g.members) {
+        const isHead = m.id === head.id;
+        const relation = isHead ? 'HEAD' : m.relation || 'OTHER';
+        await conn.query(
+          `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)
+           ON DUPLICATE KEY UPDATE relation = VALUES(relation), is_householder = VALUES(is_householder), status = 1, leave_date = NULL`,
+          [familyId, m.id, relation, isHead ? 1 : 0]
+        );
+        await conn.query('UPDATE person SET family_id = ?, relation = ? WHERE id = ?', [familyId, relation, m.id]);
+        assigned++;
+      }
+
+      await conn.query('UPDATE family SET head_person_id = ? WHERE id = ?', [head.id, familyId]);
+    }
+  });
+
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'family:auto_group',
+    request: { scope: body.scope, addressField: body.addressField, gridId: body.gridId || null, minSize: body.minSize, created, assigned },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+
+  return ok(res, { ...summary, createdFamilies: created, assignedPersons: assigned, preview: plans.slice(0, 20) }, `已归户 ${assigned} 人，新建家庭 ${created} 户`);
+});
+
 /** 家庭详情 */
 router.get('/:id', requirePermission('family:view'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
@@ -104,7 +265,7 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
 
   const members = await query<any>(
     `SELECT fm.id AS memberId, fm.relation, fm.is_householder, fm.join_date,
-            p.id, p.name, p.gender, p.birth_date, p.person_no, p.id_card, p.status
+            p.id, p.name, p.gender, p.birth_date, p.person_no, p.id_card, p.phone, p.phone_backup, p.status
      FROM family_member fm JOIN person p ON p.id = fm.person_id
      WHERE fm.family_id = ? ORDER BY fm.is_householder DESC, fm.id`,
     [id]
@@ -114,7 +275,10 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
     relation: m.relation,
     isHouseholder: !!m.is_householder,
     joinDate: m.join_date,
-    person: { id: m.id, name: m.name, gender: m.gender, birthDate: m.birth_date, personNo: m.person_no, idCard: m.id_card, status: m.status },
+    person: {
+      id: m.id, name: m.name, gender: m.gender, birthDate: m.birth_date, personNo: m.person_no,
+      idCard: m.id_card, phone: m.phone, phoneBackup: m.phone_backup, status: m.status,
+    },
   }));
 
   const tags = await query<any>(
