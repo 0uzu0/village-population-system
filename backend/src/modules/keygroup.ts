@@ -4,39 +4,68 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
-import { calcAge } from '../utils/age';
+import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
 import { z } from 'zod';
 
 const router = Router();
 router.use(authMiddleware);
 
-/** 重点人群快捷入口定义（按标签编码） */
-const QUICK_GROUPS: { label: string; code: string }[] = [
+
+/**
+ * 重点人群快捷入口定义。
+ * - 身份类（党员/退役军人…）按标签编码统计，需先通过名单导入或手工打标签
+ * - 年龄类（老年人/未成年人）按年龄自动判定，无需打标签即可统计
+ */
+const QUICK_GROUPS: { label: string; code: string; minAge?: number; maxAge?: number }[] = [
   { label: '党员', code: 'PARTY_MEMBER' },
   { label: '退役军人', code: 'VETERAN' },
   { label: '优抚对象', code: 'PREFERENTIAL_OBJECT' },
   { label: '低保对象', code: 'LOW_INCOME_PERSON' },
   { label: '特困供养对象', code: 'EXTREME_POVERTY_PERSON' },
   { label: '残疾人', code: 'DISABLED_PERSON' },
-  { label: '老年人', code: 'ELDERLY' },
-  { label: '未成年人', code: 'MINOR' },
+  { label: `老年人（≥${ELDERLY_MIN_AGE}岁）`, code: 'ELDERLY', minAge: ELDERLY_MIN_AGE },
+  { label: `未成年人（<${MINOR_MAX_AGE + 1}岁）`, code: 'MINOR', maxAge: MINOR_MAX_AGE },
 ];
 
-/** 快捷入口统计（各标签人数，明确说明存在交叉、不可相加） */
+/** 快捷入口统计（身份类按标签人数，年龄类按出生日期推算，均存在交叉、不可相加） */
 router.get('/quick', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
-  const rows = await query<any>(
+  const tagRows = await query<any>(
     `SELECT td.code, td.name, td.color,
        (SELECT COUNT(*) FROM person_tag pt WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE') AS cnt
      FROM tag_definition td
      WHERE td.code IN (${QUICK_GROUPS.map(() => '?').join(',')})`,
     QUICK_GROUPS.map((g) => g.code)
   );
-  const map = new Map(rows.map((r: any) => [r.code, r]));
-  const list = QUICK_GROUPS.map((g) => {
-    const r = map.get(g.code);
-    return { label: g.label, code: g.code, count: r ? r.cnt : 0, color: r ? r.color : '#3978F6' };
+  const tagMap = new Map(tagRows.map((r: any) => [r.code, r]));
+
+  const list: any[] = [];
+  for (const g of QUICK_GROUPS) {
+    const r = tagMap.get(g.code);
+    const isAgeGroup = g.minAge != null || g.maxAge != null;
+    let count = 0;
+    if (isAgeGroup) {
+      // 年龄类：直接按出生日期推算，不依赖是否打过标签
+      const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
+      const row = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where}`, af.params);
+      count = Number(row?.cnt || 0);
+    } else {
+      count = r ? Number(r.cnt) : 0;
+    }
+    list.push({
+      label: g.label,
+      code: g.code,
+      count,
+      color: r ? r.color : '#3978F6',
+      // 前端据此决定是「按标签筛」还是「按年龄筛」
+      byAge: isAgeGroup,
+      minAge: g.minAge ?? null,
+      maxAge: g.maxAge ?? null,
+    });
+  }
+  return ok(res, {
+    list,
+    note: `各人群人数存在交叉，不可简单相加；老年人按 ${ELDERLY_MIN_AGE} 周岁及以上、未成年人按 ${MINOR_MAX_AGE + 1} 周岁以下自动判定，无需打标签`,
   });
-  return ok(res, { list, note: '各标签人数存在交叉，不可简单相加' });
 });
 
 const querySchema = z.object({
@@ -74,7 +103,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   }
 
   const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');
-  if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); conditions.push(`年龄 ${q.minAge ?? ''}-${q.maxAge ?? ''} 岁`); }
+  if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); conditions.push(`年龄 ${ageRangeText(q.minAge, q.maxAge)}`); }
 
   /** 把标签 ID 翻成名称，避免界面上只显示一串数字 */
   async function tagNames(ids: number[]): Promise<string[]> {

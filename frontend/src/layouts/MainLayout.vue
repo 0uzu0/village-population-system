@@ -106,7 +106,6 @@ const menus: MenuItem[] = [
   { path: '/grids', title: '网格管理', icon: 'Grid', perm: 'grid:view' },
   { path: '/tags', title: '人口标签', icon: 'CollectionTag', perm: 'tag:view' },
   { path: '/key-groups', title: '重点人群', icon: 'Aim', perm: 'keygroup:view' },
-  { path: '/statistics', title: '数据统计', icon: 'DataAnalysis', perm: 'statistics:view' },
   { path: '/excel', title: 'Excel 导入导出', icon: 'Document', perm: 'excel:import' },
   { path: '/pending', title: '待核查人员', icon: 'WarningFilled', perm: 'excel:import' },
   { path: '/users', title: '用户与权限', icon: 'Setting', perm: 'user:view' },

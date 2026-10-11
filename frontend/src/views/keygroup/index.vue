@@ -11,12 +11,12 @@
     <div class="vp-container">
       <div class="card-title">常用快捷入口</div>
       <div class="quick-grid">
-        <div v-for="g in quick" :key="g.code" class="quick-card" @click="setQuickTag(g.code)">
+        <div v-for="g in quick" :key="g.code" class="quick-card" :class="{ active: isQuickActive(g) }" @click="setQuickTag(g)">
           <div class="num">{{ g.count }}</div>
           <div class="lbl">{{ g.label }}</div>
         </div>
       </div>
-      <div class="note">注：各标签人数存在交叉，不可简单相加</div>
+      <div class="note">{{ quickNote }}</div>
     </div>
 
     <!-- 筛选条件 -->
@@ -160,6 +160,7 @@ const loading = ref(false);
 const list = ref<any[]>([]);
 const total = ref(0);
 const quick = ref<any[]>([]);
+const quickNote = ref('注：各人群人数存在交叉，不可简单相加');
 const personTags = ref<any[]>([]);
 const familyTags = ref<any[]>([]);
 const grids = ref<any[]>([]);
@@ -188,10 +189,27 @@ const activeChips = computed(() => {
   }
   if (query.gridId) chips.push({ key: 'gridId', text: `网格：${gridName(query.gridId)}` });
   if (query.minAge != null || query.maxAge != null) {
-    chips.push({ key: 'age', text: `年龄：${query.minAge ?? 0} - ${query.maxAge ?? '不限'} 岁` });
+    chips.push({ key: 'age', text: `年龄：${ageRangeText(query.minAge, query.maxAge)}` });
   }
   return chips;
 });
+
+/** 年龄区间人话表述，与后端口径一致（只给上界时按「<N+1 岁」理解） */
+function ageRangeText(minAge?: number | null, maxAge?: number | null): string {
+  if (minAge != null && maxAge != null) return `${minAge}-${maxAge} 岁`;
+  if (minAge != null) return `≥${minAge} 岁`;
+  if (maxAge != null) return `<${maxAge + 1} 岁`;
+  return '不限';
+}
+
+/** 快捷入口是否处于选中态，便于一眼看出当前在看哪类人群 */
+function isQuickActive(g: any) {
+  if (g.byAge) {
+    return query.tagIds.length === 0 && (query.minAge ?? null) === (g.minAge ?? null) && (query.maxAge ?? null) === (g.maxAge ?? null);
+  }
+  const tag = personTags.value.find((t) => t.code === g.code);
+  return !!tag && query.tagIds.length === 1 && query.tagIds[0] === tag.id;
+}
 
 function removeChip(key: string) {
   if (key === 'tagIds') query.tagIds = [];
@@ -240,15 +258,25 @@ function reset() {
   load();
 }
 
-function setQuickTag(code: string) {
-  const tag = personTags.value.find((t) => t.code === code);
-  if (!tag) return;
-  query.tagIds = [tag.id];
+/**
+ * 快捷入口：身份类（党员/退役军人…）按标签筛；
+ * 年龄类（老年人/未成年人）按年龄区间筛，不依赖是否打过标签。
+ */
+function setQuickTag(g: any) {
+  query.tagIds = [];
   query.tagMode = 'ANY';
   query.familyTagIds = [];
   query.gridId = null;
   query.minAge = null;
   query.maxAge = null;
+  if (g.byAge) {
+    query.minAge = g.minAge ?? null;
+    query.maxAge = g.maxAge ?? null;
+  } else {
+    const tag = personTags.value.find((t) => t.code === g.code);
+    if (!tag) return;
+    query.tagIds = [tag.id];
+  }
   doSearch();
 }
 
@@ -273,6 +301,7 @@ onMounted(async () => {
     gridApi.list({ pageSize: 100 }),
   ]);
   quick.value = q.data.list;
+  if (q.data.note) quickNote.value = `注：${q.data.note}`;
   personTags.value = pt.data.list;
   familyTags.value = ft.data.list;
   grids.value = g.data.list;
@@ -283,9 +312,10 @@ onMounted(async () => {
 .page { display: flex; flex-direction: column; gap: 16px; }
 .card-title { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 14px; }
 .count { color: var(--color-primary); font-size: var(--font-size-lg); }
-.quick-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; }
+.quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px; }
 .quick-card { background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 14px; text-align: center; cursor: pointer; transition: all var(--transition-fast); border: 1px solid transparent; }
 .quick-card:hover { border-color: var(--color-primary); background: var(--color-primary-light); }
+.quick-card.active { border-color: var(--color-primary); background: var(--color-primary-light); box-shadow: 0 0 0 2px var(--color-primary-light); }
 .quick-card .num { font-size: var(--font-size-xl); font-weight: 700; color: var(--color-primary); }
 .quick-card .lbl { font-size: var(--font-size-sm); color: var(--color-text-regular); margin-top: 4px; }
 .note { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 10px; }

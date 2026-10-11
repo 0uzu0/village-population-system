@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter, combineFilters } from '../src/utils/tagQuery';
+import { ELDERLY_MIN_AGE, MINOR_MAX_AGE, ageRangeText } from '../src/utils/age';
 
 describe('标签筛选 SQL 构建', () => {
   it('并集（ANY）生成 EXISTS IN 条件', () => {
@@ -35,5 +36,30 @@ describe('标签筛选 SQL 构建', () => {
     const f2 = buildAgeFilter(18, null, 'p');
     const combined = combineFilters([f1, f2]);
     expect(combined.params.length).toBe(2);
+  });
+});
+
+describe('重点人群年龄类口径', () => {
+  it('老年人：60 周岁及以上', () => {
+    expect(ELDERLY_MIN_AGE).toBe(60);
+    const f = buildAgeFilter(ELDERLY_MIN_AGE, null, 'p');
+    // 下界：出生日期不晚于「今天减 60 年」，即已满 60 周岁
+    expect(f.where).toContain('birth_date <= DATE_SUB(CURDATE(), INTERVAL ? YEAR)');
+    expect(f.params).toEqual(['60']);
+  });
+
+  it('未成年人：18 周岁以下（最大 17 岁）', () => {
+    expect(MINOR_MAX_AGE).toBe(17);
+    const f = buildAgeFilter(null, MINOR_MAX_AGE, 'p');
+    // 上界为闭区间 17，SQL 侧换算成「出生日期晚于今天减 18 年」，即不满 18 周岁
+    expect(f.where).toContain('birth_date >= DATE_SUB(CURDATE(), INTERVAL ? YEAR)');
+    expect(f.params).toEqual(['18']);
+  });
+
+  it('年龄区间人话表述', () => {
+    expect(ageRangeText(60, null)).toBe('≥60 岁');
+    expect(ageRangeText(null, 17)).toBe('<18 岁');
+    expect(ageRangeText(18, 60)).toBe('18-60 岁');
+    expect(ageRangeText(null, null)).toBe('不限');
   });
 });

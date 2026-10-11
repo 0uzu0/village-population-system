@@ -36,3 +36,19 @@ export function ageBand(age: number): string {
   }
   return '未知';
 }
+
+/**
+ * 重点人群年龄类口径（与 AGE_BANDS 的 0-17 / 60+ 分段保持一致）：
+ * - 老年人：60 周岁及以上
+ * - 未成年人：18 周岁以下，即最大 17 岁（buildAgeFilter 的 maxAge 为闭区间，故传 17）
+ */
+export const ELDERLY_MIN_AGE = 60;
+export const MINOR_MAX_AGE = 17;
+
+/** 年龄区间的人话表述：只给下界显示「≥N 岁」，只给上界显示「<N+1 岁」，两端齐全显示「A-B 岁」 */
+export function ageRangeText(minAge?: number | null, maxAge?: number | null): string {
+  if (minAge != null && maxAge != null) return `${minAge}-${maxAge} 岁`;
+  if (minAge != null) return `≥${minAge} 岁`;
+  if (maxAge != null) return `<${maxAge + 1} 岁`;
+  return '不限';
+}

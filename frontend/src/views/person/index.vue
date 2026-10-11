@@ -96,40 +96,42 @@
         border
       >
         <el-table-column type="selection" width="44" reserve-selection />
-        <el-table-column v-if="columns[0].visible" prop="name" label="姓名" width="90" fixed sortable="custom">
+        <el-table-column v-if="isColVisible('name')" prop="name" label="姓名" width="90" fixed sortable="custom">
           <template #default="{ row }">
             <el-link type="primary" @click="$router.push(`/persons/${row.id}`)">{{ row.name }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[1].visible" prop="personNo" label="编号" width="120" show-overflow-tooltip />
-        <el-table-column v-if="columns[2].visible" prop="gender" label="性别" width="60">
+        <el-table-column v-if="isColVisible('gender')" prop="gender" label="性别" width="60">
           <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[3].visible" prop="age" label="年龄" width="70" sortable="custom" />
-        <el-table-column v-if="columns[4].visible" prop="phone" label="联系电话" width="120">
+        <el-table-column v-if="isColVisible('age')" prop="age" label="年龄" width="70" sortable="custom" />
+        <el-table-column v-if="isColVisible('phone')" prop="phone" label="联系电话" width="120">
           <template #default="{ row }">{{ row.phone || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[5].visible" prop="phoneBackup" label="备用手机号" width="130">
+        <el-table-column v-if="isColVisible('phone_backup')" prop="phoneBackup" label="备用手机号" width="130">
           <template #default="{ row }">{{ row.phoneBackup || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[6].visible" prop="family_name" label="所属家庭" width="110" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.familyName || '—' }}</template>
+        <el-table-column v-if="isColVisible('hukou_address')" prop="hukouAddress" label="户籍地址" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.hukouAddress || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[7].visible" prop="grid_name" label="所属网格" width="100">
+        <el-table-column v-if="isColVisible('live_address')" prop="liveAddress" label="实际居住地址" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.liveAddress || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isColVisible('grid_name')" prop="gridName" label="所属网格" width="110">
           <template #default="{ row }">{{ row.gridName || '—' }}</template>
         </el-table-column>
-        <el-table-column v-if="columns[8].visible" prop="status" label="状态" width="80">
+        <el-table-column v-if="isColVisible('status')" prop="status" label="状态" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[9].visible" label="人口标签" min-width="200">
+        <el-table-column v-if="isColVisible('tags')" label="人口标签" min-width="200">
           <template #default="{ row }">
             <TagPill v-for="t in row.tags.slice(0, 3)" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
             <el-tag v-if="row.tags.length > 3" size="small" type="info">+{{ row.tags.length - 3 }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[10].visible" prop="updated_at" label="更新时间" width="160" sortable="custom">
+        <el-table-column v-if="isColVisible('updated_at')" prop="updatedAt" label="更新时间" width="160" sortable="custom">
           <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
@@ -280,19 +282,42 @@ const quickTagCodes = ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_IN
 const quickTags = computed(() => commonTags.value.filter((t) => quickTagCodes.includes(t.code)));
 const personTags = computed(() => commonTags.value.filter((t: any) => t.object_type === 'PERSON' && t.enabled === 1));
 
-const columns = ref([
+/* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
+const COLUMNS_STORAGE_KEY = 'person:columns';
+const DEFAULT_COLUMNS = [
   { prop: 'name', label: '姓名', visible: true },
-  { prop: 'person_no', label: '编号', visible: true },
   { prop: 'gender', label: '性别', visible: true },
   { prop: 'age', label: '年龄', visible: true },
   { prop: 'phone', label: '联系电话', visible: true },
   { prop: 'phone_backup', label: '备用手机号', visible: true },
-  { prop: 'family_name', label: '所属家庭', visible: true },
+  { prop: 'hukou_address', label: '户籍地址', visible: true },
+  { prop: 'live_address', label: '实际居住地址', visible: true },
   { prop: 'grid_name', label: '所属网格', visible: true },
   { prop: 'status', label: '状态', visible: true },
   { prop: 'tags', label: '人口标签', visible: true },
   { prop: 'updated_at', label: '更新时间', visible: true },
-]);
+];
+
+/**
+ * 列显隐状态持久化到 localStorage。
+ * 读取时以默认列为准做归并——后续增删列不会因旧缓存而错乱或漏列。
+ */
+function restoreColumns() {
+  const base = DEFAULT_COLUMNS.map((c) => ({ ...c }));
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+    if (!raw) return base;
+    const saved: Record<string, boolean> = JSON.parse(raw);
+    return base.map((c) => ({ ...c, visible: typeof saved[c.prop] === 'boolean' ? saved[c.prop] : c.visible }));
+  } catch {
+    return base;
+  }
+}
+
+const columns = ref(restoreColumns());
+function isColVisible(prop: string) {
+  return columns.value.find((c) => c.prop === prop)?.visible ?? false;
+}
 
 const exportFields = [
   { key: 'person_no', label: '人员编号' },
@@ -365,7 +390,13 @@ function onSortChange({ prop, order }: any) {
 }
 function toggleColumn(prop: string) {
   const c = columns.value.find((x) => x.prop === prop);
-  if (c) c.visible = !c.visible;
+  if (!c) return;
+  c.visible = !c.visible;
+  try {
+    const saved: Record<string, boolean> = {};
+    for (const col of columns.value) saved[col.prop] = col.visible;
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(saved));
+  } catch { /* 隐私模式下写入失败时忽略，不影响本次会话内的显隐 */ }
 }
 
 function openCreate() {
