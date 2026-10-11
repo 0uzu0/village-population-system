@@ -3,6 +3,7 @@ import { env } from './config/env';
 import { runMigrations } from './db/migrate';
 import { pool, queryOne, execute, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
+import { markStaleImportTasks } from './modules/excel';
 
 // 双保险：即使有未被路由层捕获的 Promise 拒绝，也只记录日志而不打崩进程
 process.on('unhandledRejection', (reason) => {
@@ -38,6 +39,9 @@ async function main(): Promise<void> {
 
   // 初始化管理员
   await bootstrapAdmin();
+
+  // 启动时收敛上次崩溃残留、状态卡在「处理中」的导入任务
+  await markStaleImportTasks();
 
   const app = createApp();
   const server = app.listen(env.port, () => {

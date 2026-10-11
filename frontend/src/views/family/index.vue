@@ -61,7 +61,7 @@
       <el-form :model="form" label-width="90px">
         <el-form-item label="家庭地址"><el-input v-model="form.address" /></el-form-item>
         <el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item>
-        <el-form-item label="户主"><el-select v-model="form.headPersonId" filterable clearable style="width: 100%"><el-option v-for="p in persons" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+        <el-form-item label="户主"><el-select v-model="form.headPersonId" filterable clearable style="width: 100%"><el-option v-for="p in persons" :key="p.id" :label="personLabel(p)" :value="p.id" /></el-select></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -100,7 +100,7 @@
 
         <div v-if="auth.hasPermission('family:manage')" class="add-member">
           <el-select v-model="memberForm.personId" placeholder="选择人员" filterable style="flex: 1">
-            <el-option v-for="p in persons" :key="p.id" :label="`${p.name}(${p.person_no})`" :value="p.id" />
+            <el-option v-for="p in persons" :key="p.id" :label="personLabel(p)" :value="p.id" />
           </el-select>
           <el-select v-model="memberForm.relation" placeholder="关系" style="width: 110px">
             <el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" />
@@ -288,6 +288,18 @@ async function removeFamily(row: any) {
   await familyApi.remove(row.id);
   ElMessage.success('家庭已删除');
   load();
+}
+
+/**
+ * 人员下拉展示文案。
+ * 注意：后端返回的是驼峰字段（personNo / idCard / village），
+ * 之前误用下划线 p.person_no，导致下拉里显示「张三(undefined)」。
+ */
+function personLabel(p: any) {
+  if (!p) return '';
+  const sub = p.idCard ? p.idCard : p.personNo || '';
+  const extra = p.village ? `·${p.village}` : '';
+  return sub ? `${p.name}（${sub}）${extra}` : p.name;
 }
 
 async function openDetail(row: any) {

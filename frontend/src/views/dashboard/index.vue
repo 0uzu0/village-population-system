@@ -65,6 +65,7 @@
             <div class="ii-top">
               <span class="ii-batch">{{ row.batch_no }}</span>
               <el-tag size="small" :type="importTag(row.status)" effect="light">{{ importLabel(row.status) }}</el-tag>
+              <span v-if="isImportStale(row)" class="ii-stale">已中断</span>
             </div>
             <div class="ii-bar">
               <div class="ii-track">
@@ -171,6 +172,12 @@ function importTag(s: string) {
   const map: Record<string, any> = { SUCCESS: 'success', FAILED: 'danger', PARTIAL: 'warning', RUNNING: 'primary', PENDING: 'info' };
   return map[s] || 'info';
 }
+/** 导入是同步执行，长时间停在「处理中」说明进程中断了（后端会自动收敛为失败） */
+function isImportStale(row: any) {
+  if (row.status !== 'RUNNING' || !row.created_at) return false;
+  const t = new Date(String(row.created_at).replace(/-/g, '/')).getTime();
+  return Number.isFinite(t) && Date.now() - t > 10 * 60 * 1000;
+}
 
 const importLoading = ref(false);
 
@@ -267,6 +274,7 @@ onMounted(async () => {
 .import-item { border: 1px solid var(--color-border); border-radius: var(--radius-button); padding: 10px 12px; transition: border-color var(--transition-fast); }
 .import-item:hover { border-color: var(--color-primary); }
 .ii-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ii-stale { font-size: 12px; color: #B42318; }
 .ii-batch { font-size: 13px; font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ii-bar { margin: 8px 0 6px; }
 .ii-track { display: flex; height: 6px; background: var(--color-border-light); border-radius: 3px; overflow: hidden; }

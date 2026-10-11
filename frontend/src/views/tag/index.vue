@@ -51,7 +51,11 @@
           </div>
 
           <!-- 表格视图 -->
-          <el-table v-if="viewMode === 'table'" :data="list" v-loading="loading" row-key="id">
+          <!-- 数据不足一屏时撑满可用区域，避免下方大片空白 -->
+          <el-table
+            v-if="viewMode === 'table'" :data="list" v-loading="loading" row-key="id"
+            class="table-view" :style="{ minHeight: 'calc(100vh - 420px)' }"
+          >
             <el-table-column prop="name" label="标签名称" width="150">
               <template #default="{ row }">
                 <div class="tag-cell">
@@ -255,7 +259,11 @@ const allTags = ref<any[]>([]);
 const historyQuery = reactive({ page: 1, pageSize: 20, objectType: '', action: '', tagId: null as number | null });
 
 const query = reactive<any>({ page: 1, pageSize: 50, keyword: '', categoryId: null as number | null, objectType: '', enabled: '' });
-const viewMode = ref<'table' | 'card'>('table');
+
+// 视图模式记忆：表格 / 卡片的选择存入本地，离开页面再回来仍保持上次的选择
+const VIEW_MODE_KEY = 'vp:tag:viewMode';
+const viewMode = ref<'table' | 'card'>((localStorage.getItem(VIEW_MODE_KEY) as 'table' | 'card') || 'table');
+watch(viewMode, (v) => localStorage.setItem(VIEW_MODE_KEY, v));
 const formVisible = ref(false);
 const form = reactive<any>({ id: null, name: '', code: '', categoryId: null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0 });
 
@@ -396,12 +404,20 @@ onMounted(async () => {
 .tag-cell { display: flex; align-items: center; gap: 6px; }
 .info-icon { color: var(--color-text-secondary); cursor: help; font-size: 14px; }
 
-/* 卡片视图 */
-.card-view { display: flex; flex-direction: column; gap: 18px; min-height: 160px; }
+/* 卡片视图：内容不足时也撑满可用区域，避免下方大片空白 */
+.card-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: calc(100vh - 420px);
+}
 .cv-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 10px; }
 .cv-count { font-size: 12px; font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
-.cv-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+/* auto-fit：空轨道会塌陷，卡片自动拉伸填满整行宽度（auto-fill 会在右侧留白） */
+.cv-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .cv-item {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-button);
   padding: 12px;
@@ -411,7 +427,7 @@ onMounted(async () => {
 .cv-item.is-off { opacity: 0.62; }
 .cvi-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .cvi-code { color: var(--color-text-secondary); margin-bottom: 4px; }
-.cvi-desc { font-size: 12px; color: var(--color-text-regular); min-height: 32px; }
+.cvi-desc { font-size: 12px; color: var(--color-text-regular); min-height: 32px; flex: 1; }
 .cvi-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--color-text-secondary); }
 .cvi-ops { display: flex; gap: 2px; }
 

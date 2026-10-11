@@ -31,6 +31,9 @@
         <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 140px" @change="doSearch">
           <el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" />
         </el-select>
+        <el-select v-model="query.village" placeholder="村庄" clearable filterable style="width: 140px" @change="doSearch">
+          <el-option v-for="v in options.villages" :key="v.name" :label="v.name" :value="v.name" />
+        </el-select>
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="doSearch">
           <el-option label="正常" value="NORMAL" /><el-option label="迁入" value="MOVED_IN" /><el-option label="迁出" value="MOVED_OUT" /><el-option label="注销" value="CANCELLED" />
         </el-select>
@@ -98,7 +101,7 @@
             <el-link type="primary" @click="$router.push(`/persons/${row.id}`)">{{ row.name }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column v-if="columns[1].visible" prop="person_no" label="编号" width="120" show-overflow-tooltip />
+        <el-table-column v-if="columns[1].visible" prop="personNo" label="编号" width="120" show-overflow-tooltip />
         <el-table-column v-if="columns[2].visible" prop="gender" label="性别" width="60">
           <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
         </el-table-column>
@@ -250,10 +253,13 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import TagPill from '@/components/TagPill.vue';
+
+const route = useRoute();
 import type { PersonItem } from '@/types';
 
 const auth = useAuthStore();
@@ -263,11 +269,11 @@ const exporting = ref(false);
 const list = ref<PersonItem[]>([]);
 const total = ref(0);
 const selectedIds = ref<Set<number>>(new Set());
-const options = reactive({ grids: [] as any[], families: [] as any[] });
+const options = reactive({ grids: [] as any[], families: [] as any[], villages: [] as any[] });
 const commonTags = ref<any[]>([]);
 
 const query = reactive<any>({
-  page: 1, pageSize: 20, keyword: '', gender: '', gridId: null, status: '', tagIds: [], tagMode: 'ANY', sortBy: '', sortOrder: '',
+  page: 1, pageSize: 20, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], tagMode: 'ANY', sortBy: '', sortOrder: '',
 });
 
 const quickTagCodes = ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON', 'ELDERLY', 'MINOR'];
@@ -339,7 +345,7 @@ async function load() {
 }
 
 function doSearch() { query.page = 1; load(); }
-function resetQuery() { Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, status: '', tagIds: [], sortBy: '', sortOrder: '' }); load(); }
+function resetQuery() { Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], sortBy: '', sortOrder: '' }); load(); }
 
 function toggleQuickTag(id: number) {
   const idx = query.tagIds.indexOf(id);
@@ -472,11 +478,23 @@ async function submitExport() {
 }
 
 onMounted(async () => {
+  // 支持从网格/村庄概览页跳转过来时带入筛选条件（/persons?gridId=1 或 ?village=艾园村）
+  const rq = route.query;
+  if (rq.gridId) query.gridId = Number(rq.gridId);
+  if (rq.village) query.village = String(rq.village);
   load();
-  const [opts, tags] = await Promise.all([personApi.options(), tagApi.definitions({ pageSize: 200, objectType: 'PERSON' })]);
+  const [opts, tags] = await Promise.all([
+    personApi.options(),
+    tagApi.definitions({ pageSize: 200, objectType: 'PERSON' }),
+  ]);
   options.grids = opts.data.grids;
   options.families = opts.data.families;
   commonTags.value = tags.data.list;
+  // 村庄下拉：取自人员档案中已有的村庄名，失败时静默降级为空（不影响人员列表本身）
+  try {
+    const vil: any = await gridApi.villages();
+    options.villages = vil?.data?.list || [];
+  } catch { options.villages = []; }
 });
 </script>
 

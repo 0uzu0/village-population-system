@@ -42,6 +42,7 @@ export const familyApi = {
 // ===== 网格 =====
 export const gridApi = {
   list: (params: any) => get<PageResult>('/grids', params),
+  villages: (params?: any) => get('/grids/villages', params),
   detail: (id: number) => get(`/grids/${id}`),
   create: (data: any) => post('/grids', data),
   update: (id: number, data: any) => put(`/grids/${id}`, data),

@@ -43,11 +43,19 @@
             </el-alert>
           </div>
 
-          <div class="card-title" style="margin-top: 24px">导入任务记录</div>
+          <div class="section-head">
+            <div class="card-title">导入任务记录</div>
+            <el-button link :loading="loading" @click="loadTasks">
+              <el-icon><Refresh /></el-icon>刷新
+            </el-button>
+          </div>
           <el-table :data="tasks" v-loading="loading">
             <el-table-column prop="batch_no" label="批次号" width="160" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" width="100">
-              <template #default="{ row }"><el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag></template>
+            <el-table-column prop="status" label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="importStatusTag(row)">{{ importStatusLabel(row) }}</el-tag>
+                <div v-if="isStale(row)" class="stale-tip">已超过 10 分钟未结束</div>
+              </template>
             </el-table-column>
             <el-table-column prop="total_rows" label="总行数" width="80" />
             <el-table-column prop="success_count" label="成功" width="70" />
@@ -138,8 +146,29 @@ const exportFields = [
 ];
 const exportForm = reactive({ fields: exportFields.map((f) => f.key) });
 
-function statusLabel(s: string) { return { PENDING: '待处理', RUNNING: '处理中', SUCCESS: '成功', FAILED: '失败', PARTIAL: '部分成功' }[s] || s; }
-function statusTag(s: string): any { return { SUCCESS: 'success', FAILED: 'danger', PARTIAL: 'warning', RUNNING: 'primary', PENDING: 'info' }[s] || 'info'; }
+const STATUS_LABEL: Record<string, string> = { PENDING: '待处理', RUNNING: '处理中', SUCCESS: '成功', FAILED: '失败', PARTIAL: '部分成功' };
+const STATUS_TAG: Record<string, any> = { SUCCESS: 'success', FAILED: 'danger', PARTIAL: 'warning', RUNNING: 'primary', PENDING: 'info' };
+function statusLabel(s: string) { return STATUS_LABEL[s] || s; }
+function statusTag(s: string): any { return STATUS_TAG[s] || 'info'; }
+
+/**
+ * 导入是同步执行，正常几秒内结束；若长时间停留在 RUNNING，
+ * 多半是进程重启或导入途中报错（后端会自动收敛），此处提前显示「已中断」避免一直转圈。
+ */
+const STALE_MS = 10 * 60 * 1000;
+function isStale(row: any) {
+  if (row.status !== 'RUNNING' || !row.created_at) return false;
+  const t = new Date(String(row.created_at).replace(/-/g, '/')).getTime();
+  return Number.isFinite(t) && Date.now() - t > STALE_MS;
+}
+/** 导入任务状态文案：卡住的任务按失败展示 */
+function importStatusLabel(row: any) {
+  if (isStale(row)) return '已中断';
+  return statusLabel(row.status);
+}
+function importStatusTag(row: any): any {
+  return isStale(row) ? 'danger' : statusTag(row.status);
+}
 
 function beforeUpload(file: File) {
   const ok = /\.(xlsx|xls)$/i.test(file.name);
@@ -159,7 +188,8 @@ async function doImport(options: any) {
     ElMessage.success({ message: `导入完成：成功 ${d.success} 条，失败 ${d.fail} 条${pendingTip}`, duration: 4000 });
     loadTasks();
   } catch (e) {
-    // 错误已提示
+    // 错误已由拦截器提示；这里刷新列表，让用户看到该批次被标记为「失败」而不是一直处理中
+    loadTasks();
   } finally {
     loading.value = false;
   }
@@ -232,6 +262,8 @@ onMounted(() => {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
 .card-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.stale-tip { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
 .import-box { padding: 8px 0; }
 .steps { margin-bottom: 20px; }
 .import-actions { display: flex; gap: 12px; align-items: center; }

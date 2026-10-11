@@ -151,37 +151,75 @@ async function validateImportRow(row: Record<string, any>, rowNo: number, gridMa
   };
 }
 
-/** 导入人口（同步处理，记录批次与错误） */
-router.post('/import', requirePermission('excel:import'), upload.single('file'), async (req: Request, res: Response) => {
-  if (!req.file) return fail(res, '请上传 Excel 文件');
-  const batchNo = (req.body.batchNo as string) || `IMP${Date.now()}`;
+/**
+ * 孤儿任务收敛：进程崩溃 / 重启会让任务状态永远停在 RUNNING，
+ * 导致前端一直显示「处理中」。超过阈值仍未结束的一律判定为失败。
+ * @returns 被收敛的任务数
+ */
+export async function markStaleImportTasks(minutes = 10): Promise<number> {
+  try {
+    const stale = await query<any>(
+      `SELECT id FROM excel_import_task WHERE status = 'RUNNING' AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [minutes]
+    );
+    if (!stale.length) return 0;
+    for (const t of stale) {
+      await execute(`UPDATE excel_import_task SET status = 'FAILED', finished_at = NOW() WHERE id = ?`, [t.id]);
+      await execute(
+        `INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`,
+        [t.id, 0, `任务异常中断：超过 ${minutes} 分钟仍停留在「处理中」，已自动判定为失败（常见于导入过程报错或后端重启）`, '']
+      );
+    }
+    console.warn(`[excel] 已收敛 ${stale.length} 个卡在「处理中」的导入任务`);
+    return stale.length;
+  } catch (e) {
+    console.error('[excel] 收敛孤儿导入任务失败', e);
+    return 0;
+  }
+}
 
-  // 幂等：同一批次号禁止重复提交
-  const existed = await queryOne<any>('SELECT id FROM excel_import_task WHERE batch_no = ?', [batchNo]);
-  if (existed) throw new AppError('该批次已提交过，请勿重复导入', 409, 'DUPLICATE_BATCH');
+/** 导入过程异常时把任务标记为失败，避免停留在「处理中」 */
+async function markImportFailed(taskId: number, totalRows: number, err: unknown): Promise<void> {
+  const reason = err instanceof Error ? err.message : String(err);
+  try {
+    await execute(
+      `UPDATE excel_import_task SET status = 'FAILED', fail_count = ?, finished_at = NOW() WHERE id = ?`,
+      [totalRows, taskId]
+    );
+    await execute(
+      `INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`,
+      [taskId, 0, `导入过程异常中断（整批未生效）：${reason}`, '']
+    );
+  } catch (inner) {
+    console.error('[excel] 标记导入任务为失败时出错', inner);
+  }
+}
 
-  const gridRows = await query<any>('SELECT grid_no, id FROM grid');
-  const gridMap = new Map(gridRows.map((g: any) => [g.grid_no, g.id]));
-  const familyRows = await query<any>('SELECT family_no, id FROM family');
-  const familyMap = new Map(familyRows.map((f: any) => [f.family_no, f.id]));
+interface ImportOutcome {
+  success: number;
+  errors: { rowNo: number; message: string; raw: string }[];
+  pendingCount: number;
+}
 
-  // 一次性载入已有身份证号（村里人口量级通常 < 10 万，内存可控）
-  const existingCardRows = await query<any>('SELECT id_card FROM person WHERE id_card IS NOT NULL AND id_card <> \'\'');
-  const existingIdCards = new Set<string>(existingCardRows.map((r: any) => String(r.id_card)));
-
-  const rows = await readRows(req.file.path);
-  const taskResult = await execute(
-    `INSERT INTO excel_import_task (file_id, batch_no, status, total_rows, success_count, fail_count, created_by)
-     VALUES (NULL, ?, 'RUNNING', ?, 0, 0, ?)`,
-    [batchNo, rows.length, req.user!.id]
-  );
-  const taskId = taskResult.insertId;
+/**
+ * 执行导入：逐行校验 → 写人员 → 记错误 → 身份证异常行落待核查。
+ * 抽成独立函数，路由层才能用 try/catch 兜住异常并把任务置为失败。
+ */
+async function processImportRows(p: {
+  rows: any[];
+  taskId: number;
+  batchNo: string;
+  gridMap: Map<string, number>;
+  familyMap: Map<string, number>;
+  existingIdCards: Set<string>;
+  userId: number;
+}): Promise<ImportOutcome> {
+  const { rows, taskId, batchNo, gridMap, familyMap, existingIdCards, userId } = p;
 
   const seenIdCards = new Set<string>();
   let success = 0;
   const errors: { rowNo: number; message: string; raw: string }[] = [];
   const pendings: { rowNo: number; pending: any }[] = [];
-
   const validPersons: { person: any }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -209,7 +247,7 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
             `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
             person.name, person.gender, person.birth_date, person.id_card, person.phone, person.phone_backup || null,
             person.hukou_address, person.live_address, person.village,
-            person.grid_id, person.family_id, relation, req.user!.id, req.user!.id,
+            person.grid_id, person.family_id, relation, userId, userId,
           ]
         );
         const newId = (r[0] as any).insertId;
@@ -246,34 +284,74 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
             batchNo, rowNo, pending.reason, pending.reason_text, pending.name, pending.gender,
             pending.birth_date || null, pending.id_card || null, pending.phone, pending.phone_backup,
             pending.hukou_address, pending.live_address, pending.village, pending.grid_no, pending.family_no,
-            pending.relation, pending.raw_data, req.user!.id,
+            pending.relation, pending.raw_data, userId,
           ]
         );
       }
     });
   }
-  const pendingCount = pendings.length;
 
-  // 待核查行不计为失败，但会标记任务为「部分成功」，提醒人工跟进
-  const finalStatus = success === 0 && pendingCount === 0 ? 'FAILED' : (errors.length > 0 || pendingCount > 0 ? 'PARTIAL' : 'SUCCESS');
-  await execute(
-    'UPDATE excel_import_task SET status = ?, success_count = ?, fail_count = ?, pending_count = ?, finished_at = NOW() WHERE id = ?',
-    [finalStatus, success, errors.length, pendingCount, taskId]
+  return { success, errors, pendingCount: pendings.length };
+}
+
+/** 导入人口（同步处理，记录批次与错误） */
+router.post('/import', requirePermission('excel:import'), upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) return fail(res, '请上传 Excel 文件');
+  const batchNo = (req.body.batchNo as string) || `IMP${Date.now()}`;
+
+  // 幂等：同一批次号禁止重复提交
+  const existed = await queryOne<any>('SELECT id FROM excel_import_task WHERE batch_no = ?', [batchNo]);
+  if (existed) throw new AppError('该批次已提交过，请勿重复导入', 409, 'DUPLICATE_BATCH');
+
+  const gridRows = await query<any>('SELECT grid_no, id FROM grid');
+  const gridMap = new Map(gridRows.map((g: any) => [g.grid_no, g.id]));
+  const familyRows = await query<any>('SELECT family_no, id FROM family');
+  const familyMap = new Map(familyRows.map((f: any) => [f.family_no, f.id]));
+
+  // 一次性载入已有身份证号（村里人口量级通常 < 10 万，内存可控）
+  const existingCardRows = await query<any>('SELECT id_card FROM person WHERE id_card IS NOT NULL AND id_card <> \'\'');
+  const existingIdCards = new Set<string>(existingCardRows.map((r: any) => String(r.id_card)));
+
+  const rows = await readRows(req.file.path);
+  const taskResult = await execute(
+    `INSERT INTO excel_import_task (file_id, batch_no, status, total_rows, success_count, fail_count, created_by)
+     VALUES (NULL, ?, 'RUNNING', ?, 0, 0, ?)`,
+    [batchNo, rows.length, req.user!.id]
   );
+  const taskId = taskResult.insertId;
 
-  // 清理临时文件
-  fs.unlink(req.file.path, () => {});
+  try {
+    const { success, errors, pendingCount } = await processImportRows({
+      rows, taskId, batchNo, gridMap, familyMap, existingIdCards, userId: req.user!.id,
+    });
 
-  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:import', request: { batchNo, total: rows.length, success, fail: errors.length, pending: pendingCount }, result: 'SUCCESS', ip: req.ip });
-  return ok(
-    res,
-    { taskId, total: rows.length, success, fail: errors.length, pending: pendingCount, status: finalStatus },
-    pendingCount ? `导入完成：成功 ${success} 条，失败 ${errors.length} 条，${pendingCount} 条转入待核查` : '导入完成'
-  );
+    // 待核查行不计为失败，但会标记任务为「部分成功」，提醒人工跟进
+    const finalStatus = success === 0 && pendingCount === 0 ? 'FAILED' : (errors.length > 0 || pendingCount > 0 ? 'PARTIAL' : 'SUCCESS');
+    await execute(
+      'UPDATE excel_import_task SET status = ?, success_count = ?, fail_count = ?, pending_count = ?, finished_at = NOW() WHERE id = ?',
+      [finalStatus, success, errors.length, pendingCount, taskId]
+    );
+
+    // 清理临时文件
+    fs.unlink(req.file.path, () => {});
+
+    await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:import', request: { batchNo, total: rows.length, success, fail: errors.length, pending: pendingCount }, result: 'SUCCESS', ip: req.ip });
+    return ok(
+      res,
+      { taskId, total: rows.length, success, fail: errors.length, pending: pendingCount, status: finalStatus },
+      pendingCount ? `导入完成：成功 ${success} 条，失败 ${errors.length} 条，${pendingCount} 条转入待核查` : '导入完成'
+    );
+  } catch (err) {
+    // 导入中途失败（SQL 报错、连接中断等）：整批未生效，任务必须落为失败，不能停在「处理中」
+    await markImportFailed(taskId, rows.length, err);
+    fs.unlink(req.file.path, () => {});
+    throw err;
+  }
 });
 
-/** 导入任务列表 */
+/** 导入任务列表（先收敛卡住的任务，避免列表里长期挂着「处理中」） */
 router.get('/import-tasks', requirePermission('excel:import'), async (req: Request, res: Response) => {
+  await markStaleImportTasks();
   const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(500).default(20) }).parse(req.query);
   const totalRow = await queryOne<any>('SELECT COUNT(*) AS cnt FROM excel_import_task');
   const rows = await query<any>(

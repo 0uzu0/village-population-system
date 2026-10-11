@@ -75,6 +75,7 @@ const listQuerySchema = z.object({
   gender: z.string().optional(),
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
+  village: z.string().optional(),
   status: z.string().optional(),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
@@ -107,6 +108,10 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   if (q.familyId) {
     where.push('p.family_id = ?');
     params.push(q.familyId);
+  }
+  if (q.village) {
+    where.push('p.village = ?');
+    params.push(q.village);
   }
   if (q.status) {
     where.push('p.status = ?');

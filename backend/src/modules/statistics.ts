@@ -3,6 +3,7 @@ import { query, queryOne } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok } from '../utils/response';
+import { markStaleImportTasks } from './excel';
 
 const router = Router();
 router.use(authMiddleware);
@@ -112,6 +113,8 @@ router.get('/changes', requirePermission('dashboard:view'), async (req: Request,
 
 /** 最近导入任务状态 */
 router.get('/imports', requirePermission('dashboard:view'), async (req: Request, res: Response) => {
+  // 先收敛卡在「处理中」的任务，工作台才不会一直转圈
+  await markStaleImportTasks();
   const rows = await query<any>(
     `SELECT eit.id, eit.batch_no, eit.status, eit.total_rows, eit.success_count, eit.fail_count,
             eit.pending_count, eit.created_at, u.real_name AS operator_name
