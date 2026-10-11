@@ -90,9 +90,15 @@ function extractInserts(file: string, src: string): InsertStmt[] {
     }
     if (!cols.length || cols.some((c) => !c)) continue; // 非列清单（如函数调用）跳过
 
-    const rest = src.slice(endIdx);
+    // VALUES 的查找必须限制在当前 SQL 字符串字面量之内。
+    // 批量写入的 VALUES 是运行时拼接的（`VALUES ${rows.map(...)}`），若不加边界，
+    // 搜索会一路向后跑到下一条语句的 VALUES 上，导致张冠李戴的误报。
+    const nextTick = src.indexOf('`', endIdx);
+    const windowEnd = nextTick === -1 ? src.length : nextTick;
+    const rest = src.slice(endIdx, windowEnd);
+
     const vIdx = rest.search(/\bVALUES\s*\(/i);
-    if (vIdx < 0) continue; // INSERT ... SELECT 不做检查
+    if (vIdx < 0) continue; // 运行时拼接的 VALUES / INSERT ... SELECT 不做检查
     const openParen = endIdx + vIdx + rest.slice(vIdx).indexOf('(');
     let values: string;
     try {
@@ -143,15 +149,41 @@ describe('INSERT 语句形状校验（列数 = 值数）', () => {
     }
   });
 
-  it('excel.ts 的人员 INSERT 与参数个数一致（本次事故回归）', () => {
+  it('excel.ts 的人员 INSERT 列清单与行模板对齐（本次事故回归）', () => {
     const src = fs.readFileSync(path.join(SRC_DIR, 'modules/excel.ts'), 'utf8');
-    const stmt = extractInserts('excel.ts', src).find((s) => s.table === 'person');
-    expect(stmt).toBeTruthy();
-    // 占位符数量 = 列数 - 字面量(status/data_source) 个数
-    const placeholders = stmt!.rows[0].filter((v) => v === '?').length;
-    const literals = stmt!.rows[0].length - placeholders;
-    expect(placeholders + literals).toBe(stmt!.columns.length);
-    // 参数数组恰好 15 个：person_no + 12 字段 + created_by + updated_by
+    // 批量写入后 VALUES 部分是运行时拼接的，这里分别校验「列清单」与「单行值模板」
+    const mCols = src.match(/\bINSERT INTO person \(([\s\S]*?)\)\s*VALUES/);
+    expect(mCols, '未找到 person 的 INSERT 列清单').toBeTruthy();
+    const cols = splitTopLevel(mCols![1]).map((c) => c.trim());
+    expect(cols).toEqual([
+      'person_no', 'name', 'gender', 'birth_date', 'id_card', 'phone', 'phone_backup',
+      'hukou_address', 'live_address', 'village', 'grid_id', 'family_id', 'relation',
+      'status', 'data_source', 'created_by', 'updated_by',
+    ]);
+
+    // 单行值模板 PERSON_ROW_VALUES：15 个占位符 + status/data_source 两个字面量
+    const m = src.match(/const PERSON_ROW_VALUES\s*=\s*`([^`]+)`/);
+    expect(m).toBeTruthy();
+    const rowValues = m![1];
+    const placeholders = (rowValues.match(/\?/g) || []).length;
+    const literals = rowValues.split(',').filter((v) => v.trim() && !v.includes('?')).length;
     expect(placeholders).toBe(15);
+    expect(literals).toBe(2);
+    expect(placeholders + literals).toBe(cols.length);
+  });
+
+  it('批量写入的占位符个数与对应列数一致（分片拼接回归）', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/excel.ts'), 'utf8');
+    // import_pending 18 列 → 单行模板 18 个占位符；person_tag 6 列；tag_change_log 6 列
+    const cases: { cols: number; re: RegExp }[] = [
+      { cols: 18, re: /import_pending \(batch_no[\s\S]*?VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },
+      { cols: 6, re: /person_tag \(person_id, tag_id, effect_date, status, basis, created_by\)\s*\n\s*VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },
+    ];
+    for (const c of cases) {
+      const m = src.match(c.re);
+      expect(m, `未匹配到批量写入语句: ${c.re}`).toBeTruthy();
+      const ph = (m![1].match(/\?/g) || []).length;
+      expect(ph).toBe(c.cols);
+    }
   });
 });

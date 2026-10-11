@@ -3,12 +3,15 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import ExcelJS from 'exceljs';
+import type { PoolConnection } from 'mysql2/promise';
 import { query, queryOne, execute, withTransaction } from '../config/db';
+import { genPersonNo } from '../utils/id';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
+import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { env } from '../config/env';
 import { z } from 'zod';
 
@@ -322,9 +325,17 @@ async function validateImportRow(row: Record<string, any>, rowNo: number, gridMa
 /**
  * 孤儿任务收敛：进程崩溃 / 重启会让任务状态永远停在 RUNNING，
  * 导致前端一直显示「处理中」。超过阈值仍未结束的一律判定为失败。
- * @returns 被收敛的任务数
+ *
+ * 调用点较多（启动、工作台、任务列表），这里做最小间隔节流：
+ * 任务列表每次刷新都全表扫一遍 RUNNING 任务没有意义，一分钟一次足够。
  */
-export async function markStaleImportTasks(minutes = 10): Promise<number> {
+const STALE_SCAN_INTERVAL_MS = 60_000;
+let lastStaleScanAt = 0;
+
+export async function markStaleImportTasks(minutes = 10, force = false): Promise<number> {
+  const now = Date.now();
+  if (!force && now - lastStaleScanAt < STALE_SCAN_INTERVAL_MS) return 0;
+  lastStaleScanAt = now;
   try {
     const stale = await query<any>(
       `SELECT id FROM excel_import_task WHERE status = 'RUNNING' AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
@@ -360,6 +371,112 @@ async function markImportFailed(taskId: number, totalRows: number, err: unknown)
     );
   } catch (inner) {
     console.error('[excel] 标记导入任务为失败时出错', inner);
+  }
+}
+
+/** 批量写入分片大小：逐行 INSERT 在万行级导入时会产生上万次数据库往返 */
+const WRITE_CHUNK = 500;
+
+/**
+ * person 单行值模板（17 列）：13 个占位符 + status/data_source 两个字面量 + 2 个占位符。
+ * 列顺序必须与 insertPersons 里的列名清单严格一致。
+ */
+const PERSON_ROW_VALUES = `(?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`;
+
+/** 删除临时文件，删除失败不影响主流程（文件残留在 uploads 目录，可定期清理） */
+function safeUnlink(filePath?: string): void {
+  if (!filePath) return;
+  fs.unlink(filePath, () => {});
+}
+
+/**
+ * 批量写入人员并回查主键。
+ * 用多行 VALUES 一次写入整批，再凭唯一的 person_no 精确回查自增 ID——
+ * 相比逐行 INSERT，万行级导入的数据库往返从上万次降到几十次。
+ */
+async function insertPersons(
+  conn: PoolConnection,
+  persons: any[],
+  userId: number
+): Promise<Map<string, number>> {
+  const idByNo = new Map<string, number>();
+  for (let i = 0; i < persons.length; i += WRITE_CHUNK) {
+    const chunk = persons.slice(i, i + WRITE_CHUNK);
+    const values: any[] = [];
+    const rowPlaceholders: string[] = [];
+    for (let j = 0; j < chunk.length; j++) {
+      const p = chunk[j];
+      // 序号保证同批次内 person_no 唯一，避免撞 uk_person_no 使整批回滚
+      p.person_no = genPersonNo(i + j);
+      values.push(
+        p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone, p.phone_backup,
+        p.hukou_address, p.live_address, p.village, p.grid_id, p.family_id, p.relation,
+        userId, userId
+      );
+      rowPlaceholders.push(PERSON_ROW_VALUES);
+    }
+    await conn.query(
+      `INSERT INTO person (person_no, name, gender, birth_date, id_card, phone, phone_backup,
+         hukou_address, live_address, village, grid_id, family_id, relation, status, data_source, created_by, updated_by)
+       VALUES ${rowPlaceholders.join(', ')}`,
+      values
+    );
+    const [rows] = (await conn.query(
+      `SELECT id, person_no FROM person WHERE person_no IN (${chunk.map(() => '?').join(',')})`,
+      chunk.map((p: any) => p.person_no)
+    )) as any[];
+    for (const r of rows) idByNo.set(String(r.person_no), Number(r.id));
+  }
+  return idByNo;
+}
+
+/** 批量建立家庭成员关联，并在导入到户主时回填家庭户主字段 */
+async function linkFamilyMembers(
+  conn: PoolConnection,
+  persons: any[],
+  idByNo: Map<string, number>
+): Promise<void> {
+  const members: any[][] = [];
+  const headUpdates: { personId: number; familyId: number }[] = [];
+
+  for (const p of persons) {
+    if (!p.family_id) continue;
+    const personId = idByNo.get(String(p.person_no));
+    if (!personId) continue;
+    // 保留 Excel 中填写的与户主关系（户主 / 妻 / 子 / 女 …）
+    const relation = p.relation || 'OTHER';
+    members.push([p.family_id, personId, relation, relation === 'HEAD' ? 1 : 0]);
+    if (relation === 'HEAD') headUpdates.push({ personId, familyId: p.family_id });
+  }
+
+  for (let i = 0; i < members.length; i += WRITE_CHUNK) {
+    const chunk = members.slice(i, i + WRITE_CHUNK);
+    await conn.query(
+      `INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder)
+       VALUES ${chunk.map(() => '(?,?,?,?)').join(', ')}`,
+      chunk.flat()
+    );
+  }
+  for (const h of headUpdates) {
+    await conn.query(
+      'UPDATE family SET head_person_id = ? WHERE id = ? AND head_person_id IS NULL',
+      [h.personId, h.familyId]
+    );
+  }
+}
+
+/** 批量写入导入错误行 */
+async function insertImportErrors(
+  taskId: number,
+  errors: { rowNo: number; message: string; raw: string }[]
+): Promise<void> {
+  for (let i = 0; i < errors.length; i += WRITE_CHUNK) {
+    const chunk = errors.slice(i, i + WRITE_CHUNK);
+    await execute(
+      `INSERT INTO excel_import_error (task_id, row_no, message, raw_data)
+       VALUES ${chunk.map(() => '(?,?,?,?)').join(', ')}`,
+      chunk.flatMap((e) => [taskId, e.rowNo, e.message, e.raw])
+    );
   }
 }
 
@@ -402,58 +519,38 @@ async function processImportRows(p: {
     }
   }
 
-  // 写入有效行（事务）
+  // 写入有效行（事务）：批量 INSERT + 批量建家庭成员关联
   if (validPersons.length) {
+    const persons = validPersons.map((v) => v.person);
     await withTransaction(async (conn) => {
-      for (const { person } of validPersons) {
-        const relation: string | null = person.relation || null;
-        const r: any = await conn.query(
-          `INSERT INTO person (person_no, name, gender, birth_date, id_card, phone, phone_backup,
-            hukou_address, live_address, village, grid_id, family_id, relation, status, data_source, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`,
-          [
-            `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-            person.name, person.gender, person.birth_date, person.id_card, person.phone, person.phone_backup || null,
-            person.hukou_address, person.live_address, person.village,
-            person.grid_id, person.family_id, relation, userId, userId,
-          ]
-        );
-        const newId = (r[0] as any).insertId;
-        if (person.family_id) {
-          // 保留 Excel 中填写的与户主关系（户主 / 妻 / 子 / 女 …），并标记是否户主
-          await conn.query(
-            'INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)',
-            [person.family_id, newId, relation || 'OTHER', relation === 'HEAD' ? 1 : 0]
-          );
-          // 导入到户主时自动回填家庭的户主字段
-          if (relation === 'HEAD') {
-            await conn.query('UPDATE family SET head_person_id = ? WHERE id = ? AND head_person_id IS NULL', [newId, person.family_id]);
-          }
-        }
-      }
+      const idByNo = await insertPersons(conn, persons, userId);
+      await linkFamilyMembers(conn, persons, idByNo);
+      success = idByNo.size;
     });
-    success = validPersons.length;
   }
 
   // 记录错误
-  for (const e of errors) {
-    await execute('INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)', [taskId, e.rowNo, e.message, e.raw]);
-  }
+  await insertImportErrors(taskId, errors);
 
   // 身份证缺失/非法的行落到待核查表，等待人工补录
   if (pendings.length) {
     await withTransaction(async (conn) => {
-      for (const { rowNo, pending } of pendings) {
-        await conn.query(
-          `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date, id_card,
-             phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, raw_data, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
+      for (let i = 0; i < pendings.length; i += WRITE_CHUNK) {
+        const chunk = pendings.slice(i, i + WRITE_CHUNK);
+        const values: any[] = [];
+        for (const { rowNo, pending } of chunk) {
+          values.push(
             batchNo, rowNo, pending.reason, pending.reason_text, pending.name, pending.gender,
             pending.birth_date || null, pending.id_card || null, pending.phone, pending.phone_backup,
             pending.hukou_address, pending.live_address, pending.village, pending.grid_no, pending.family_no,
-            pending.relation, pending.raw_data, userId,
-          ]
+            pending.relation, pending.raw_data, userId
+          );
+        }
+        await conn.query(
+          `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date, id_card,
+             phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, raw_data, created_by)
+           VALUES ${chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(', ')}`,
+          values
         );
       }
     });
@@ -480,13 +577,21 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
   const existingCardRows = await query<any>('SELECT id_card FROM person WHERE id_card IS NOT NULL AND id_card <> \'\'');
   const existingIdCards = new Set<string>(existingCardRows.map((r: any) => String(r.id_card)));
 
-  const rows = await readRows(req.file.path);
-  const taskResult = await execute(
-    `INSERT INTO excel_import_task (file_id, batch_no, status, total_rows, success_count, fail_count, created_by)
-     VALUES (NULL, ?, 'RUNNING', ?, 0, 0, ?)`,
-    [batchNo, rows.length, req.user!.id]
-  );
-  const taskId = taskResult.insertId;
+  // 解析与建任务都在 try 内：任何一步抛错都能保证临时文件被清理（此前解析失败会残留文件）
+  let rows: Record<string, any>[];
+  let taskId: number;
+  try {
+    rows = await readRows(req.file.path);
+    const taskResult = await execute(
+      `INSERT INTO excel_import_task (file_id, batch_no, status, total_rows, success_count, fail_count, created_by)
+       VALUES (NULL, ?, 'RUNNING', ?, 0, 0, ?)`,
+      [batchNo, rows.length, req.user!.id]
+    );
+    taskId = taskResult.insertId;
+  } catch (err) {
+    safeUnlink(req.file.path);
+    throw err;
+  }
 
   try {
     const { success, errors, pendingCount } = await processImportRows({
@@ -500,9 +605,6 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
       [finalStatus, success, errors.length, pendingCount, taskId]
     );
 
-    // 清理临时文件
-    fs.unlink(req.file.path, () => {});
-
     await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:import', request: { batchNo, total: rows.length, success, fail: errors.length, pending: pendingCount }, result: 'SUCCESS', ip: req.ip });
     return ok(
       res,
@@ -512,8 +614,9 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
   } catch (err) {
     // 导入中途失败（SQL 报错、连接中断等）：整批未生效，任务必须落为失败，不能停在「处理中」
     await markImportFailed(taskId, rows.length, err);
-    fs.unlink(req.file.path, () => {});
     throw err;
+  } finally {
+    safeUnlink(req.file?.path);
   }
 });
 
@@ -535,13 +638,20 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
   const existed = await queryOne<any>('SELECT id FROM excel_import_task WHERE batch_no = ?', [batchNo]);
   if (existed) throw new AppError('该批次已提交过，请勿重复导入', 409, 'DUPLICATE_BATCH');
 
-  const rows = await readRowsByColumns(req.file.path, KEYGROUP_COLUMNS);
-  const taskResult = await execute(
-    `INSERT INTO excel_import_task (file_id, batch_no, task_type, status, total_rows, success_count, fail_count, created_by)
-     VALUES (NULL, ?, 'KEY_GROUP', 'RUNNING', ?, 0, 0, ?)`,
-    [batchNo, rows.length, req.user!.id]
-  );
-  const taskId = taskResult.insertId;
+  let rows: Record<string, any>[];
+  let taskId: number;
+  try {
+    rows = await readRowsByColumns(req.file.path, KEYGROUP_COLUMNS);
+    const taskResult = await execute(
+      `INSERT INTO excel_import_task (file_id, batch_no, task_type, status, total_rows, success_count, fail_count, created_by)
+       VALUES (NULL, ?, 'KEY_GROUP', 'RUNNING', ?, 0, 0, ?)`,
+      [batchNo, rows.length, req.user!.id]
+    );
+    taskId = taskResult.insertId;
+  } catch (err) {
+    safeUnlink(req.file.path);
+    throw err;
+  }
 
   try {
     // 类别词典来自标签定义表：编码 / 名称 / 别名 / 内置别名 均可命中，新增标签即时生效
@@ -641,26 +751,26 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
     }
 
     if (toInsert.length) {
+      const remark = `重点人群名单导入（批次 ${batchNo}）`;
       await withTransaction(async (conn) => {
-        for (const it of toInsert) {
+        for (let i = 0; i < toInsert.length; i += WRITE_CHUNK) {
+          const chunk = toInsert.slice(i, i + WRITE_CHUNK);
           await conn.query(
             `INSERT INTO person_tag (person_id, tag_id, effect_date, status, basis, created_by)
-             VALUES (?,?,?,?,?,?)`,
-            [it.personId, it.tagId, it.effectDate, it.status, it.basis, req.user!.id]
+             VALUES ${chunk.map(() => '(?,?,?,?,?,?)').join(', ')}`,
+            chunk.flatMap((it) => [it.personId, it.tagId, it.effectDate, it.status, it.basis, req.user!.id])
           );
           await conn.query(
             `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)
-             VALUES ('PERSON', ?, ?, 'ADD', ?, ?)`,
-            [it.personId, it.tagId, req.user!.id, `重点人群名单导入（批次 ${batchNo}）`]
+             VALUES ${chunk.map(() => `('PERSON', ?, ?, 'ADD', ?, ?)`).join(', ')}`,
+            chunk.flatMap((it) => [it.personId, it.tagId, req.user!.id, remark])
           );
         }
       });
     }
     const tagged = toInsert.length;
 
-    for (const e of errors) {
-      await execute('INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)', [taskId, e.rowNo, e.message, e.raw]);
-    }
+    await insertImportErrors(taskId, errors);
 
     const finalStatus = errors.length === 0 ? 'SUCCESS' : (tagged > 0 || skipped > 0 ? 'PARTIAL' : 'FAILED');
     await execute(
@@ -668,7 +778,6 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
       [finalStatus, tagged, errors.length, taskId]
     );
 
-    fs.unlink(req.file.path, () => {});
     await writeAudit({
       userId: req.user!.id, username: req.user!.username, action: 'excel:import_key_group',
       request: { batchNo, total: rows.length, matched, tagged, skipped, fail: errors.length },
@@ -684,8 +793,9 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
     );
   } catch (err) {
     await markImportFailed(taskId, rows.length, err);
-    fs.unlink(req.file.path, () => {});
     throw err;
+  } finally {
+    safeUnlink(req.file?.path);
   }
 });
 
@@ -784,17 +894,15 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   const gridFilter = buildGridFilter(req, 'p.grid_id');
   if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }
 
-  if (body.minAge != null || body.maxAge != null) {
-    if (body.minAge != null) { where.push('p.birth_date <= DATE_SUB(CURDATE(), INTERVAL ? YEAR)'); params.push(String(body.minAge)); }
-    if (body.maxAge != null) { where.push('p.birth_date >= DATE_SUB(CURDATE(), INTERVAL ? YEAR)'); params.push(String(body.maxAge + 1)); }
-  }
+  // 年龄与标签筛选复用 tagQuery 的构建器，与人口档案列表保持同一口径
+  // （此前这里内联了一份，maxAge 用了 >=，会把刚满 maxAge+1 周岁的人多算进来）
+  const ageFilter = buildAgeFilter(body.minAge, body.maxAge, 'p');
+  if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); }
+
   if (body.tagIds) {
     const tagIds = body.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    if (body.tagMode === 'ALL') {
-      for (const t of tagIds) { where.push(`EXISTS (SELECT 1 FROM person_tag pt WHERE pt.person_id=p.id AND pt.tag_id=? AND pt.status='ACTIVE')`); params.push(t); }
-    } else {
-      where.push(`EXISTS (SELECT 1 FROM person_tag pt WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND pt.tag_id IN (${tagIds.map(() => '?').join(',')}))`); params.push(...tagIds);
-    }
+    const tagFilter = buildPersonTagFilter({ tags: tagIds, mode: body.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
+    if (tagFilter.where) { where.push(tagFilter.where.replace(/^ AND /, '')); params.push(...tagFilter.params); }
   }
 
   const whereSql = where.join(' AND ');
@@ -817,14 +925,17 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   const taskId = taskResult.insertId;
 
   try {
-    let offset = 0;
+    // keyset（游标）分页：以 id 为游标逐批前进。
+    // 相比 LIMIT/OFFSET，越往后翻页越不会退化——OFFSET 需要扫描并丢弃前面全部行，
+    // 万级数据导出时最后几批会明显变慢。
+    let lastId = 0;
     let total = 0;
     while (true) {
       const rows = await query<any>(
         `SELECT p.*, g.name AS grid_name, f.family_no AS family_name
          FROM person p LEFT JOIN grid g ON g.id=p.grid_id LEFT JOIN family f ON f.id=p.family_id
-         WHERE ${whereSql} ORDER BY p.id LIMIT ? OFFSET ?`,
-        [...params, BATCH, offset]
+         WHERE ${whereSql} AND p.id > ? ORDER BY p.id LIMIT ?`,
+        [...params, lastId, BATCH]
       );
       if (!rows.length) break;
       for (const r of rows) {
@@ -841,7 +952,7 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
         total++;
       }
       if (rows.length < BATCH) break;
-      offset += BATCH;
+      lastId = Number(rows[rows.length - 1].id);
     }
 
     const fileName = `population_export_${taskId}.xlsx`;

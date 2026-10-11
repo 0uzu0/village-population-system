@@ -51,9 +51,16 @@ describe('重点人群年龄类口径', () => {
   it('未成年人：18 周岁以下（最大 17 岁）', () => {
     expect(MINOR_MAX_AGE).toBe(17);
     const f = buildAgeFilter(null, MINOR_MAX_AGE, 'p');
-    // 上界为闭区间 17，SQL 侧换算成「出生日期晚于今天减 18 年」，即不满 18 周岁
-    expect(f.where).toContain('birth_date >= DATE_SUB(CURDATE(), INTERVAL ? YEAR)');
+    // 上界为闭区间 17，SQL 侧换算成「出生日期严格晚于今天减 18 年」，即不满 18 周岁。
+    // 注意这里是 > 而非 >=：恰好今天满 18 周岁的人不算未成年人。
+    expect(f.where).toContain('birth_date > DATE_SUB(CURDATE(), INTERVAL ? YEAR)');
     expect(f.params).toEqual(['18']);
+  });
+
+  it('上界排除「恰好满上界+1 周岁」的边界值', () => {
+    // 与 ageRangeText(null, 17) => '<18 岁' 保持一致：18 岁生日当天即已成年
+    const f = buildAgeFilter(null, MINOR_MAX_AGE, 'p');
+    expect(f.where).not.toContain('birth_date >= DATE_SUB');
   });
 
   it('年龄区间人话表述', () => {

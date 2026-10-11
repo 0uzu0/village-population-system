@@ -6,18 +6,12 @@ import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { calcAge } from '../utils/age';
-import { buildPersonTagFilter, combineFilters, buildAgeFilter } from '../utils/tagQuery';
+import { genPersonNo } from '../utils/id';
+import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { z } from 'zod';
 
 const router = Router();
 router.use(authMiddleware);
-
-/** 生成内部人员编号：P + 时间戳 + 随机 */
-function genPersonNo(): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `P${ts}${rand}`;
-}
 
 /** 处理身份证/手机号：校验 + 提取出生日期/性别（明文存储） */
 function prepareIdentity(body: any) {
@@ -144,12 +138,6 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
 
   const whereSql = where.join(' AND ');
 
-  const totalRow = await queryOne<any>(
-    `SELECT COUNT(*) AS cnt FROM person p WHERE ${whereSql}`,
-    params
-  );
-  const total = Number(totalRow?.cnt || 0);
-
   // 排序字段白名单：sortBy 来自前端查询参数，禁止直接拼接进 SQL，否则可被注入。
   // key 同时接受前端表格的 snake_case 与 camelCase 写法
   const SORTABLE: Record<string, string> = {
@@ -170,16 +158,21 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   const orderBy = q.sortBy && SORTABLE[q.sortBy] ? SORTABLE[q.sortBy] : 'p.id';
   const direction = q.sortOrder === 'desc' ? 'DESC' : 'ASC';
 
-  const rows = await query<any>(
-    `SELECT p.*, g.name AS grid_name, f.family_no AS family_name
-     FROM person p
-     LEFT JOIN grid g ON g.id = p.grid_id
-     LEFT JOIN family f ON f.id = p.family_id
-     WHERE ${whereSql}
-     ORDER BY ${orderBy} ${direction}
-     LIMIT ? OFFSET ?`,
-    [...params, pageSize, (page - 1) * pageSize]
-  );
+  // 计数与取页互不依赖，并行发出（原先串行，列表接口要等两次往返）
+  const [totalRow, rows] = await Promise.all([
+    queryOne<any>(`SELECT COUNT(*) AS cnt FROM person p WHERE ${whereSql}`, params),
+    query<any>(
+      `SELECT p.*, g.name AS grid_name, f.family_no AS family_name
+       FROM person p
+       LEFT JOIN grid g ON g.id = p.grid_id
+       LEFT JOIN family f ON f.id = p.family_id
+       WHERE ${whereSql}
+       ORDER BY ${orderBy} ${direction}
+       LIMIT ? OFFSET ?`,
+      [...params, pageSize, (page - 1) * pageSize]
+    ),
+  ]);
+  const total = Number(totalRow?.cnt || 0);
 
   // 批量取标签，避免 N+1
   const personIds = rows.map((r: any) => r.id);
@@ -219,14 +212,22 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
 
   const vo = toPersonVO(row);
 
-  // 标签（当前有效）
-  const tags = await query<any>(
-    `SELECT pt.id AS linkId, td.id, td.name, td.code, td.color, td.object_type,
-            pt.effect_date, pt.expire_date, pt.status, pt.basis, pt.created_by, pt.audited_by, pt.created_at
-     FROM person_tag pt JOIN tag_definition td ON td.id = pt.tag_id
-     WHERE pt.person_id = ? ORDER BY pt.created_at DESC`,
-    [id]
-  );
+  // 标签与变更历史互不依赖，并行取回（原先串行执行，详情页要等三次往返）
+  const [tags, changes] = await Promise.all([
+    query<any>(
+      `SELECT pt.id AS linkId, td.id, td.name, td.code, td.color, td.object_type,
+              pt.effect_date, pt.expire_date, pt.status, pt.basis, pt.created_by, pt.audited_by, pt.created_at
+       FROM person_tag pt JOIN tag_definition td ON td.id = pt.tag_id
+       WHERE pt.person_id = ? ORDER BY pt.created_at DESC`,
+      [id]
+    ),
+    query<any>(
+      `SELECT field_name, old_value, new_value, change_type, reason, operator_id, created_at
+       FROM person_change_log WHERE person_id = ? ORDER BY created_at DESC LIMIT 50`,
+      [id]
+    ),
+  ]);
+
   vo.tags = tags.map((t: any) => ({
     linkId: t.linkId,
     id: t.id,
@@ -240,12 +241,6 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
     createdAt: t.created_at,
   }));
 
-  // 变更历史
-  const changes = await query<any>(
-    `SELECT field_name, old_value, new_value, change_type, reason, operator_id, created_at
-     FROM person_change_log WHERE person_id = ? ORDER BY created_at DESC LIMIT 50`,
-    [id]
-  );
   vo.changes = changes;
 
   return ok(res, vo);

@@ -2,9 +2,9 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
-import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 import App from './App.vue';
 import router from './router';
+import { registerIcons } from './icons';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/element-override.css';
@@ -15,9 +15,7 @@ app.use(createPinia());
 app.use(router);
 app.use(ElementPlus);
 
-// 注册全部 Element Plus 图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component);
-}
+// 按需注册图标（全量注册会把 293 个图标全部打进产物，实际只用到二十来个）
+registerIcons(app);
 
 app.mount('#app');

@@ -40,8 +40,8 @@ async function main(): Promise<void> {
   // 初始化管理员
   await bootstrapAdmin();
 
-  // 启动时收敛上次崩溃残留、状态卡在「处理中」的导入任务
-  await markStaleImportTasks();
+  // 启动时收敛上次崩溃残留、状态卡在「处理中」的导入任务（force：跳过节流）
+  await markStaleImportTasks(10, true);
 
   const app = createApp();
   const server = app.listen(env.port, () => {

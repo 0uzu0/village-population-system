@@ -76,7 +76,9 @@ export function buildAgeFilter(minAge?: number | null, maxAge?: number | null, p
     params.push(String(minAge));
   }
   if (maxAge != null) {
-    where.push(`${prefix}.birth_date >= DATE_SUB(CURDATE(), INTERVAL ? YEAR)`);
+    // 必须用严格大于：「出生日期 = 今天减 (maxAge+1) 年」的人恰好满 maxAge+1 周岁，
+    // 已超出闭区间上界，应排除。用 >= 会把刚满 18 岁的人算进「未成年人」。
+    where.push(`${prefix}.birth_date > DATE_SUB(CURDATE(), INTERVAL ? YEAR)`);
     params.push(String(maxAge + 1));
   }
   if (!where.length) return { where: '', params: [] };

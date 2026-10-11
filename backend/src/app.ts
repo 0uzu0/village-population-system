@@ -6,7 +6,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { auditMiddleware } from './middleware/audit';
-import { authMiddleware } from './middleware/auth';
+// 注意：鉴权由各业务模块自行 router.use(authMiddleware)，这里不需要全局挂载
 import authModule from './modules/auth';
 import userModule from './modules/user';
 import personModule from './modules/person';

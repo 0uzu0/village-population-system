@@ -4,18 +4,30 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { BarChart, PieChart } from 'echarts/charts';
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import type { EChartsOption } from 'echarts';
+
+/**
+ * 按需引入：只注册工作台实际用到的图表与组件。
+ * 原先 `import * as echarts from 'echarts'` 会把全部图表类型、坐标系、
+ * 地图与渲染器一起打包（约 1.0 MB / gzip 343 kB），而这里只需要柱状图与饼图。
+ * 该 chunk 本来就随工作台路由异步加载，瘦身后台首次进入工作台明显更快。
+ */
+echarts.use([BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 const props = withDefaults(
   defineProps<{
-    option: echarts.EChartsOption;
+    option: EChartsOption;
     height?: string;
   }>(),
   { height: '300px' }
 );
 
 const chartRef = ref<HTMLElement>();
-let chart: echarts.ECharts | null = null;
+let chart: ReturnType<typeof echarts.init> | null = null;
 let resizeObserver: ResizeObserver | null = null;
 
 function render() {
