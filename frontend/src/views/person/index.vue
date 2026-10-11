@@ -98,7 +98,7 @@
         <el-table-column type="selection" width="44" reserve-selection />
         <el-table-column v-if="isColVisible('name')" prop="name" label="姓名" width="90" fixed sortable="custom">
           <template #default="{ row }">
-            <el-link type="primary" @click="$router.push(`/persons/${row.id}`)">{{ row.name }}</el-link>
+            <el-link type="primary" @click="$router.push(toPersonDetail(route, row.id))">{{ row.name }}</el-link>
           </template>
         </el-table-column>
         <el-table-column v-if="isColVisible('gender')" prop="gender" label="性别" width="60">
@@ -136,7 +136,7 @@
         </el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="$router.push(`/persons/${row.id}`)">详情</el-button>
+            <el-button link type="primary" size="small" @click="$router.push(toPersonDetail(route, row.id))">详情</el-button>
             <el-button v-if="auth.hasPermission('person:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openTagManager(row)">标签</el-button>
             <el-button
@@ -255,13 +255,15 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { toPersonDetail } from '@/utils/nav';
 import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
+const router = useRouter();
 import type { PersonItem } from '@/types';
 
 const auth = useAuthStore();
@@ -364,9 +366,42 @@ async function load() {
     const res = await personApi.list(params);
     list.value = res.data.list;
     total.value = res.data.total;
+    syncUrl();
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * 把筛选条件同步到地址栏。
+ * 这样从人员详情返回时，列表能还原成离开前的样子（而不是回到无条件的第一页）。
+ */
+function syncUrl() {
+  const q: any = {};
+  if (query.keyword) q.keyword = String(query.keyword);
+  if (query.gender) q.gender = String(query.gender);
+  if (query.gridId) q.gridId = String(query.gridId);
+  if (query.village) q.village = String(query.village);
+  if (query.status) q.status = String(query.status);
+  if (query.tagIds?.length) q.tagIds = query.tagIds.join(',');
+  if (query.page > 1) q.page = String(query.page);
+  if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
+  router.replace({ path: '/persons', query: q });
+}
+
+/** 从地址栏恢复筛选条件（支持网格/村庄概览页跳转，也支持详情页返回时还原） */
+function restoreQuery() {
+  const rq = route.query;
+  if (rq.gridId) query.gridId = Number(rq.gridId);
+  if (rq.village) query.village = String(rq.village);
+  if (rq.keyword) query.keyword = String(rq.keyword);
+  if (rq.gender) query.gender = String(rq.gender);
+  if (rq.status) query.status = String(rq.status);
+  if (rq.tagIds) {
+    query.tagIds = String(rq.tagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
+  }
+  if (rq.page) query.page = Number(rq.page) || 1;
+  if (rq.pageSize) query.pageSize = Number(rq.pageSize) || 20;
 }
 
 function doSearch() { query.page = 1; load(); }
@@ -509,10 +544,9 @@ async function submitExport() {
 }
 
 onMounted(async () => {
-  // 支持从网格/村庄概览页跳转过来时带入筛选条件（/persons?gridId=1 或 ?village=艾园村）
-  const rq = route.query;
-  if (rq.gridId) query.gridId = Number(rq.gridId);
-  if (rq.village) query.village = String(rq.village);
+  // 支持从网格/村庄概览页跳转过来时带入筛选条件（/persons?gridId=1 或 ?village=艾园村），
+  // 也支持从人员详情返回时还原离开前的筛选与分页
+  restoreQuery();
   load();
   const [opts, tags] = await Promise.all([
     personApi.options(),

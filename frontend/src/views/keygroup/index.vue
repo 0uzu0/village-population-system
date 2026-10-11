@@ -20,7 +20,7 @@
     </div>
 
     <!-- 筛选条件 -->
-    <div class="vp-container">
+    <div ref="filterCard" class="vp-container">
       <div class="card-title">筛选条件</div>
       <div class="vp-search-bar">
         <el-select v-model="query.tagIds" placeholder="个人标签（可多选）" multiple filterable collapse-tags style="width: 280px">
@@ -51,12 +51,18 @@
             {{ c.text }}
           </el-tag>
         </template>
-        <span v-else class="chips-empty">未设置筛选条件，当前展示全部人口</span>
+        <span v-else class="chips-empty">未设置筛选条件，设置后开始筛查（不会默认展示全部人口）</span>
       </div>
     </div>
 
-    <!-- 结果 -->
+    <!-- 结果：未设置筛选条件时不展示全量人口，先引导设置条件 -->
     <div class="vp-container">
+      <div v-if="!searched" class="screen-empty">
+        <el-empty description="请先在上方设置筛选条件，或从「常用快捷入口」直接查看某类人群" :image-size="90">
+          <el-button type="primary" @click="focusFilter">去设置筛选条件</el-button>
+        </el-empty>
+      </div>
+      <template v-else>
       <div class="result-header">
         <div class="result-title">
           符合条件：<span class="count">{{ total }}</span> 人
@@ -91,7 +97,7 @@
         </div>
       </div>
 
-      <el-table :data="list" v-loading="loading" @row-click="(row: any) => $router.push(`/persons/${row.id}`)" class="result-table">
+      <el-table :data="list" v-loading="loading" @row-click="(row: any) => $router.push(toPersonDetail(route, row.id))" class="result-table">
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column prop="person_no" label="编号" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.personNo || '—' }}</template>
@@ -133,7 +139,7 @@
         </el-table-column>
         <el-table-column label="操作" width="70" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="$router.push(`/persons/${row.id}`)">详情</el-button>
+            <el-button link type="primary" size="small" @click.stop="$router.push(toPersonDetail(route, row.id))">详情</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -144,23 +150,31 @@
       <div class="pagination">
         <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @current-change="load" @size-change="doSearch" />
       </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { keyGroupApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { toPersonDetail } from '@/utils/nav';
 import TagPill from '@/components/TagPill.vue';
 
+const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 const loading = ref(false);
 const list = ref<any[]>([]);
 const total = ref(0);
 const quick = ref<any[]>([]);
 const quickNote = ref('注：各人群人数存在交叉，不可简单相加');
+/** 是否已执行过筛查。未筛查时不展示全量人口，避免一进页面就拉整表 */
+const searched = ref(false);
+const filterCard = ref<HTMLElement | null>(null);
 const personTags = ref<any[]>([]);
 const familyTags = ref<any[]>([]);
 const grids = ref<any[]>([]);
@@ -216,6 +230,8 @@ function removeChip(key: string) {
   else if (key === 'familyTagIds') query.familyTagIds = [];
   else if (key === 'gridId') query.gridId = null;
   else if (key === 'age') { query.minAge = null; query.maxAge = null; }
+  // 条件被拆完就回到未筛查状态，而不是退回全量人口
+  if (!hasFilter.value) { reset(); return; }
   doSearch();
 }
 
@@ -237,6 +253,50 @@ const gridStats = computed(() => {
   return rows.map((r: any) => ({ key: r.key, count: r.count, pct: Math.round((r.count / max) * 100) }));
 });
 
+/** 当前是否设置了任一筛选条件 */
+const hasFilter = computed(
+  () =>
+    query.tagIds.length > 0 ||
+    query.familyTagIds.length > 0 ||
+    query.gridId != null ||
+    query.minAge != null ||
+    query.maxAge != null
+);
+
+/**
+ * 把筛选条件写入地址栏：
+ * 一是从人员详情返回时能还原现场，二是筛查结果可直接复制分享。
+ */
+function syncUrl() {
+  const q: any = {};
+  if (query.tagIds.length) q.tagIds = query.tagIds.join(',');
+  if (query.tagMode !== 'ANY') q.tagMode = query.tagMode;
+  if (query.familyTagIds.length) q.familyTagIds = query.familyTagIds.join(',');
+  if (query.gridId != null) q.gridId = String(query.gridId);
+  if (query.minAge != null) q.minAge = String(query.minAge);
+  if (query.maxAge != null) q.maxAge = String(query.maxAge);
+  if (query.page > 1) q.page = String(query.page);
+  if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
+  router.replace({ path: '/key-groups', query: q });
+}
+
+/** 从地址栏恢复筛选条件（详情页返回、或直接粘贴带条件的链接） */
+function restoreQuery() {
+  const rq = route.query;
+  if (rq.tagIds) {
+    query.tagIds = String(rq.tagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
+  }
+  if (rq.tagMode === 'ALL' || rq.tagMode === 'ANY') query.tagMode = rq.tagMode;
+  if (rq.familyTagIds) {
+    query.familyTagIds = String(rq.familyTagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
+  }
+  if (rq.gridId) query.gridId = Number(rq.gridId);
+  if (rq.minAge != null && rq.minAge !== '') query.minAge = Number(rq.minAge);
+  if (rq.maxAge != null && rq.maxAge !== '') query.maxAge = Number(rq.maxAge);
+  if (rq.page) query.page = Number(rq.page) || 1;
+  if (rq.pageSize) query.pageSize = Number(rq.pageSize) || 20;
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -250,12 +310,35 @@ async function load() {
     total.value = res.data.page.total;
     stats.value = res.data.stats || { gender: [], grids: [] };
     hitTagIds.value = res.data.filter?.tagIds || [];
+    syncUrl();
   } finally { loading.value = false; }
 }
-function doSearch() { query.page = 1; load(); }
+
+function doSearch() {
+  // 无条件时不跑全量：既没必要，也会把整表拉出来
+  if (!hasFilter.value) {
+    ElMessage.warning('请先选择标签、网格或年龄区间等条件后再筛查');
+    focusFilter();
+    return;
+  }
+  query.page = 1;
+  searched.value = true;
+  load();
+}
+
+/** 回到未筛查状态并清空结果 */
 function reset() {
   Object.assign(query, { page: 1, tagIds: [], tagMode: 'ANY', familyTagIds: [], gridId: null, minAge: null, maxAge: null });
-  load();
+  searched.value = false;
+  list.value = [];
+  total.value = 0;
+  stats.value = { gender: [], grids: [] };
+  hitTagIds.value = [];
+  syncUrl();
+}
+
+function focusFilter() {
+  filterCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /**
@@ -293,7 +376,6 @@ async function doExport() {
 }
 
 onMounted(async () => {
-  load();
   const [q, pt, ft, g] = await Promise.all([
     keyGroupApi.quick(),
     tagApi.definitions({ pageSize: 200, objectType: 'PERSON' }),
@@ -305,6 +387,13 @@ onMounted(async () => {
   personTags.value = pt.data.list;
   familyTags.value = ft.data.list;
   grids.value = g.data.list;
+  // 地址栏带条件时（从人员详情返回、或打开分享链接）直接还原筛查结果；
+  // 否则停在引导态，等用户设置条件，避免一进页面就拉全量人口
+  restoreQuery();
+  if (hasFilter.value) {
+    searched.value = true;
+    load();
+  }
 });
 </script>
 
@@ -328,6 +417,7 @@ onMounted(async () => {
 .chips-empty { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 
 /* 结果区 */
+.screen-empty { padding: 24px 0 8px; }
 .result-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .result-title { font-size: var(--font-size-base); font-weight: 600; }
 .result-sub { font-size: var(--font-size-sm); font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }

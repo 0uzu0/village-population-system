@@ -3,13 +3,13 @@
     <div class="vp-page-header">
       <div>
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/persons' }">人口档案</el-breadcrumb-item>
+          <el-breadcrumb-item :to="{ path: back.path }">{{ back.title }}</el-breadcrumb-item>
           <el-breadcrumb-item>人员详情</el-breadcrumb-item>
         </el-breadcrumb>
         <h2 class="vp-page-title" style="margin-top: 8px">{{ person?.name }} <span class="no">{{ person?.personNo }}</span></h2>
       </div>
       <div class="actions">
-        <el-button v-if="auth.hasPermission('person:edit')" type="primary" @click="$router.push('/persons')">返回列表</el-button>
+        <el-button type="primary" @click="goBack">返回{{ back.title }}</el-button>
       </div>
     </div>
 
@@ -80,16 +80,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { personApi } from '@/api';
-import { useAuthStore } from '@/stores/auth';
+import { parseFrom } from '@/utils/nav';
 import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
-const auth = useAuthStore();
+const router = useRouter();
 const loading = ref(false);
 const person = ref<any>(null);
+
+/** 来源页：从人口档案/重点人群等页面进来，返回时原样退回（含筛选条件） */
+const back = computed(() => parseFrom(route));
+function goBack() { router.push(back.value.path); }
 
 function statusLabel(s: string) { return { NORMAL: '正常', MOVED_IN: '迁入', MOVED_OUT: '迁出', CANCELLED: '注销' }[s] || s; }
 function statusTag(s?: string): any { return { NORMAL: 'success', MOVED_IN: 'primary', MOVED_OUT: 'warning', CANCELLED: 'danger' }[s || ''] || 'info'; }
