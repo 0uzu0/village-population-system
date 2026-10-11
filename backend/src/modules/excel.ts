@@ -204,7 +204,7 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
         const r: any = await conn.query(
           `INSERT INTO person (person_no, name, gender, birth_date, id_card, phone, phone_backup,
             hukou_address, live_address, village, grid_id, family_id, relation, status, data_source, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`,
           [
             `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
             person.name, person.gender, person.birth_date, person.id_card, person.phone, person.phone_backup || null,
