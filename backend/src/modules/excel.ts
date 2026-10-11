@@ -46,41 +46,111 @@ const IMPORT_COLUMNS = ['姓名', '性别', '出生日期', '身份证号', '手
 const KEYGROUP_COLUMNS = ['姓名', '身份证号', '人员类别', '依据/备注', '生效日期'];
 
 /**
- * 人员类别 -> 标签编码。别名覆盖村务台账里的常见叫法（五保户/特困供养、低保户…）。
- * 也可直接填标签编码（如 VETERAN），大小写不敏感。
+ * 内置别名：覆盖村务台账里的常见叫法（五保户/特困供养、低保户…）。
+ * 仅作兜底补充——系统在「人口标签」里新增的标签会自动参与匹配
+ * （按 编码 / 名称 / 别名 命中），无需改动这里的代码。
  */
-const KEYGROUP_TAGS: { label: string; code: string; aliases: string[] }[] = [
-  { label: '党员', code: 'PARTY_MEMBER', aliases: ['党员', '中共党员', '共产党员', '正式党员'] },
-  { label: '预备党员', code: 'PARTY_PROBATIONARY', aliases: ['预备党员', '中共预备党员'] },
-  { label: '共青团员', code: 'LEAGUE_MEMBER', aliases: ['共青团员', '团员'] },
-  { label: '退役军人', code: 'VETERAN', aliases: ['退役军人', '退伍军人', '退役', '退伍', '退役士兵'] },
-  { label: '优抚对象', code: 'PREFERENTIAL_OBJECT', aliases: ['优抚', '优抚对象', '抚恤', '优待'] },
-  { label: '低保对象', code: 'LOW_INCOME_PERSON', aliases: ['低保', '低保对象', '低保户', '低收入'] },
-  { label: '五保对象', code: 'EXTREME_POVERTY_PERSON', aliases: ['五保', '五保户', '特困', '特困供养', '特困人员', '特困供养对象'] },
-  { label: '残疾人', code: 'DISABLED_PERSON', aliases: ['残疾', '残疾人', '持证残疾', '残疾病'] },
-  { label: '老年人', code: 'ELDERLY', aliases: ['老年人', '老人', '60岁以上', '老龄'] },
-  { label: '未成年人', code: 'MINOR', aliases: ['未成年人', '未成年'] },
-];
+const KEYGROUP_ALIASES: Record<string, string[]> = {
+  PARTY_MEMBER: ['党员', '中共党员', '共产党员', '正式党员'],
+  PARTY_PROBATIONARY: ['预备党员', '中共预备党员'],
+  LEAGUE_MEMBER: ['共青团员', '团员'],
+  VETERAN: ['退役军人', '退伍军人', '退役', '退伍', '退役士兵'],
+  PREFERENTIAL_OBJECT: ['优抚', '优抚对象', '抚恤', '优待'],
+  LOW_INCOME_PERSON: ['低保', '低保对象', '低保户', '低收入'],
+  EXTREME_POVERTY_PERSON: ['五保', '五保户', '特困', '特困供养', '特困人员', '特困供养对象'],
+  DISABLED_PERSON: ['残疾', '残疾人', '持证残疾'],
+  ELDERLY: ['老年人', '老人', '60岁以上', '老龄'],
+  MINOR: ['未成年人', '未成年'],
+};
 
-/** 把「人员类别」单元格解析为标签编码，无法识别的部分原样返回供报错 */
-function resolveTagCodes(text: string): { codes: string[]; unknown: string[] } {
+/** 名单导入可识别的一条类别（来自 tag_definition） */
+export interface KgTagEntry {
+  id: number;
+  code: string;
+  name: string;
+  enabled: boolean;
+  needAudit: boolean;
+}
+
+/**
+ * 从标签定义表构建「类别词典」：编码、名称、别名、内置别名全部指向同一条定义。
+ * 这样在「人口标签」中新增的标签，名单导入时即可按名称或编码填写，无需改代码。
+ */
+async function loadKeyGroupTagDict(): Promise<Map<string, KgTagEntry>> {
+  const rows = await query<any>(
+    "SELECT id, code, name, alias, enabled, need_audit FROM tag_definition WHERE object_type = 'PERSON'"
+  );
+  return loadKeyGroupTagDictFromRows(rows);
+}
+
+/** 纯函数版词典构建，便于单测覆盖（含停用标签，导入时另给提示） */
+export function loadKeyGroupTagDictFromRows(rows: any[]): Map<string, KgTagEntry> {
+  const dict = new Map<string, KgTagEntry>();
+  const put = (token: any, entry: KgTagEntry) => {
+    const k = String(token ?? '').trim().toLowerCase();
+    if (k) dict.set(k, entry);
+  };
+  for (const r of rows) {
+    const entry: KgTagEntry = {
+      id: Number(r.id),
+      code: String(r.code),
+      name: String(r.name),
+      enabled: !!r.enabled,
+      needAudit: !!r.need_audit,
+    };
+    put(r.code, entry);
+    put(r.name, entry);
+    String(r.alias || '')
+      .split(/[,，、;；/|]/)
+      .forEach((a: string) => put(a, entry));
+    (KEYGROUP_ALIASES[entry.code.toUpperCase()] || []).forEach((a) => put(a, entry));
+  }
+  return dict;
+}
+
+/** 把「人员类别」单元格解析为标签定义；无法识别的部分原样返回供报错 */
+export function resolveTagEntries(
+  text: string,
+  dict: Map<string, KgTagEntry>
+): { defs: KgTagEntry[]; unknown: string[] } {
   const parts = String(text || '')
     .split(/[,，、;；/|]/)
     .map((s) => s.trim())
     .filter(Boolean);
-  const codes: string[] = [];
+  const defs: KgTagEntry[] = [];
   const unknown: string[] = [];
   for (const p of parts) {
-    const hit = KEYGROUP_TAGS.find(
-      (t) => t.label === p || t.code.toLowerCase() === p.toLowerCase() || t.aliases.includes(p)
-    );
+    const hit = dict.get(p.toLowerCase());
     if (hit) {
-      if (!codes.includes(hit.code)) codes.push(hit.code);
+      if (!defs.some((d) => d.id === hit.id)) defs.push(hit);
     } else if (!unknown.includes(p)) {
       unknown.push(p);
     }
   }
-  return { codes, unknown };
+  return { defs, unknown };
+}
+
+/** 词典中所有可填写的类别名（用于报错提示与模板说明） */
+function kgTagLabels(dict: Map<string, KgTagEntry>): string[] {
+  return [...new Set([...dict.values()].map((d) => d.name))];
+}
+
+/** 类别字典：返回给前端做「默认类别」下拉与填写说明（新增标签自动出现在列表中） */
+async function loadKeyGroupTypes(): Promise<{ label: string; code: string; aliases: string[] }[]> {
+  const rows = await query<any>(
+    "SELECT code, name, alias FROM tag_definition WHERE object_type = 'PERSON' ORDER BY category_id, id"
+  );
+  return rows.map((r: any) => ({
+    label: String(r.name),
+    code: String(r.code),
+    aliases: [
+      ...String(r.alias || '')
+        .split(/[,，、;；/|]/)
+        .map((s: string) => s.trim())
+        .filter(Boolean),
+      ...(KEYGROUP_ALIASES[String(r.code).toUpperCase()] || []),
+    ],
+  }));
 }
 
 /** 下载导入模板 */
@@ -113,12 +183,19 @@ router.get('/template/key-group', requirePermission('excel:import'), async (_req
   }
 
   // 第二张表仅作填写说明（导入只解析第一个工作表，不影响解析）
+  // 取自标签定义表：系统里新增的标签会自动出现在说明中
   const help = wb.addWorksheet('类别填写说明');
   help.columns = [
     { header: '可填写的类别', key: 'label', width: 18 },
+    { header: '标签编码', key: 'code', width: 24 },
     { header: '同时可写成', key: 'alias', width: 40 },
   ];
-  KEYGROUP_TAGS.forEach((t) => help.addRow({ label: t.label, alias: t.aliases.join('、') }));
+  try {
+    const types = await loadKeyGroupTypes();
+    types.forEach((t) => help.addRow({ label: t.label, code: t.code, alias: t.aliases.join('、') }));
+  } catch {
+    help.addRow({ label: '（读取标签定义失败，请以系统中的标签名称为准）', code: '', alias: '' });
+  }
   help.getRow(1).font = { bold: true };
 
   const buf = await wb.xlsx.writeBuffer();
@@ -127,9 +204,13 @@ router.get('/template/key-group', requirePermission('excel:import'), async (_req
   res.send(Buffer.from(buf));
 });
 
-/** 重点人群类别字典（前端下拉用） */
+/** 重点人群类别字典（前端下拉用；来自标签定义表，新增标签自动纳入） */
 router.get('/key-group/types', requirePermission('excel:import'), async (_req: Request, res: Response) => {
-  return ok(res, KEYGROUP_TAGS.map((t) => ({ label: t.label, code: t.code, aliases: t.aliases })));
+  try {
+    return ok(res, await loadKeyGroupTypes());
+  } catch {
+    return ok(res, []);
+  }
 });
 
 /** 读取并解析 Excel 行（严格按列顺序取值，只读第一个工作表，跳过表头） */
@@ -463,9 +544,9 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
   const taskId = taskResult.insertId;
 
   try {
-    // 标签定义按编码索引（含 need_audit，决定敏感标签是否落「待审核」）
-    const defRows = await query<any>('SELECT id, code, name, need_audit FROM tag_definition WHERE object_type = \'PERSON\'');
-    const defByCode = new Map<string, any>(defRows.map((d: any) => [String(d.code).toUpperCase(), d]));
+    // 类别词典来自标签定义表：编码 / 名称 / 别名 / 内置别名 均可命中，新增标签即时生效
+    const tagDict = await loadKeyGroupTagDict();
+    const tagHint = kgTagLabels(tagDict).join('/');
 
     // 已生效的标签关联一次性载入内存，避免逐行查重
     const linkRows = await query<any>('SELECT person_id, tag_id FROM person_tag WHERE status = \'ACTIVE\'');
@@ -523,25 +604,36 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
       matched++;
 
       // 类别：行内为空时取上传页面选择的「默认类别」
-      const { codes, unknown } = resolveTagCodes(row['人员类别'] || '');
-      if (unknown.length) { errors.push({ rowNo, message: `无法识别的人员类别：${unknown.join('、')}（可填：${KEYGROUP_TAGS.map((t) => t.label).join('/')}）`, raw }); continue; }
-      const finalCodes = codes.length ? codes : body.defaultCode ? [body.defaultCode] : [];
-      if (!finalCodes.length) { errors.push({ rowNo, message: '未填写人员类别，且未选择默认类别', raw }); continue; }
+      const { defs, unknown } = resolveTagEntries(row['人员类别'] || '', tagDict);
+      if (unknown.length) {
+        errors.push({ rowNo, message: `无法识别的人员类别：${unknown.join('、')}（可填标签名称或编码，如：${tagHint}）`, raw });
+        continue;
+      }
+      // 默认类别也走同一套词典，支持填名称或编码
+      let finalDefs = defs;
+      if (!finalDefs.length && body.defaultCode) {
+        const d = tagDict.get(String(body.defaultCode).trim().toLowerCase());
+        if (d) finalDefs = [d];
+        else { errors.push({ rowNo, message: `默认类别「${body.defaultCode}」不是有效的标签名称或编码`, raw }); continue; }
+      }
+      if (!finalDefs.length) { errors.push({ rowNo, message: '未填写人员类别，且未选择默认类别', raw }); continue; }
 
       const basis = String(row['依据/备注'] || '').trim() || `重点人群名单导入（批次 ${batchNo}）`;
       const effect = String(row['生效日期'] || '').trim();
       const effectDate = /^\d{4}-\d{2}-\d{2}$/.test(effect) ? effect : null;
 
-      for (const code of finalCodes) {
-        const def = defByCode.get(code.toUpperCase());
-        if (!def) { errors.push({ rowNo, message: `系统中不存在标签编码 ${code}`, raw }); continue; }
+      for (const def of finalDefs) {
+        if (!def.enabled) {
+          errors.push({ rowNo, message: `标签「${def.name}」已停用，请先在人口标签中启用`, raw });
+          continue;
+        }
         const key = `${person.id}:${def.id}`;
         if (fileSeen.has(key) || linked.has(key)) { skipped++; continue; }
         fileSeen.add(key);
         toInsert.push({
           personId: person.id,
           tagId: def.id,
-          status: body.applyMode === 'AUDIT' && def.need_audit ? 'PENDING' : 'ACTIVE',
+          status: body.applyMode === 'AUDIT' && def.needAudit ? 'PENDING' : 'ACTIVE',
           basis,
           effectDate,
         });
@@ -600,12 +692,21 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
 /** 导入任务列表（先收敛卡住的任务，避免列表里长期挂着「处理中」） */
 router.get('/import-tasks', requirePermission('excel:import'), async (req: Request, res: Response) => {
   await markStaleImportTasks();
-  const q = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(500).default(20) }).parse(req.query);
-  const totalRow = await queryOne<any>('SELECT COUNT(*) AS cnt FROM excel_import_task');
+  const q = z
+    .object({
+      page: z.coerce.number().int().min(1).default(1),
+      pageSize: z.coerce.number().int().min(1).max(500).default(20),
+      // 不传=全部；PERSON=人口档案；KEY_GROUP=重点人群名单
+      taskType: z.enum(['PERSON', 'KEY_GROUP']).optional(),
+    })
+    .parse(req.query);
+  const whereSql = q.taskType ? 'WHERE eit.task_type = ?' : '';
+  const params: any[] = q.taskType ? [q.taskType] : [];
+  const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM excel_import_task eit ${whereSql}`, params);
   const rows = await query<any>(
     `SELECT eit.*, u.real_name AS operator_name FROM excel_import_task eit LEFT JOIN sys_user u ON u.id = eit.created_by
-     ORDER BY eit.created_at DESC LIMIT ? OFFSET ?`,
-    [q.pageSize, (q.page - 1) * q.pageSize]
+     ${whereSql} ORDER BY eit.created_at DESC LIMIT ? OFFSET ?`,
+    [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
   const result: PageResult<any> = { list: rows, total: Number(totalRow?.cnt || 0), page: q.page, pageSize: q.pageSize };
   return okPage(res, result);

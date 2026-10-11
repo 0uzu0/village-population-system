@@ -43,47 +43,7 @@
             </el-alert>
           </div>
 
-          <div class="section-head">
-            <div class="card-title">导入任务记录</div>
-            <el-button link :loading="loading" @click="loadTasks">
-              <el-icon><Refresh /></el-icon>刷新
-            </el-button>
-          </div>
-          <el-table :data="tasks" v-loading="loading">
-            <el-table-column prop="batch_no" label="批次号" min-width="160" show-overflow-tooltip />
-            <el-table-column label="类型" width="104">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.task_type === 'KEY_GROUP' ? 'warning' : 'info'" effect="plain">
-                  {{ row.task_type === 'KEY_GROUP' ? '重点人群' : '人口档案' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="110">
-              <template #default="{ row }">
-                <el-tag size="small" :type="importStatusTag(row)">{{ importStatusLabel(row) }}</el-tag>
-                <div v-if="isStale(row)" class="stale-tip">已超过 10 分钟未结束</div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="total_rows" label="总行数" width="80" />
-            <el-table-column prop="success_count" label="成功" width="70" />
-            <el-table-column prop="fail_count" label="失败" width="70" />
-            <el-table-column label="待核查" width="90">
-              <template #default="{ row }">
-                <el-button v-if="row.pending_count" link type="warning" size="small" @click="$router.push('/pending')">
-                  {{ row.pending_count }} 条
-                </el-button>
-                <span v-else class="muted">—</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="operator_name" label="导入人" min-width="110" />
-            <el-table-column prop="created_at" label="导入时间" min-width="160" />
-            <el-table-column label="操作" width="120" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="row.fail_count > 0" link type="primary" size="small" @click="downloadErrors(row)">下载错误行</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!tasks.length && !loading" description="暂无导入任务" :image-size="60" />
+          <ImportTaskTable :tasks="tasks" :loading="loading" @refresh="loadTasks" />
         </el-tab-pane>
 
         <!-- 重点人群名单导入 -->
@@ -132,18 +92,17 @@
               <div class="rule-list">
                 <div>1. 模板共 5 列：<b>姓名、身份证号、人员类别、依据/备注、生效日期</b>（后两列可留空）。</div>
                 <div>2. 人员类别可写：{{ kgTypeText }}；也可直接写标签编码（如 VETERAN）。多个类别用逗号分隔。</div>
-                <div>3. <b>本导入不新建人员</b>，只按身份证号匹配已有档案并打标签；未匹配到的行会报错并可下载错误行。</div>
-                <div>4. 身份证号留空时按姓名匹配，姓名在系统中不唯一会要求补填身份证号，避免张冠李戴。</div>
-                <div>5. 已存在的标签自动跳过，不会重复关联；敏感标签（优抚/低保/五保/残疾）默认直接生效，可改为「待审核」。</div>
+                <div>3. 在「人口标签」里<b>新增的标签会自动生效</b>，按标签名称或编码填写即可，无需修改模板。</div>
+                <div>4. <b>本导入不新建人员</b>，只按身份证号匹配已有档案并打标签；未匹配到的行会报错并可下载错误行。</div>
+                <div>5. 身份证号留空时按姓名匹配，姓名在系统中不唯一会要求补填身份证号，避免张冠李戴。</div>
+                <div>6. 已存在的标签自动跳过，不会重复关联；敏感标签（优抚/低保/五保/残疾）默认直接生效，可改为「待审核」。</div>
               </div>
             </el-alert>
 
             <div v-if="kgResult" class="kg-result">
               <div class="kg-result-title">
                 最近一次导入结果
-                <el-tag size="small" :type="kgResult.status === 'SUCCESS' ? 'success' : (kgResult.status === 'FAILED' ? 'danger' : 'warning')">
-                  {{ kgResult.status === 'SUCCESS' ? '全部成功' : (kgResult.status === 'FAILED' ? '导入失败' : '部分成功') }}
-                </el-tag>
+                <el-tag size="small" :type="kgTagType(kgResult.status)">{{ kgStatusText(kgResult.status) }}</el-tag>
               </div>
               <div class="kg-stats">
                 <div class="kgs-item"><span class="num">{{ kgResult.total }}</span><span class="lbl">名单行数</span></div>
@@ -159,6 +118,14 @@
               </div>
             </div>
           </div>
+
+          <!-- 任务记录来自后端，刷新/换页签都不会丢失 -->
+          <ImportTaskTable
+            title="名单导入任务记录"
+            :tasks="kgTasks" :loading="kgLoading" :show-type="false"
+            empty-text="暂无重点人群名单导入任务"
+            @refresh="loadKgTasks"
+          />
         </el-tab-pane>
 
         <!-- 导出 -->
@@ -203,6 +170,7 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import ImportTaskTable from '@/components/ImportTaskTable.vue';
 
 const auth = useAuthStore();
 const activeTab = ref('import');
@@ -210,6 +178,8 @@ const loading = ref(false);
 const exportLoading = ref(false);
 const exporting = ref(false);
 const tasks = ref<any[]>([]);
+const kgTasks = ref<any[]>([]);
+const kgLoading = ref(false);
 const exportTasks = ref<any[]>([]);
 
 const exportFields = [
@@ -232,25 +202,6 @@ const STATUS_LABEL: Record<string, string> = { PENDING: '待处理', RUNNING: '�
 const STATUS_TAG: Record<string, any> = { SUCCESS: 'success', FAILED: 'danger', PARTIAL: 'warning', RUNNING: 'primary', PENDING: 'info' };
 function statusLabel(s: string) { return STATUS_LABEL[s] || s; }
 function statusTag(s: string): any { return STATUS_TAG[s] || 'info'; }
-
-/**
- * 导入是同步执行，正常几秒内结束；若长时间停留在 RUNNING，
- * 多半是进程重启或导入途中报错（后端会自动收敛），此处提前显示「已中断」避免一直转圈。
- */
-const STALE_MS = 10 * 60 * 1000;
-function isStale(row: any) {
-  if (row.status !== 'RUNNING' || !row.created_at) return false;
-  const t = new Date(String(row.created_at).replace(/-/g, '/')).getTime();
-  return Number.isFinite(t) && Date.now() - t > STALE_MS;
-}
-/** 导入任务状态文案：卡住的任务按失败展示 */
-function importStatusLabel(row: any) {
-  if (isStale(row)) return '已中断';
-  return statusLabel(row.status);
-}
-function importStatusTag(row: any): any {
-  return isStale(row) ? 'danger' : statusTag(row.status);
-}
 
 function beforeUpload(file: File) {
   const ok = /\.(xlsx|xls)$/i.test(file.name);
@@ -282,6 +233,19 @@ const kgTypes = ref<any[]>([]);
 const kgForm = reactive({ defaultCode: '', applyMode: 'ACTIVE' });
 const kgResult = ref<any>(null);
 const kgTypeText = computed(() => kgTypes.value.map((t: any) => t.label).join('、'));
+
+/** 结果卡片状态文案（与任务记录表保持一致） */
+function kgStatusText(s: string) {
+  if (s === 'SUCCESS') return '全部成功';
+  if (s === 'FAILED') return '导入失败';
+  if (s === 'PARTIAL') return '部分成功';
+  return s || '已完成';
+}
+function kgTagType(s: string): any {
+  if (s === 'SUCCESS') return 'success';
+  if (s === 'FAILED') return 'danger';
+  return 'warning';
+}
 
 async function loadKgTypes() {
   try {
@@ -317,8 +281,10 @@ async function doImportKeyGroup(options: any) {
       duration: 4000,
     });
     loadTasks();
+    loadKgTasks();
   } catch {
     loadTasks();
+    loadKgTasks();
   } finally {
     loading.value = false;
   }
@@ -341,6 +307,15 @@ async function loadTasks() {
     const res = await excelApi.importTasks({ page: 1, pageSize: 50 });
     tasks.value = res.data.list;
   } finally { loading.value = false; }
+}
+
+/** 重点人群名单任务记录：后端按 task_type 过滤，刷新页面不会丢失 */
+async function loadKgTasks() {
+  kgLoading.value = true;
+  try {
+    const res = await excelApi.importTasks({ page: 1, pageSize: 50, taskType: 'KEY_GROUP' });
+    kgTasks.value = res.data.list;
+  } finally { kgLoading.value = false; }
 }
 
 async function downloadErrors(row: any) {
@@ -384,6 +359,7 @@ async function downloadExport(row: any) {
 
 onMounted(() => {
   loadTasks();
+  loadKgTasks();
   loadExportTasks();
   loadKgTypes();
 });
@@ -392,14 +368,11 @@ onMounted(() => {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
 .card-title { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 14px; }
-.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
-.stale-tip { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 2px; }
 .import-box { padding: 8px 0; }
 .steps { margin-bottom: 20px; }
 .import-actions { display: flex; gap: 12px; align-items: center; }
 .export-box { padding: 4px 0; }
 .rule-list { line-height: 1.9; font-size: var(--font-size-sm); }
-.muted { color: var(--color-text-secondary); }
 /* 重点人群导入 */
 .kg-config { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 14px; }
 .kg-field { display: flex; align-items: center; gap: 8px; }
