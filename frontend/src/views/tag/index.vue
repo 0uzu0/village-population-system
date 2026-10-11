@@ -56,7 +56,7 @@
             v-if="viewMode === 'table'" :data="list" v-loading="loading" row-key="id"
             class="table-view" :style="{ minHeight: 'calc(100vh - 420px)' }"
           >
-            <el-table-column prop="name" label="标签名称" width="150">
+            <el-table-column prop="name" label="标签名称" min-width="160">
               <template #default="{ row }">
                 <div class="tag-cell">
                   <TagPill :name="row.name" :color="row.color" dot />
@@ -66,7 +66,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="code" label="编码" width="160" show-overflow-tooltip>
+            <el-table-column prop="code" label="编码" min-width="160" show-overflow-tooltip>
               <template #default="{ row }"><span class="mono">{{ row.code }}</span></template>
             </el-table-column>
             <el-table-column prop="alias" label="别名" width="100">
@@ -75,28 +75,30 @@
             <el-table-column prop="category_name" label="分类" width="110">
               <template #default="{ row }">{{ row.category_name || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="object_type" label="对象" width="70">
+            <el-table-column prop="object_type" label="对象" width="76">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.object_type === 'PERSON' ? 'primary' : 'success'" effect="plain">
                   {{ row.object_type === 'PERSON' ? '个人' : '家庭' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="使用数" width="90">
+            <el-table-column label="使用数" width="86">
               <template #default="{ row }">
                 {{ row.object_type === 'PERSON' ? row.person_count : row.family_count }}
                 <span class="unit">{{ row.object_type === 'PERSON' ? '人' : '户' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="属性" width="130">
+            <el-table-column label="属性" min-width="140">
               <template #default="{ row }">
-                <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
-                <el-tag v-if="row.need_audit" size="small" type="info" effect="plain">需审核</el-tag>
-                <el-tag v-if="row.allow_duplicate" size="small" effect="plain">可重复</el-tag>
-                <span v-if="!row.is_sensitive && !row.need_audit && !row.allow_duplicate" class="muted">—</span>
+                <div class="attr-cell">
+                  <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
+                  <el-tag v-if="row.need_audit" size="small" type="info" effect="plain">需审核</el-tag>
+                  <el-tag v-if="row.allow_duplicate" size="small" effect="plain">可重复</el-tag>
+                  <span v-if="!row.is_sensitive && !row.need_audit && !row.allow_duplicate" class="muted">—</span>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="90">
+            <el-table-column label="状态" width="86">
               <template #default="{ row }">
                 <el-switch
                   v-if="auth.hasPermission('tag:manage')"
@@ -109,7 +111,7 @@
                 <el-tag v-else size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button
@@ -182,7 +184,7 @@
             <el-table-column prop="object_type" label="对象类型" width="90">
               <template #default="{ row }">{{ row.object_type === 'PERSON' ? '个人' : '家庭' }}</template>
             </el-table-column>
-            <el-table-column prop="object_name" label="对象名称" width="140">
+            <el-table-column prop="object_name" label="对象名称" min-width="140">
               <template #default="{ row }">{{ row.object_name || `ID ${row.object_id}` }}</template>
             </el-table-column>
             <el-table-column prop="action" label="动作" width="90">
@@ -193,7 +195,7 @@
             <el-table-column prop="operator_name" label="操作人" width="100">
               <template #default="{ row }">{{ row.operator_name || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+            <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">{{ row.remark || '—' }}</template>
             </el-table-column>
             <el-table-column prop="created_at" label="时间" width="170">
@@ -402,7 +404,11 @@ onMounted(async () => {
 
 /* 表格内标签 */
 .tag-cell { display: flex; align-items: center; gap: 6px; }
+.attr-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .info-icon { color: var(--color-text-secondary); cursor: help; font-size: var(--font-size-base); }
+
+/* 表格视图：宽度撑满容器（列宽用弹性 min-width 承接多余空间，避免右侧留白） */
+.table-view { width: 100%; }
 
 /* 卡片视图：内容不足时也撑满可用区域，避免下方大片空白 */
 .card-view {

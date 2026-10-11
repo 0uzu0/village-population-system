@@ -45,10 +45,10 @@
 
         <el-tab-pane label="数据字典" name="dict">
           <el-table :data="dicts" v-loading="dictLoading">
-            <el-table-column prop="dict_type" label="字典类型" width="160" />
-            <el-table-column prop="dict_label" label="标签" width="140" />
-            <el-table-column prop="dict_value" label="值" width="140" />
-            <el-table-column prop="sort" label="排序" width="80" />
+            <el-table-column prop="dict_type" label="字典类型" min-width="170" show-overflow-tooltip />
+            <el-table-column prop="dict_label" label="标签" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="dict_value" label="值" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="sort" label="排序" width="90" />
           </el-table>
         </el-tab-pane>
       </el-tabs>

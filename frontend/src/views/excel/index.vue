@@ -50,8 +50,8 @@
             </el-button>
           </div>
           <el-table :data="tasks" v-loading="loading">
-            <el-table-column prop="batch_no" label="批次号" width="160" show-overflow-tooltip />
-            <el-table-column label="类型" width="110">
+            <el-table-column prop="batch_no" label="批次号" min-width="160" show-overflow-tooltip />
+            <el-table-column label="类型" width="104">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.task_type === 'KEY_GROUP' ? 'warning' : 'info'" effect="plain">
                   {{ row.task_type === 'KEY_GROUP' ? '重点人群' : '人口档案' }}
@@ -75,9 +75,9 @@
                 <span v-else class="muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column prop="operator_name" label="导入人" width="100" />
-            <el-table-column prop="created_at" label="导入时间" width="160" />
-            <el-table-column label="操作" width="120">
+            <el-table-column prop="operator_name" label="导入人" min-width="110" />
+            <el-table-column prop="created_at" label="导入时间" min-width="160" />
+            <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.fail_count > 0" link type="primary" size="small" @click="downloadErrors(row)">下载错误行</el-button>
               </template>
