@@ -516,7 +516,7 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 .quick-label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 .quick-chip {
@@ -524,7 +524,7 @@ onMounted(async () => {
   border-radius: var(--radius-tag);
   background: var(--color-bg-subtle);
   color: var(--color-text-regular);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   border: 1px solid transparent;
   transition: all var(--transition-fast);
@@ -544,7 +544,7 @@ onMounted(async () => {
   gap: 12px;
 }
 .selected-info {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 .selected-info b {

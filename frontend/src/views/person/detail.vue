@@ -116,7 +116,7 @@ onMounted(async () => {
   gap: 16px;
 }
 .no {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 400;
   color: var(--color-text-secondary);
   margin-left: 8px;
@@ -131,7 +131,7 @@ onMounted(async () => {
   gap: 16px;
 }
 .card-title {
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   margin-bottom: 16px;
 }
@@ -149,11 +149,11 @@ onMounted(async () => {
   background: var(--color-bg-subtle);
 }
 .tag-status {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
 }
 .tag-basis {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-placeholder);
 }
 </style>

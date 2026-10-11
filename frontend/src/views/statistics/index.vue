@@ -95,11 +95,11 @@ onMounted(async () => {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
-.card-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.card-title { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 14px; }
 .core-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 14px; }
 .core-card { background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 18px 14px; text-align: center; }
-.core-card .v { font-size: 26px; font-weight: 700; color: var(--color-primary); }
-.core-card .l { font-size: 13px; color: var(--color-text-secondary); margin-top: 4px; }
+.core-card .v { font-size: var(--font-size-xl); font-weight: 700; color: var(--color-primary); }
+.core-card .l { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: 4px; }
 .chart-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 @media (max-width: 900px) {
   .core-grid { grid-template-columns: repeat(3, 1fr); }

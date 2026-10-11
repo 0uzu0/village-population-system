@@ -222,18 +222,18 @@ onMounted(load);
 .grid-icon { width: 40px; height: 40px; border-radius: 12px; background: var(--color-purple-light); color: var(--color-purple); display: flex; align-items: center; justify-content: center; }
 .grid-title { flex: 1; }
 .grid-title .name { font-weight: 600; }
-.grid-title .no { font-size: 12px; color: var(--color-text-secondary); }
+.grid-title .no { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .grid-meta { display: flex; gap: 32px; margin: 16px 0 12px; }
-.meta-item .num { font-size: 22px; font-weight: 700; }
-.meta-item .lbl { font-size: 12px; color: var(--color-text-secondary); }
+.meta-item .num { font-size: var(--font-size-xl); font-weight: 700; }
+.meta-item .lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 /* 重点人群：6 个指标均分两行，空白处也能铺满卡片 */
 .focus-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .focus-item { display: flex; align-items: baseline; gap: 4px; background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 6px 8px; }
-.fi-num { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
-.fi-lbl { font-size: 12px; color: var(--color-text-secondary); }
-.grid-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 13px; color: var(--color-text-secondary); }
+.fi-num { font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); }
+.fi-lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.grid-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .foot-actions { display: flex; align-items: center; gap: 2px; }
-.dim-hint { font-size: 12px; color: var(--color-text-secondary); margin-left: auto; }
+.dim-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-left: auto; }
 .grid-icon.is-village { background: var(--color-cyan-light); color: var(--color-cyan); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 768px) { .grid-cards { grid-template-columns: 1fr; } }

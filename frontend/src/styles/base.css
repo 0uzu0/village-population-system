@@ -15,7 +15,8 @@ body,
 
 body {
   font-family: var(--font-family);
-  font-size: 14px;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
   color: var(--color-text-primary);
   background-color: var(--color-bg-page);
   -webkit-font-smoothing: antialiased;
@@ -64,13 +65,13 @@ body {
   gap: 12px;
 }
 .vp-page-title {
-  font-size: 20px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0;
 }
 .vp-page-subtitle {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   margin-top: 4px;
 }
@@ -99,17 +100,17 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: var(--radius-tag);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   white-space: nowrap;
 }
 
 /* 统计卡片数字 */
 .vp-stat-value {
-  font-size: 28px;
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--color-text-primary);
   line-height: 1.2;
@@ -129,6 +130,6 @@ body {
     padding: var(--space-card-sm);
   }
   .vp-page-title {
-    font-size: 18px;
+    font-size: var(--font-size-md);
   }
 }

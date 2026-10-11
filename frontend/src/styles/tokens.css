@@ -72,6 +72,16 @@
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
 
+  /* ---- 字号（语义化，页面禁止再硬编码 px 字号） ----
+     村级系统多在办公电脑上远距离查看，正文整体上调一档：正文 15px、次要 14px、说明 13px */
+  --font-size-xs: 13px;    /* 角标、极次要说明 */
+  --font-size-sm: 14px;    /* 次要文字、表头辅助 */
+  --font-size-base: 15px;  /* 正文（表格、表单、按钮） */
+  --font-size-md: 16px;    /* 小标题、卡片名 */
+  --font-size-lg: 20px;    /* 页面标题 */
+  --font-size-xl: 24px;    /* 区块大数字 */
+  --font-size-2xl: 28px;   /* 统计卡片大数字 */
+
   /* ---- 布局 ---- */
   --sidebar-width: 236px;
   --sidebar-width-collapsed: 68px;

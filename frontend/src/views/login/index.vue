@@ -92,20 +92,20 @@ async function submit() {
   border-radius: 14px;
   background: var(--color-primary);
   color: #fff;
-  font-size: 22px;
+  font-size: var(--font-size-xl);
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .brand-title {
-  font-size: 20px;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   margin: 0;
   color: var(--color-text-primary);
 }
 .brand-sub {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   margin: 2px 0 0;
 }
@@ -113,12 +113,12 @@ async function submit() {
   width: 100%;
   height: 44px;
   margin-top: 4px;
-  font-size: 16px;
+  font-size: var(--font-size-md);
 }
 .tip {
   margin-top: 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-placeholder);
 }
 </style>

@@ -26,10 +26,10 @@ const bg = computed(() => hexToRgba(props.color, 0.12));
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: var(--radius-tag);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   white-space: nowrap;
 }

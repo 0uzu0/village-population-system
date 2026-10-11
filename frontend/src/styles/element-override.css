@@ -28,6 +28,31 @@
   --el-fill-color-blank: var(--color-bg-card);
   --el-bg-color-page: var(--color-bg-page);
   --el-font-family: var(--font-family);
+
+  /* 字号整体上调一档（Element Plus 默认 base=14 / small=13 / extra-small=12） */
+  --el-font-size-extra-large: var(--font-size-xl);
+  --el-font-size-large: var(--font-size-lg);
+  --el-font-size-medium: var(--font-size-md);
+  --el-font-size-base: var(--font-size-base);
+  --el-font-size-small: var(--font-size-sm);
+  --el-font-size-extra-small: var(--font-size-xs);
+}
+
+/* 表格：字号随正文上调，行高同步放开，避免文字拥挤 */
+.el-table {
+  font-size: var(--font-size-base);
+}
+.el-table .cell {
+  line-height: 1.7;
+  padding: 4px 8px;
+}
+.el-table th.el-table__cell {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+/* 表格内的操作按钮文字同样跟随正文 */
+.el-table .el-button.is-link {
+  font-size: var(--font-size-sm);
 }
 
 /* 按钮圆角统一 */

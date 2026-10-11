@@ -51,6 +51,13 @@
           </div>
           <el-table :data="tasks" v-loading="loading">
             <el-table-column prop="batch_no" label="批次号" width="160" show-overflow-tooltip />
+            <el-table-column label="类型" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.task_type === 'KEY_GROUP' ? 'warning' : 'info'" effect="plain">
+                  {{ row.task_type === 'KEY_GROUP' ? '重点人群' : '人口档案' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" width="110">
               <template #default="{ row }">
                 <el-tag size="small" :type="importStatusTag(row)">{{ importStatusLabel(row) }}</el-tag>
@@ -77,6 +84,81 @@
             </el-table-column>
           </el-table>
           <el-empty v-if="!tasks.length && !loading" description="暂无导入任务" :image-size="60" />
+        </el-tab-pane>
+
+        <!-- 重点人群名单导入 -->
+        <el-tab-pane label="重点人群名单导入" name="keygroup">
+          <div class="import-box">
+            <div class="steps">
+              <el-steps :active="1" align-center>
+                <el-step title="下载名单模板" description="5 列：姓名/身份证号/人员类别/依据/生效日期" />
+                <el-step title="匹配人员" description="按身份证号定位已有档案" />
+                <el-step title="批量打标签" description="党员、退役、优抚、低保、五保、残疾等" />
+              </el-steps>
+            </div>
+
+            <div class="kg-config">
+              <div class="kg-field">
+                <span class="kg-label">默认类别</span>
+                <el-select v-model="kgForm.defaultCode" placeholder="整张表都是同一类别时可在此指定" clearable filterable style="width: 200px">
+                  <el-option v-for="t in kgTypes" :key="t.code" :label="t.label" :value="t.code" />
+                </el-select>
+              </div>
+              <div class="kg-field">
+                <span class="kg-label">生效方式</span>
+                <el-radio-group v-model="kgForm.applyMode">
+                  <el-radio value="ACTIVE">直接生效</el-radio>
+                  <el-radio value="AUDIT">敏感标签待审核</el-radio>
+                </el-radio-group>
+              </div>
+            </div>
+
+            <div class="import-actions">
+              <el-button v-if="auth.hasPermission('excel:import')" @click="downloadKeyGroupTemplate">
+                <el-icon><Download /></el-icon>下载名单模板
+              </el-button>
+              <el-upload
+                v-if="auth.hasPermission('excel:import')"
+                :show-file-list="false"
+                :before-upload="beforeUpload"
+                :http-request="doImportKeyGroup"
+                accept=".xlsx,.xls"
+              >
+                <el-button type="primary"><el-icon><Upload /></el-icon>上传并打标签</el-button>
+              </el-upload>
+            </div>
+
+            <el-alert type="info" :closable="false" style="margin-top: 16px">
+              <div class="rule-list">
+                <div>1. 模板共 5 列：<b>姓名、身份证号、人员类别、依据/备注、生效日期</b>（后两列可留空）。</div>
+                <div>2. 人员类别可写：{{ kgTypeText }}；也可直接写标签编码（如 VETERAN）。多个类别用逗号分隔。</div>
+                <div>3. <b>本导入不新建人员</b>，只按身份证号匹配已有档案并打标签；未匹配到的行会报错并可下载错误行。</div>
+                <div>4. 身份证号留空时按姓名匹配，姓名在系统中不唯一会要求补填身份证号，避免张冠李戴。</div>
+                <div>5. 已存在的标签自动跳过，不会重复关联；敏感标签（优抚/低保/五保/残疾）默认直接生效，可改为「待审核」。</div>
+              </div>
+            </el-alert>
+
+            <div v-if="kgResult" class="kg-result">
+              <div class="kg-result-title">
+                最近一次导入结果
+                <el-tag size="small" :type="kgResult.status === 'SUCCESS' ? 'success' : (kgResult.status === 'FAILED' ? 'danger' : 'warning')">
+                  {{ kgResult.status === 'SUCCESS' ? '全部成功' : (kgResult.status === 'FAILED' ? '导入失败' : '部分成功') }}
+                </el-tag>
+              </div>
+              <div class="kg-stats">
+                <div class="kgs-item"><span class="num">{{ kgResult.total }}</span><span class="lbl">名单行数</span></div>
+                <div class="kgs-item"><span class="num">{{ kgResult.matched }}</span><span class="lbl">匹配到人员</span></div>
+                <div class="kgs-item is-ok"><span class="num">{{ kgResult.tagged }}</span><span class="lbl">新增标签</span></div>
+                <div class="kgs-item"><span class="num">{{ kgResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
+                <div class="kgs-item is-bad"><span class="num">{{ kgResult.fail }}</span><span class="lbl">未匹配/失败</span></div>
+              </div>
+              <div class="kg-result-ops">
+                <el-button v-if="kgResult.fail" link type="primary" size="small" @click="downloadErrors({ id: kgResult.taskId })">下载错误行</el-button>
+                <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
+                <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
+              </div>
+            </div>
+          </div>
         </el-tab-pane>
 
         <!-- 导出 -->
@@ -117,7 +199,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
@@ -195,6 +277,53 @@ async function doImport(options: any) {
   }
 }
 
+/** ===== 重点人群名单导入 ===== */
+const kgTypes = ref<any[]>([]);
+const kgForm = reactive({ defaultCode: '', applyMode: 'ACTIVE' });
+const kgResult = ref<any>(null);
+const kgTypeText = computed(() => kgTypes.value.map((t: any) => t.label).join('、'));
+
+async function loadKgTypes() {
+  try {
+    const res: any = await excelApi.keyGroupTypes();
+    kgTypes.value = res.data;
+  } catch { kgTypes.value = []; }
+}
+
+async function downloadKeyGroupTemplate() {
+  const res: any = await excelApi.keyGroupTemplate();
+  const blob = new Blob([res.data]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'keygroup_import_template.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function doImportKeyGroup(options: any) {
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('batchNo', `KG${Date.now()}`);
+  if (kgForm.defaultCode) fd.append('defaultCode', kgForm.defaultCode);
+  fd.append('applyMode', kgForm.applyMode);
+  loading.value = true;
+  try {
+    const res: any = await excelApi.importKeyGroup(fd);
+    kgResult.value = res.data;
+    const d = res.data;
+    ElMessage.success({
+      message: `匹配 ${d.matched} 人，新增标签 ${d.tagged} 条${d.skipped ? `，跳过 ${d.skipped} 条` : ''}${d.fail ? `，失败 ${d.fail} 条` : ''}`,
+      duration: 4000,
+    });
+    loadTasks();
+  } catch {
+    loadTasks();
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function downloadTemplate() {
   const res: any = await excelApi.template();
   const blob = new Blob([res.data]);
@@ -256,18 +385,35 @@ async function downloadExport(row: any) {
 onMounted(() => {
   loadTasks();
   loadExportTasks();
+  loadKgTypes();
 });
 </script>
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 16px; }
-.card-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.card-title { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 14px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
-.stale-tip { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+.stale-tip { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 2px; }
 .import-box { padding: 8px 0; }
 .steps { margin-bottom: 20px; }
 .import-actions { display: flex; gap: 12px; align-items: center; }
 .export-box { padding: 4px 0; }
-.rule-list { line-height: 1.9; font-size: 13px; }
+.rule-list { line-height: 1.9; font-size: var(--font-size-sm); }
 .muted { color: var(--color-text-secondary); }
+/* 重点人群导入 */
+.kg-config { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 14px; }
+.kg-field { display: flex; align-items: center; gap: 8px; }
+.kg-label { font-size: var(--font-size-sm); color: var(--color-text-regular); }
+.kg-result {
+  margin-top: 16px; padding: 16px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-button); background: var(--color-bg-subtle);
+}
+.kg-result-title { font-size: var(--font-size-base); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.kg-stats { display: flex; flex-wrap: wrap; gap: 28px; margin: 12px 0; }
+.kgs-item { display: flex; flex-direction: column; }
+.kgs-item .num { font-size: var(--font-size-lg); font-weight: 700; line-height: 1.2; }
+.kgs-item .lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.kgs-item.is-ok .num { color: var(--color-success); }
+.kgs-item.is-bad .num { color: var(--color-danger); }
+.kg-result-ops { display: flex; gap: 8px; }
 </style>

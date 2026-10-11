@@ -191,11 +191,11 @@ async function submitPassword() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   flex-shrink: 0;
 }
 .logo-text {
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-primary);
   white-space: nowrap;
@@ -236,7 +236,7 @@ async function submitPassword() {
 }
 .collapse-btn {
   cursor: pointer;
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   color: var(--color-text-secondary);
 }
 .header-right {
@@ -258,7 +258,7 @@ async function submitPassword() {
   background: var(--color-primary);
 }
 .user-name {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   color: var(--color-text-primary);
 }
 .content {

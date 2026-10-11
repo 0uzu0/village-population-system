@@ -39,6 +39,50 @@ const upload = multer({
  */
 const IMPORT_COLUMNS = ['姓名', '性别', '出生日期', '身份证号', '手机号', '户籍地址', '实际居住地址', '所属村庄', '网格编号', '家庭编号', '与户主关系', '备用手机号'];
 
+/**
+ * 重点人群名单导入模板列。
+ * 与人口档案导入的区别：本导入不新建人员，只按身份证号（或唯一姓名）匹配已有人员并打标签。
+ */
+const KEYGROUP_COLUMNS = ['姓名', '身份证号', '人员类别', '依据/备注', '生效日期'];
+
+/**
+ * 人员类别 -> 标签编码。别名覆盖村务台账里的常见叫法（五保户/特困供养、低保户…）。
+ * 也可直接填标签编码（如 VETERAN），大小写不敏感。
+ */
+const KEYGROUP_TAGS: { label: string; code: string; aliases: string[] }[] = [
+  { label: '党员', code: 'PARTY_MEMBER', aliases: ['党员', '中共党员', '共产党员', '正式党员'] },
+  { label: '预备党员', code: 'PARTY_PROBATIONARY', aliases: ['预备党员', '中共预备党员'] },
+  { label: '共青团员', code: 'LEAGUE_MEMBER', aliases: ['共青团员', '团员'] },
+  { label: '退役军人', code: 'VETERAN', aliases: ['退役军人', '退伍军人', '退役', '退伍', '退役士兵'] },
+  { label: '优抚对象', code: 'PREFERENTIAL_OBJECT', aliases: ['优抚', '优抚对象', '抚恤', '优待'] },
+  { label: '低保对象', code: 'LOW_INCOME_PERSON', aliases: ['低保', '低保对象', '低保户', '低收入'] },
+  { label: '五保对象', code: 'EXTREME_POVERTY_PERSON', aliases: ['五保', '五保户', '特困', '特困供养', '特困人员', '特困供养对象'] },
+  { label: '残疾人', code: 'DISABLED_PERSON', aliases: ['残疾', '残疾人', '持证残疾', '残疾病'] },
+  { label: '老年人', code: 'ELDERLY', aliases: ['老年人', '老人', '60岁以上', '老龄'] },
+  { label: '未成年人', code: 'MINOR', aliases: ['未成年人', '未成年'] },
+];
+
+/** 把「人员类别」单元格解析为标签编码，无法识别的部分原样返回供报错 */
+function resolveTagCodes(text: string): { codes: string[]; unknown: string[] } {
+  const parts = String(text || '')
+    .split(/[,，、;；/|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const codes: string[] = [];
+  const unknown: string[] = [];
+  for (const p of parts) {
+    const hit = KEYGROUP_TAGS.find(
+      (t) => t.label === p || t.code.toLowerCase() === p.toLowerCase() || t.aliases.includes(p)
+    );
+    if (hit) {
+      if (!codes.includes(hit.code)) codes.push(hit.code);
+    } else if (!unknown.includes(p)) {
+      unknown.push(p);
+    }
+  }
+  return { codes, unknown };
+}
+
 /** 下载导入模板 */
 router.get('/template', requirePermission('excel:import'), async (_req: Request, res: Response) => {
   const wb = new ExcelJS.Workbook();
@@ -54,8 +98,42 @@ router.get('/template', requirePermission('excel:import'), async (_req: Request,
   res.send(Buffer.from(buf));
 });
 
-/** 读取并解析 Excel 行 */
-async function readRows(filePath: string): Promise<Record<string, any>[]> {
+/** 下载重点人群名单导入模板 */
+router.get('/template/key-group', requirePermission('excel:import'), async (_req: Request, res: Response) => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('重点人群名单');
+  ws.columns = KEYGROUP_COLUMNS.map((c) => ({ header: c, key: c, width: c === '依据/备注' ? 28 : 18 }));
+  ws.addRow(['张三', '320102199001011234', '党员', '2026年党员名册', '2026-01-01']);
+  ws.addRow(['李四', '320102197508084321', '退役军人,党员', '退役军人事务站名册', '2026-01-01']);
+  ws.addRow(['王五', '320102196203120018', '五保户', '民政特困供养名单', '2026-01-01']);
+  ws.getRow(1).font = { bold: true };
+  for (let r = 2; r <= 4; r++) {
+    ws.getRow(r).getCell('身份证号').numFmt = '@';
+    ws.getRow(r).getCell('生效日期').numFmt = '@';
+  }
+
+  // 第二张表仅作填写说明（导入只解析第一个工作表，不影响解析）
+  const help = wb.addWorksheet('类别填写说明');
+  help.columns = [
+    { header: '可填写的类别', key: 'label', width: 18 },
+    { header: '同时可写成', key: 'alias', width: 40 },
+  ];
+  KEYGROUP_TAGS.forEach((t) => help.addRow({ label: t.label, alias: t.aliases.join('、') }));
+  help.getRow(1).font = { bold: true };
+
+  const buf = await wb.xlsx.writeBuffer();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="keygroup_import_template.xlsx"');
+  res.send(Buffer.from(buf));
+});
+
+/** 重点人群类别字典（前端下拉用） */
+router.get('/key-group/types', requirePermission('excel:import'), async (_req: Request, res: Response) => {
+  return ok(res, KEYGROUP_TAGS.map((t) => ({ label: t.label, code: t.code, aliases: t.aliases })));
+});
+
+/** 读取并解析 Excel 行（严格按列顺序取值，只读第一个工作表，跳过表头） */
+async function readRowsByColumns(filePath: string, columns: string[]): Promise<Record<string, any>[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
   const ws = wb.worksheets[0];
@@ -63,13 +141,22 @@ async function readRows(filePath: string): Promise<Record<string, any>[]> {
   ws.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // 跳过表头
     const obj: Record<string, any> = {};
-    IMPORT_COLUMNS.forEach((c, i) => {
+    columns.forEach((c, i) => {
       const cell = row.getCell(i + 1);
-      obj[c] = cell.value == null ? '' : String(cell.value).trim();
+      const raw = cell.value;
+      // 日期单元格直接取 YYYY-MM-DD，避免变成序列号
+      const v = raw instanceof Date
+        ? raw.toISOString().slice(0, 10)
+        : (raw == null ? '' : String(raw).trim());
+      obj[c] = v;
     });
     if (Object.values(obj).some((v) => v !== '')) rows.push(obj);
   });
   return rows;
+}
+
+async function readRows(filePath: string): Promise<Record<string, any>[]> {
+  return readRowsByColumns(filePath, IMPORT_COLUMNS);
 }
 
 /** 校验并准备导入行，返回 { valid, error }；身份证缺失/非法时返回 { pending } 转待核查表 */
@@ -343,6 +430,167 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
     );
   } catch (err) {
     // 导入中途失败（SQL 报错、连接中断等）：整批未生效，任务必须落为失败，不能停在「处理中」
+    await markImportFailed(taskId, rows.length, err);
+    fs.unlink(req.file.path, () => {});
+    throw err;
+  }
+});
+
+const keyGroupSchema = z.object({
+  defaultCode: z.string().optional().or(z.literal('')),
+  applyMode: z.enum(['ACTIVE', 'AUDIT']).default('ACTIVE'),
+});
+
+/**
+ * 导入重点人群名单（党员 / 退役军人 / 优抚 / 低保 / 五保 / 残疾 …）。
+ * 不新建人员档案：按身份证号（或系统内唯一的姓名）匹配已有人员，再打上对应标签。
+ * 已存在的标签自动跳过，不会重复关联。
+ */
+router.post('/import-key-group', requirePermission('excel:import'), upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) return fail(res, '请上传 Excel 文件');
+  const batchNo = (req.body.batchNo as string) || `KG${Date.now()}`;
+  const body = keyGroupSchema.parse({ defaultCode: req.body.defaultCode, applyMode: req.body.applyMode || 'ACTIVE' });
+
+  const existed = await queryOne<any>('SELECT id FROM excel_import_task WHERE batch_no = ?', [batchNo]);
+  if (existed) throw new AppError('该批次已提交过，请勿重复导入', 409, 'DUPLICATE_BATCH');
+
+  const rows = await readRowsByColumns(req.file.path, KEYGROUP_COLUMNS);
+  const taskResult = await execute(
+    `INSERT INTO excel_import_task (file_id, batch_no, task_type, status, total_rows, success_count, fail_count, created_by)
+     VALUES (NULL, ?, 'KEY_GROUP', 'RUNNING', ?, 0, 0, ?)`,
+    [batchNo, rows.length, req.user!.id]
+  );
+  const taskId = taskResult.insertId;
+
+  try {
+    // 标签定义按编码索引（含 need_audit，决定敏感标签是否落「待审核」）
+    const defRows = await query<any>('SELECT id, code, name, need_audit FROM tag_definition WHERE object_type = \'PERSON\'');
+    const defByCode = new Map<string, any>(defRows.map((d: any) => [String(d.code).toUpperCase(), d]));
+
+    // 已生效的标签关联一次性载入内存，避免逐行查重
+    const linkRows = await query<any>('SELECT person_id, tag_id FROM person_tag WHERE status = \'ACTIVE\'');
+    const linked = new Set<string>(linkRows.map((l: any) => `${l.person_id}:${l.tag_id}`));
+
+    // 人员索引：身份证 -> 人员；姓名唯一 -> 人员（用于无身份证的老名单）
+    const personRows = await query<any>('SELECT id, name, id_card FROM person');
+    const byIdCard = new Map<string, any>();
+    const nameCount = new Map<string, number>();
+    for (const p of personRows) {
+      if (p.id_card) byIdCard.set(String(p.id_card), p);
+      nameCount.set(String(p.name), (nameCount.get(String(p.name)) || 0) + 1);
+    }
+    const byUniqueName = new Map<string, any>();
+    for (const p of personRows) {
+      if ((nameCount.get(String(p.name)) || 0) === 1) byUniqueName.set(String(p.name), p);
+    }
+
+    const errors: { rowNo: number; message: string; raw: string }[] = [];
+    const toInsert: { personId: number; tagId: number; status: string; basis: string; effectDate: string | null }[] = [];
+    const fileSeen = new Set<string>();
+    let matched = 0;
+    let skipped = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowNo = i + 2;
+      const row = rows[i];
+      const name = String(row['姓名'] || '').trim();
+      const raw = name || String(row['身份证号'] || '');
+      if (!name) { errors.push({ rowNo, message: '姓名为空', raw }); continue; }
+
+      const idText = String(row['身份证号'] || '').trim();
+      let person: any = null;
+      if (idText) {
+        const check = validateIdCard(idText);
+        if (!check.valid) { errors.push({ rowNo, message: `身份证号：${check.message}`, raw }); continue; }
+        person = byIdCard.get(check.normalized!) || null;
+        if (!person) {
+          errors.push({ rowNo, message: `系统内未找到身份证号 ${check.normalized} 的人员，请先导入人口档案`, raw });
+          continue;
+        }
+      } else {
+        // 老名单常只有姓名：仅当姓名在系统中唯一时才匹配，避免张冠李戴
+        const cnt = nameCount.get(name) || 0;
+        if (!byUniqueName.has(name)) {
+          errors.push({
+            rowNo,
+            message: cnt ? `姓名「${name}」在系统中存在 ${cnt} 条同名记录，请补填身份证号` : `系统内未找到姓名「${name}」的人员`,
+            raw,
+          });
+          continue;
+        }
+        person = byUniqueName.get(name);
+      }
+      matched++;
+
+      // 类别：行内为空时取上传页面选择的「默认类别」
+      const { codes, unknown } = resolveTagCodes(row['人员类别'] || '');
+      if (unknown.length) { errors.push({ rowNo, message: `无法识别的人员类别：${unknown.join('、')}（可填：${KEYGROUP_TAGS.map((t) => t.label).join('/')}）`, raw }); continue; }
+      const finalCodes = codes.length ? codes : body.defaultCode ? [body.defaultCode] : [];
+      if (!finalCodes.length) { errors.push({ rowNo, message: '未填写人员类别，且未选择默认类别', raw }); continue; }
+
+      const basis = String(row['依据/备注'] || '').trim() || `重点人群名单导入（批次 ${batchNo}）`;
+      const effect = String(row['生效日期'] || '').trim();
+      const effectDate = /^\d{4}-\d{2}-\d{2}$/.test(effect) ? effect : null;
+
+      for (const code of finalCodes) {
+        const def = defByCode.get(code.toUpperCase());
+        if (!def) { errors.push({ rowNo, message: `系统中不存在标签编码 ${code}`, raw }); continue; }
+        const key = `${person.id}:${def.id}`;
+        if (fileSeen.has(key) || linked.has(key)) { skipped++; continue; }
+        fileSeen.add(key);
+        toInsert.push({
+          personId: person.id,
+          tagId: def.id,
+          status: body.applyMode === 'AUDIT' && def.need_audit ? 'PENDING' : 'ACTIVE',
+          basis,
+          effectDate,
+        });
+      }
+    }
+
+    if (toInsert.length) {
+      await withTransaction(async (conn) => {
+        for (const it of toInsert) {
+          await conn.query(
+            `INSERT INTO person_tag (person_id, tag_id, effect_date, status, basis, created_by)
+             VALUES (?,?,?,?,?,?)`,
+            [it.personId, it.tagId, it.effectDate, it.status, it.basis, req.user!.id]
+          );
+          await conn.query(
+            `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)
+             VALUES ('PERSON', ?, ?, 'ADD', ?, ?)`,
+            [it.personId, it.tagId, req.user!.id, `重点人群名单导入（批次 ${batchNo}）`]
+          );
+        }
+      });
+    }
+    const tagged = toInsert.length;
+
+    for (const e of errors) {
+      await execute('INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)', [taskId, e.rowNo, e.message, e.raw]);
+    }
+
+    const finalStatus = errors.length === 0 ? 'SUCCESS' : (tagged > 0 || skipped > 0 ? 'PARTIAL' : 'FAILED');
+    await execute(
+      'UPDATE excel_import_task SET status = ?, success_count = ?, fail_count = ?, finished_at = NOW() WHERE id = ?',
+      [finalStatus, tagged, errors.length, taskId]
+    );
+
+    fs.unlink(req.file.path, () => {});
+    await writeAudit({
+      userId: req.user!.id, username: req.user!.username, action: 'excel:import_key_group',
+      request: { batchNo, total: rows.length, matched, tagged, skipped, fail: errors.length },
+      result: 'SUCCESS', ip: req.ip,
+    });
+
+    return ok(
+      res,
+      { taskId, total: rows.length, matched, tagged, skipped, fail: errors.length, status: finalStatus },
+      errors.length
+        ? `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条，已存在跳过 ${skipped} 条，失败 ${errors.length} 条`
+        : `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条${skipped ? `，已存在跳过 ${skipped} 条` : ''}`
+    );
+  } catch (err) {
     await markImportFailed(taskId, rows.length, err);
     fs.unlink(req.file.path, () => {});
     throw err;

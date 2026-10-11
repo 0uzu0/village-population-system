@@ -302,16 +302,16 @@ onMounted(() => {
 }
 .summary-card:hover { border-color: var(--color-primary); }
 .summary-card.active { border-color: var(--color-primary); background: var(--color-primary-light); }
-.summary-card .sv { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
+.summary-card .sv { font-size: var(--font-size-xl); font-weight: 700; color: var(--color-text-primary); }
 .summary-card.warn .sv { color: #F76B15; }
 .summary-card.ok .sv { color: #0E7C6B; }
 .summary-card.muted .sv { color: var(--color-text-secondary); }
 .summary-card.reason { cursor: default; }
 .summary-card.reason:hover { border-color: transparent; }
-.summary-card .sl { font-size: 13px; color: var(--color-text-secondary); margin-top: 2px; }
+.summary-card .sl { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: 2px; }
 .grow { flex: 1; }
-.mono { font-family: var(--vp-font-mono, monospace); font-size: 12px; }
-.row-no { font-size: 12px; color: var(--color-text-secondary); margin-left: 6px; }
+.mono { font-family: var(--vp-font-mono, monospace); font-size: var(--font-size-xs); }
+.row-no { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-left: 6px; }
 .empty-val { color: #F76B15; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(3, 1fr); } }

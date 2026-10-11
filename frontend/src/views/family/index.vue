@@ -352,13 +352,13 @@ onMounted(async () => {
 .auto-result { margin-top: 8px; }
 .auto-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
 .as-item { background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 10px; text-align: center; }
-.as-item .as-num { display: block; font-size: 20px; font-weight: 700; color: var(--color-primary); }
+.as-item .as-num { display: block; font-size: var(--font-size-lg); font-weight: 700; color: var(--color-primary); }
 .as-item.create .as-num { color: #0E7C6B; }
 .as-item.reuse .as-num { color: #5B5BD6; }
 .as-item.muted .as-num { color: var(--color-text-secondary); }
-.as-item .as-lbl { font-size: 12px; color: var(--color-text-secondary); }
-.auto-tip { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; }
-.section-title { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+.as-item .as-lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.auto-tip { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 8px; }
+.section-title { font-size: var(--font-size-base); font-weight: 600; margin: 20px 0 8px; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
 .fam-tags { min-height: 20px; }
 </style>
