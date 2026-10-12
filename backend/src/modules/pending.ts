@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
+import { formatDate } from '../utils/date';
 import { z } from 'zod';
 
 const router = Router();
@@ -150,7 +151,9 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
   }
 
   const relation = p.relation === '户主' ? 'HEAD' : p.relation || null;
-  const birthDate = p.birth_date ? new Date(p.birth_date).toISOString().slice(0, 10) : birthFromIdCard(idCard);
+  // 注意：这里会把结果写回 birth_date，日期差一天会直接污染出生日期，
+  // 因此必须用按本地时区取值的 formatDate，不能用 toISOString()
+  const birthDate = formatDate(p.birth_date) || birthFromIdCard(idCard);
   const gender = p.gender || genderFromIdCard(idCard) || 'MALE';
 
   const personNo = `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;

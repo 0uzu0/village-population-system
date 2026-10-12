@@ -5,6 +5,7 @@ import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
+import { formatDate } from '../utils/date';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { z } from 'zod';
@@ -231,11 +232,17 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   }
 
   const whereSql = where.join(' AND ');
-  // 残疾相关筛选依赖 person_disability 表，其余查询不该为此多付一次 JOIN 成本
+  // 残疾相关筛选依赖 person_disability 表，其余查询不该为此多付一次 JOIN 成本。
+  // 注意：SELECT 里的 pd.* 列必须与 JOIN 同步出现——JOIN 不在时引用 pd.* 会报
+  // Unknown column，导致不传残疾条件的默认查询直接 500。
   const disabilityJoin = needDisabilityJoin
     ? 'LEFT JOIN person_disability pd ON pd.person_id = p.id'
     : '';
   const fromSql = `FROM person p ${disabilityJoin}`;
+  const disabilityCols = needDisabilityJoin
+    ? `, pd.disability_type, pd.disability_level, pd.disability_card,
+            pd.guardian_name, pd.guardian_phone`
+    : '';
 
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt ${fromSql} WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
@@ -243,9 +250,8 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const rows = await query<any>(
     `SELECT p.id, p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone, p.phone_backup,
             p.grid_id, g.name AS grid_name, p.family_id, f.family_no AS family_name, p.status,
-            p.bank_account, p.subsidy_amount, p.family_condition, p.health_assessment,
-            pd.disability_type, pd.disability_level, pd.disability_card,
-            pd.guardian_name, pd.guardian_phone
+            p.bank_account, p.subsidy_amount, p.family_condition, p.health_assessment
+            ${disabilityCols}
      ${fromSql}
      LEFT JOIN grid g ON g.id = p.grid_id LEFT JOIN family f ON f.id = p.family_id
      WHERE ${whereSql} ORDER BY p.id LIMIT ? OFFSET ?`,
@@ -273,7 +279,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     personNo: r.person_no,
     name: r.name,
     gender: r.gender,
-    birthDate: r.birth_date ? new Date(r.birth_date).toISOString().slice(0, 10) : null,
+    birthDate: formatDate(r.birth_date),
     age: calcAge(r.birth_date),
     idCard: r.id_card,
     phone: r.phone,

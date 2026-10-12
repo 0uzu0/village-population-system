@@ -44,8 +44,28 @@ describe('人员状态口径（V007）', () => {
     const files = ['modules/person.ts', 'modules/keygroup.ts', 'modules/excel.ts', 'modules/statistics.ts'];
     for (const f of files) {
       const src = fs.readFileSync(path.join(SRC_DIR, f), 'utf8');
-      expect(src.includes('CANCELLED'), `${f} 仍引用了已取消的 CANCELLED 状态`).toBe(false);
+      // 注释里可以说明「为什么不能用CANCELLED」，但代码中不能真的引用它
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(code.includes('CANCELLED'), `${f} 的代码中仍引用了已取消的 CANCELLED 状态`).toBe(false);
     }
+  });
+
+  it('创建人员时 status 必须是合法枚举（防止写入脏值静默脱离统计）', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/person.ts'), 'utf8');
+    // personSchema 里的 status 用 z.string() 的话，任意脏值都能落库
+    expect(src, 'personSchema 的 status 应改用 z.enum(PERSON_STATUSES)').toMatch(
+      /status:\s*z\.enum\(PERSON_STATUSES\)\.optional\(\)/
+    );
+  });
+
+  it('状态变更双向维护家庭成员关联（转非在册标记离开，改回在册需恢复）', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/person.ts'), 'utf8');
+    // 单条与批量两处都要有反向恢复：'SET status = 1, leave_date = NULL'
+    const restore = src.match(/family_member SET status = 1, leave_date = NULL/g) || [];
+    expect(
+      restore.length,
+      '改回在册时应恢复 family_member（status=1, leave_date=NULL），单条与批量两处都要处理'
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('统计模块在册口径统一走常量，不再内联状态列表', () => {

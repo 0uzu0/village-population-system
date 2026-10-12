@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs';
 import type { PoolConnection } from 'mysql2/promise';
 import { query, queryOne, execute, withTransaction } from '../config/db';
 import { genPersonNo } from '../utils/id';
+import { formatDate, formatDateOrEmpty } from '../utils/date';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
@@ -239,7 +240,7 @@ async function readRowsByColumns(filePath: string, columns: string[]): Promise<R
       const raw = cell.value;
       // 日期单元格直接取 YYYY-MM-DD，避免变成序列号
       const v = raw instanceof Date
-        ? raw.toISOString().slice(0, 10)
+        ? formatDate(raw)
         : (raw == null ? '' : String(raw).trim());
       obj[c] = v;
     });
@@ -1250,7 +1251,6 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   }
 
   // 个性化筛选（V008）：必须与 keygroup /query 同口径，否则筛完导出会是另一批人
-  let needDisabilityJoin = false;
   if (body.extremePovertyMode) {
     const code = body.extremePovertyMode === 'CENTRALIZED' ? 'EXTREME_POVERTY_CENTRALIZED' : 'EXTREME_POVERTY_DISPERSED';
     where.push(`EXISTS (SELECT 1 FROM person_tag pt2 JOIN tag_definition td2 ON td2.id = pt2.tag_id
@@ -1258,7 +1258,6 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     params.push(code);
   }
   if (body.minDisabilityLevel || body.maxDisabilityLevel || body.disabilityType || body.guardian) {
-    needDisabilityJoin = true;
     where.push('pd.person_id IS NOT NULL');
     const lvl = buildDisabilityLevelFilter(body.minDisabilityLevel, body.maxDisabilityLevel);
     if (lvl.where) { where.push(lvl.where); params.push(...lvl.params); }
@@ -1273,7 +1272,11 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   if (body.maxSubsidy != null) { where.push('p.subsidy_amount <= ?'); params.push(body.maxSubsidy); }
 
   const whereSql = where.join(' AND ');
-  const fromSql = `FROM person p ${needDisabilityJoin ? 'LEFT JOIN person_disability pd ON pd.person_id = p.id' : ''}`;
+  // 导出的可选字段包含残疾信息（残疾类别/等级/证号/监护人），
+  // 无论用户是否勾选都必须能取到，因此这里始终 JOIN，而非按筛选条件决定——
+  // 否则勾选残疾字段导出时会报 Unknown column。
+  // 导出本身已是全表顺序扫描，多一次 LEFT JOIN 的成本可忽略。
+  const fromSql = 'FROM person p LEFT JOIN person_disability pd ON pd.person_id = p.id';
 
   // 分批读取（避免一次加载上万条到内存）
   const BATCH = 2000;
@@ -1312,7 +1315,7 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
         const rowData: any[] = [];
         for (const k of fields) {
           if (k === 'gender') rowData.push(r.gender === 'MALE' ? '男' : '女');
-          else if (k === 'birth_date') rowData.push(r.birth_date ? new Date(r.birth_date).toISOString().slice(0, 10) : '');
+          else if (k === 'birth_date') rowData.push(formatDateOrEmpty(r.birth_date));
           else if (k === 'grid_name') rowData.push(r.grid_name || '');
           else if (k === 'family_name') rowData.push(r.family_name || '');
           else if (k === 'status') rowData.push(r.status || '');

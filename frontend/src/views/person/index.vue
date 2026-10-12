@@ -148,7 +148,7 @@
             <el-button v-if="auth.hasPermission('person:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openTagManager(row)">标签</el-button>
             <el-button
-              v-if="auth.hasPermission('person:edit')"
+              v-if="auth.hasPermission('person:delete')"
               link type="danger" size="small" @click="removePerson(row)"
             >删除</el-button>
           </template>
@@ -622,9 +622,9 @@ async function removeTag(linkId: number) {
 async function removePerson(row: any) {
   try {
     await ElMessageBox.confirm(
-      `将删除人员「${row.name}」及其标签、家庭成员关系与变更记录，且不可恢复。是否继续？`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+      `将物理删除人员「${row.name}」及其身份证号、手机号、标签、家庭成员关系、残疾档案与全部变更记录，且不可恢复。\n\n注意：死亡、迁出请使用「状态」功能登记，不要删除人员。\n\n是否确认删除？`,
+      '删除确认（不可恢复）',
+      { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' }
     );
   } catch { return; }
   await personApi.remove(row.id);

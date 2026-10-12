@@ -370,6 +370,8 @@ router.delete('/:id', requirePermission('family:manage'), async (req: Request, r
     // 清理关联数据（库内无外键约束，需手动处理）
     await conn.query('DELETE FROM family_tag WHERE family_id = ?', [id]);
     await conn.query('DELETE FROM family_member WHERE family_id = ?', [id]);
+    // 标签变更日志按 object_id 记录家庭，不清会在「标签历史」里残留悬空对象 ID
+    await conn.query("DELETE FROM tag_change_log WHERE object_type = 'FAMILY' AND object_id = ?", [id]);
     // 成员只是解除家庭归属，人员档案不删除
     await conn.query('UPDATE person SET family_id = NULL, relation = NULL WHERE family_id = ?', [id]);
     await conn.query('DELETE FROM family WHERE id = ?', [id]);

@@ -6,6 +6,7 @@ import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { calcAge } from '../utils/age';
+import { formatDate, today } from '../utils/date';
 import { genPersonNo } from '../utils/id';
 import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { DISABILITY_LEVELS, disabilityLevelLabel } from '../utils/disability';
@@ -48,7 +49,7 @@ function toPersonVO(row: any): any {
     name: row.name,
     formerName: row.former_name,
     gender: row.gender,
-    birthDate: row.birth_date ? new Date(row.birth_date).toISOString().slice(0, 10) : null,
+    birthDate: formatDate(row.birth_date),
     age: calcAge(row.birth_date),
     idCard: row.id_card,
     phone: row.phone,
@@ -62,7 +63,7 @@ function toPersonVO(row: any): any {
     familyName: row.family_name,
     relation: row.relation,
     status: row.status,
-    statusDate: row.status_date ? new Date(row.status_date).toISOString().slice(0, 10) : null,
+    statusDate: formatDate(row.status_date),
     remark: row.remark,
     // 重点人群服务台账
     bankAccount: row.bank_account,
@@ -272,8 +273,8 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
     name: t.name,
     code: t.code,
     color: t.color,
-    effectDate: t.effect_date ? new Date(t.effect_date).toISOString().slice(0, 10) : null,
-    expireDate: t.expire_date ? new Date(t.expire_date).toISOString().slice(0, 10) : null,
+    effectDate: formatDate(t.effect_date),
+    expireDate: formatDate(t.expire_date),
     status: t.status,
     basis: t.basis,
     createdAt: t.created_at,
@@ -335,7 +336,12 @@ const personSchema = z.object({
   gridId: z.coerce.number().nullable().optional(),
   familyId: z.coerce.number().nullable().optional(),
   relation: z.string().optional().or(z.literal('')),
-  status: z.string().optional(),
+  /**
+   * 必须是合法状态枚举。此前用 z.string() 可写入任意脏值（含 V007 已废弃的
+   * CANCELLED），这类值不在在册白名单里，该人会静默从所有人口统计中消失。
+   * 日常变更状态请走 POST /persons/:id/status（带留痕），这里仅用于建档时初始状态。
+   */
+status: z.enum(PERSON_STATUSES).optional(),
   remark: z.string().max(500).optional().or(z.literal('')),
   changeReason: z.string().max(255).optional().or(z.literal('')),
   /** 重点人群服务台账：银行账号 / 当前应发金额 / 家庭情况 / 身体评估 */
@@ -365,37 +371,42 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
   }
 
   const personNo = genPersonNo();
-  const insertResult = await execute(
-    `INSERT INTO person (person_no, name, former_name, gender, birth_date, id_card, phone, phone_backup,
-      hukou_address, live_address, bank_account, subsidy_amount, village, grid_id, family_id, relation,
-      status, remark, family_condition, health_assessment, data_source, change_reason, created_by, updated_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      personNo, body.name, body.formerName || null, body.gender || identity.gender || 'MALE',
-      body.birthDate || identity.birth_date || null,
-      identity.id_card || null, identity.phone || null, identity.phone_backup || null,
-      body.hukouAddress || null, body.liveAddress || null,
-      body.bankAccount || null, body.subsidyAmount ?? null, body.village || null,
-      body.gridId || null, body.familyId || null, body.relation || null,
-      body.status || 'NORMAL', body.remark || null,
-      body.familyCondition || null, body.healthAssessment || null,
-      'MANUAL', body.changeReason || null,
-      req.user!.id, req.user!.id,
-    ]
-  );
+  // 人员主表、家庭成员关联、残疾档案三处写入放进同一事务：
+  // 中途失败会留下「人员已建档但没归户/没有残疾档案」的残缺档案
+  const newId = await withTransaction(async (conn) => {
+    const [r] = (await conn.query(
+      `INSERT INTO person (person_no, name, former_name, gender, birth_date, id_card, phone, phone_backup,
+        hukou_address, live_address, bank_account, subsidy_amount, village, grid_id, family_id, relation,
+        status, remark, family_condition, health_assessment, data_source, change_reason, created_by, updated_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        personNo, body.name, body.formerName || null, body.gender || identity.gender || 'MALE',
+        body.birthDate || identity.birth_date || null,
+        identity.id_card || null, identity.phone || null, identity.phone_backup || null,
+        body.hukouAddress || null, body.liveAddress || null,
+        body.bankAccount || null, body.subsidyAmount ?? null, body.village || null,
+        body.gridId || null, body.familyId || null, body.relation || null,
+        body.status || 'NORMAL', body.remark || null,
+        body.familyCondition || null, body.healthAssessment || null,
+        'MANUAL', body.changeReason || null,
+        req.user!.id, req.user!.id,
+      ]
+    )) as any[];
+    const pid = Number((r as any).insertId);
 
-  const newId = insertResult.insertId;
+    // 若关联家庭，写入家庭成员关联
+    if (body.familyId) {
+      await conn.query(
+        `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)`,
+        [body.familyId, pid, body.relation || 'OTHER', body.relation === 'HEAD' ? 1 : 0]
+      );
+    }
 
-  // 若关联家庭，写入家庭成员关联
-  if (body.familyId) {
-    await execute(
-      `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)`,
-      [body.familyId, newId, body.relation || 'OTHER', body.relation === 'HEAD' ? 1 : 0]
-    );
-  }
+    // 残疾专项档案（有内容才建记录；全空即视为非残疾人）
+    if (body.disability) await saveDisability(conn, pid, body.disability);
 
-  // 残疾专项档案（有内容才建记录；全空即视为非残疾人）
-  if (body.disability) await saveDisability(pool, newId, body.disability);
+    return pid;
+  });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:create', request: { personNo, name: body.name }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id: newId, personNo }, '新增成功');
@@ -408,7 +419,17 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   if (!existing) throw new AppError('人员不存在', 404, 'NOT_FOUND');
 
   const body = personSchema.partial().parse(req.body);
-  const identity = prepareIdentity({ idCard: body.idCard || undefined, phone: body.phone || undefined, phoneBackup: body.phoneBackup || undefined });
+  /**
+   * 只把「非空」的身份证/手机号交给 prepareIdentity 做校验与派生。
+   * 注意必须区分 undefined（未提交，保持原值）与 ''（用户清空）：
+   * 早期写法 `body.idCard || undefined` 会把清空意图也吞成 undefined，
+   * 导致界面上删掉手机号后保存又变回原值。
+   */
+  const identity = prepareIdentity({
+    idCard: body.idCard ? body.idCard : undefined,
+    phone: body.phone ? body.phone : undefined,
+    phoneBackup: body.phoneBackup ? body.phoneBackup : undefined,
+  });
 
   if (identity.id_card) {
     const dup = await queryOne<any>('SELECT id FROM person WHERE id_card = ? AND id <> ?', [identity.id_card, id]);
@@ -420,7 +441,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   const params: any[] = [];
   const fieldMap: Record<string, string> = {
     name: 'name', formerName: 'former_name', gender: 'gender', birthDate: 'birth_date',
-    phoneBackup: 'phone_backup',
+    phone: 'phone', phoneBackup: 'phone_backup', idCard: 'id_card',
     hukouAddress: 'hukou_address', liveAddress: 'live_address', village: 'village',
     gridId: 'grid_id', familyId: 'family_id', relation: 'relation', remark: 'remark', changeReason: 'change_reason',
     bankAccount: 'bank_account', familyCondition: 'family_condition', healthAssessment: 'health_assessment',
@@ -431,8 +452,8 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
       params.push((body as any)[key] === '' ? null : (body as any)[key]);
     }
   }
-  if (identity.id_card) { sets.push('id_card = ?'); params.push(identity.id_card); }
-  if (identity.phone !== undefined) { sets.push('phone = ?'); params.push(identity.phone); }
+  // id_card / phone / phone_backup 已在 fieldMap 中统一处理（含清空场景），
+  // 这里只补 prepareIdentity 从身份证派生出来的值，避免重复写同名列
   if (identity.gender !== undefined && body.gender === undefined) { sets.push('gender = ?'); params.push(identity.gender); }
   if (identity.birth_date !== undefined && body.birthDate === undefined) { sets.push('birth_date = ?'); params.push(identity.birth_date); }
   // 发放金额：0 是合法值（享受但金额为 0），故用 ?? 而非 || 判断
@@ -461,8 +482,14 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   return ok(res, { id }, '更新成功');
 });
 
-/** 删除人员（物理删除，事务内清理标签/家庭成员/变更日志等关联数据，不可逆） */
-router.delete('/:id', requirePermission('person:edit'), async (req: Request, res: Response) => {
+/**
+ * 删除人员（物理删除，不可逆）。
+ * 会连带清除身份证号、手机号、标签、家庭成员关联、残疾档案与全部变更留痕，
+ * 因此权限独立为 person:delete（V009，仅系统管理员），
+ * 不再与可逆的「编辑」「死亡登记」共用权限。
+ * 调用方必须在前端做二次确认。
+ */
+router.delete('/:id', requirePermission('person:delete'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const person = await queryOne<any>('SELECT id, name FROM person WHERE id = ?', [id]);
   if (!person) throw new AppError('人员不存在', 404, 'NOT_FOUND');
@@ -473,6 +500,8 @@ router.delete('/:id', requirePermission('person:edit'), async (req: Request, res
     await conn.query('DELETE FROM family_member WHERE person_id = ?', [id]);
     await conn.query('DELETE FROM person_change_log WHERE person_id = ?', [id]);
     await conn.query('DELETE FROM person_disability WHERE person_id = ?', [id]);
+    // 标签变更日志按 object_id 记录人员，不清会在「标签历史」里残留悬空对象 ID
+    await conn.query("DELETE FROM tag_change_log WHERE object_type = 'PERSON' AND object_id = ?", [id]);
     // 若该人员是某户户主，解除户主引用（家庭本身保留）
     await conn.query('UPDATE family SET head_person_id = NULL WHERE head_person_id = ?', [id]);
     await conn.query('DELETE FROM person WHERE id = ?', [id]);
@@ -513,7 +542,7 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
   // 生效日期：不传时非在册默认取当天（死亡/迁出当天），改回在册则清空
   const effectiveDate = statusDate === null
     ? null
-    : statusDate || (isInactiveStatus(status) ? new Date().toISOString().slice(0, 10) : null);
+    : statusDate || (isInactiveStatus(status) ? today() : null);
 
   await withTransaction(async (conn) => {
     await conn.query(
@@ -525,9 +554,16 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
        VALUES (?, 'status', ?, ?, 'STATUS_CHANGE', ?, ?)`,
       [id, existing.status, status, reason || null, req.user!.id]
     );
-    // 转为非在册（迁出/死亡）时，家庭成员关联标记离开，家庭本身保留
+    // 转为非在册（迁出/死亡）时，家庭成员关联标记离开，家庭本身保留。
+    // 改回在册时必须反向恢复——原先只做单向标记，导致「迁出后又迁回」的人
+    // 虽然回到人口统计里，却不在任何家庭的成员列表中（家庭成员数对不上）。
     if (isInactiveStatus(status)) {
       await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [id]);
+    } else {
+      await conn.query(
+        'UPDATE family_member SET status = 1, leave_date = NULL WHERE person_id = ? AND status = 0',
+        [id]
+      );
     }
   });
 
@@ -550,7 +586,7 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
   const { personIds, status, statusDate, reason } = batchStatusSchema.parse(req.body);
   const effectiveDate = statusDate === null
     ? null
-    : statusDate || (isInactiveStatus(status) ? new Date().toISOString().slice(0, 10) : null);
+    : statusDate || (isInactiveStatus(status) ? today() : null);
 
   let changed = 0;
   let skipped = 0;
@@ -572,6 +608,8 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
       );
       if (inactive) {
         await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [pid]);
+      } else {
+        await conn.query('UPDATE family_member SET status = 1, leave_date = NULL WHERE person_id = ? AND status = 0', [pid]);
       }
       changed++;
     }
