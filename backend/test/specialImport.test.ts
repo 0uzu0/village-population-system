@@ -25,6 +25,9 @@ describe('专项导入配置', () => {
       for (const c of ['银行账号', '发放金额', '家庭情况描述', '身体评估结果']) {
         expect(cols, `${t} 模板缺少 ${c}`).toContain(c);
       }
+      // 特困/低保人员中可能兼是残疾人，也要有残疾两列
+      expect(cols, `${t} 模板缺少 残疾类别`).toContain('残疾类别');
+      expect(cols, `${t} 模板缺少 残疾等级`).toContain('残疾等级');
     }
     // 特困特有供养方式列
     expect(SPECIAL_IMPORT_SPECS.extreme_poverty.columns).toContain('供养方式');
@@ -163,10 +166,40 @@ describe('字段映射', () => {
     expect(r.person).toEqual({});
   });
 
-  it('低保模板不含残疾字段，不写入 person_disability', () => {
+  it('低保模板同样可写入残疾类别与等级（低保人员中可能兼是残疾人）', () => {
     const errs: string[] = [];
-    const r = mapRowFields(SPECIAL_IMPORT_SPECS.low_income, { '残疾等级': '一级' }, errs);
-    expect(r.disability).toEqual({});
+    const r = mapRowFields(SPECIAL_IMPORT_SPECS.low_income, { '残疾类别': '听力', '残疾等级': '三级' }, errs);
+    expect(errs).toEqual([]);
+    expect(r.disability).toEqual({ disability_type: '听力', disability_level: 'LEVEL_3' });
+  });
+
+  it('特困模板同样可写入残疾类别与等级', () => {
+    const errs: string[] = [];
+    const r = mapRowFields(SPECIAL_IMPORT_SPECS.extreme_poverty, { '残疾类别': '智力', '残疾等级': '一级' }, errs);
+    expect(errs).toEqual([]);
+    expect(r.disability).toEqual({ disability_type: '智力', disability_level: 'LEVEL_1' });
+  });
+
+  it('特困/低保的残疾两列留空表示非残疾人，不产生残疾档案写入', () => {
+    for (const t of ['extreme_poverty', 'low_income'] as const) {
+      const errs: string[] = [];
+      const r = mapRowFields(SPECIAL_IMPORT_SPECS[t], { '发放金额': '800' }, errs);
+      expect(errs, `${t} 不应因残疾列留空而报错`).toEqual([]);
+      expect(r.disability, `${t} 残疾列留空时不应写入档案`).toEqual({});
+    }
+  });
+
+  it('特困/低保的残疾等级不是必填（只有残疾人台账才是）', () => {
+    expect(SPECIAL_IMPORT_SPECS.disability.requireDisabilityLevel).toBe(true);
+    expect(SPECIAL_IMPORT_SPECS.extreme_poverty.requireDisabilityLevel).toBeFalsy();
+    expect(SPECIAL_IMPORT_SPECS.low_income.requireDisabilityLevel).toBeFalsy();
+  });
+
+  it('特困/低保只填残疾类别不填等级也可以（部分补录）', () => {
+    const errs: string[] = [];
+    const r = mapRowFields(SPECIAL_IMPORT_SPECS.low_income, { '残疾类别': '视力' }, errs);
+    expect(errs).toEqual([]);
+    expect(r.disability).toEqual({ disability_type: '视力' });
   });
 
   it('特困行解析出供养方式，供打集中/分散标签', () => {

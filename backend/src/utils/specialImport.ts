@@ -103,8 +103,8 @@ export const SPECIAL_IMPORT_SPECS: Record<SpecialImportType, SpecialImportSpec> 
     tagCodes: ['EXTREME_POVERTY_PERSON'],
     // 与人员详情页「补贴发放与走访评估」区块对应
     columns: [
-      '姓名', '身份证号', '供养方式', '银行账号', '发放金额',
-      '家庭情况描述', '身体评估结果', '备注',
+      '姓名', '身份证号', '供养方式', '残疾类别', '残疾等级',
+      '银行账号', '发放金额', '家庭情况描述', '身体评估结果', '备注',
     ],
     personFields: {
       '银行账号': 'bank_account',
@@ -113,10 +113,18 @@ export const SPECIAL_IMPORT_SPECS: Record<SpecialImportType, SpecialImportSpec> 
       '身体评估结果': 'health_assessment',
       '备注': 'remark',
     },
+    // 特困人员中可能同时是残疾人：残疾类别/等级写进专项档案，
+    // 留空则不动已有档案（不覆盖规则同样生效）
+    disabilityFields: {
+      '残疾类别': 'disability_type',
+      '残疾等级': 'disability_level',
+    },
     notes: [
       '本表只更新已在人口档案中的人员，不新建人员；查不到请先导入人口档案',
       '供养方式可填：集中供养 / 分散供养（留空则不自动改供养方式标签）',
       '发放金额单位为元/月，填数字（如 800 或 850.5）',
+      '残疾类别可填：视力 / 听力 / 言语 / 肢体 / 智力 / 精神 / 多重；残疾等级填一级 / 二级 / 三级 / 四级（一级最重）',
+      '两列都留空表示非残疾人，不改动其残疾档案；只填其一也可以',
       '留空的列不会覆盖系统内已有数据',
       '导入后会自动为该人员打上「特困供养对象」标签',
     ],
@@ -128,7 +136,7 @@ export const SPECIAL_IMPORT_SPECS: Record<SpecialImportType, SpecialImportSpec> 
     tagCodes: ['LOW_INCOME_PERSON'],
     // 与人员详情页「补贴发放与走访评估」区块对应
     columns: [
-      '姓名', '身份证号', '银行账号', '发放金额',
+      '姓名', '身份证号', '残疾类别', '残疾等级', '银行账号', '发放金额',
       '家庭情况描述', '身体评估结果', '备注',
     ],
     personFields: {
@@ -138,9 +146,16 @@ export const SPECIAL_IMPORT_SPECS: Record<SpecialImportType, SpecialImportSpec> 
       '身体评估结果': 'health_assessment',
       '备注': 'remark',
     },
+    // 低保人员中可能同时是残疾人，与特困台账同理写入专项档案
+    disabilityFields: {
+      '残疾类别': 'disability_type',
+      '残疾等级': 'disability_level',
+    },
     notes: [
       '本表只更新已在人口档案中的人员，不新建人员；查不到请先导入人口档案',
       '发放金额单位为元/月，填数字（如 350 或 450.5）',
+      '残疾类别可填：视力 / 听力 / 言语 / 肢体 / 智力 / 精神 / 多重；残疾等级填一级 / 二级 / 三级 / 四级（一级最重）',
+      '两列都留空表示非残疾人，不改动其残疾档案；只填其一也可以',
       '留空的列不会覆盖系统内已有数据',
       '导入后会自动为该人员打上「低保对象」标签',
     ],
