@@ -88,4 +88,14 @@ describe('工作台统计口径（/dashboard）', () => {
     const personTagIdx = dash.indexOf("FROM tag_definition td WHERE td.code IN");
     expect(dash.slice(personTagIdx, dash.indexOf(')', personTagIdx)), '个人标签列表不应包含家庭标签').not.toContain('LOW_INCOME_FAMILY');
   });
+
+  it('标签定义页关联人数只统计在册人员（与重点人群/工作台同口径）', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/tag.ts'), 'utf8');
+    const idx = src.indexOf('AS person_count');
+    expect(idx).toBeGreaterThan(-1);
+    // person_count 子查询必须经过 person 在册过滤
+    expect(src.slice(Math.max(0, idx - 400), idx)).toContain('${PERSON_ACTIVE_SQL}');
+    // 删除前的引用计数不过滤状态：有人引用过（哪怕已故）就不能删标签
+    expect(src).toContain('TAG_IN_USE');
+  });
 });

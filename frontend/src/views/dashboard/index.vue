@@ -14,6 +14,11 @@
         </div>
       </el-tooltip>
     </div>
+    <!-- 口径说明：后端返回 scope=ACTIVE_ONLY 才显示，用于确认在册口径已生效 -->
+    <div v-if="dash.scope === 'ACTIVE_ONLY'" class="scope-note">
+      <el-icon><InfoFilled /></el-icon>
+      统计口径：以上人数均为<strong>在册人口</strong>（正常 / 迁入），已迁出、死亡的人员不计入；档案保留，可在人口档案关闭「只看在册」后查看。
+    </div>
 
     <!-- 图表区 -->
     <div class="chart-grid">
@@ -241,6 +246,19 @@ onMounted(async () => {
   justify-content: center;
   flex-shrink: 0;
 }
+.scope-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-card);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-button);
+  padding: 8px 12px;
+  margin-top: -8px;
+}
+.scope-note strong { color: var(--color-primary); font-weight: 600; }
 .stat-value {
   font-size: var(--font-size-xl);
   font-weight: 700;

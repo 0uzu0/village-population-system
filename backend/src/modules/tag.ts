@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
+import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { z } from 'zod';
 
 const router = Router();
@@ -63,9 +64,16 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
   const total = Number(totalRow?.cnt || 0);
 
   const rows = await query<any>(
+    // 关联人数与重点人群/工作台同口径：个人标签只数在册人员（死亡/迁出不计入），
+    // 家庭标签数在册家庭。删除前的引用计数见下方 DELETE，那里不过滤状态——
+    // 只要有人引用过就不能删，避免删掉带历史数据的标签。
     `SELECT td.*, c.name AS category_name,
-       (SELECT COUNT(*) FROM person_tag pt WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE') AS person_count,
-       (SELECT COUNT(*) FROM family_tag ft WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE') AS family_count
+       (SELECT COUNT(*) FROM person_tag pt
+          WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
+            AND EXISTS (SELECT 1 FROM person p
+              WHERE p.id = pt.person_id AND ${PERSON_ACTIVE_SQL})) AS person_count,
+       (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
+          WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND f.status = 1) AS family_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id
      WHERE ${whereSql} ORDER BY td.category_id, td.id LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
