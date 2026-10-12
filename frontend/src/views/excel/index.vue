@@ -46,171 +46,174 @@
           <ImportTaskTable :tasks="tasks" :loading="loading" @refresh="loadTasks" />
         </el-tab-pane>
 
-        <!-- 重点人群名单导入 -->
-        <el-tab-pane label="重点人群名单导入" name="keygroup">
-          <div class="import-box">
-            <div class="steps">
-              <el-steps :active="1" align-center>
-                <el-step title="下载名单模板" description="5 列：姓名/身份证号/人员类别/依据/生效日期" />
-                <el-step title="匹配人员" description="按身份证号定位已有档案" />
-                <el-step title="批量打标签" description="党员、退役、优抚、低保、五保、残疾等" />
-              </el-steps>
+        <!-- 重点人群导入：名单打标签 + 专项台账（残疾人/特困/低保）合并为一个入口 -->
+        <el-tab-pane label="重点人群导入" name="keygroup">
+          <el-radio-group v-model="kgMode" class="mode-switch">
+            <el-radio-button value="list">名单打标签</el-radio-button>
+            <el-radio-button value="special">专项台账</el-radio-button>
+          </el-radio-group>
+
+          <!-- 模式一：名单打标签（原有逻辑） -->
+          <template v-if="kgMode === 'list'">
+            <div class="import-box">
+              <div class="steps">
+                <el-steps :active="1" align-center>
+                  <el-step title="下载名单模板" description="5 列：姓名/身份证号/人员类别/依据/生效日期" />
+                  <el-step title="匹配人员" description="按身份证号定位已有档案" />
+                  <el-step title="批量打标签" description="党员、退役、优抚、低保、特困、残疾等" />
+                </el-steps>
+              </div>
+
+              <div class="kg-config">
+                <div class="kg-field">
+                  <span class="kg-label">默认类别</span>
+                  <el-select v-model="kgForm.defaultCode" placeholder="整张表都是同一类别时可在此指定" clearable filterable style="width: 200px">
+                    <el-option v-for="t in kgTypes" :key="t.code" :label="t.label" :value="t.code" />
+                  </el-select>
+                </div>
+                <div class="kg-field">
+                  <span class="kg-label">生效方式</span>
+                  <el-radio-group v-model="kgForm.applyMode">
+                    <el-radio value="ACTIVE">直接生效</el-radio>
+                    <el-radio value="AUDIT">敏感标签待审核</el-radio>
+                  </el-radio-group>
+                </div>
+              </div>
+
+              <div class="import-actions">
+                <el-button v-if="auth.hasPermission('excel:import')" @click="downloadKeyGroupTemplate">
+                  <el-icon><Download /></el-icon>下载名单模板
+                </el-button>
+                <el-upload
+                  v-if="auth.hasPermission('excel:import')"
+                  :show-file-list="false"
+                  :before-upload="beforeUpload"
+                  :http-request="doImportKeyGroup"
+                  accept=".xlsx,.xls"
+                >
+                  <el-button type="primary"><el-icon><Upload /></el-icon>上传并打标签</el-button>
+                </el-upload>
+              </div>
+
+              <el-alert type="info" :closable="false" style="margin-top: 16px">
+                <div class="rule-list">
+                  <div>1. 模板共 5 列：<b>姓名、身份证号、人员类别、依据/备注、生效日期</b>（后两列可留空）。</div>
+                  <div>2. 人员类别可写：{{ kgTypeText }}；也可直接写标签编码（如 VETERAN）。多个类别用逗号分隔。</div>
+                  <div>3. 在「人口标签」里<b>新增的标签会自动生效</b>，按标签名称或编码填写即可，无需修改模板。</div>
+                  <div>4. <b>本导入不新建人员</b>，只按身份证号匹配已有档案并打标签；未匹配到的行会报错并可下载错误行。</div>
+                  <div>5. 身份证号留空时按姓名匹配，姓名在系统中不唯一会要求补填身份证号，避免张冠李戴。</div>
+                  <div>6. 已存在的标签自动跳过，不会重复关联；敏感标签（优抚/低保/特困/残疾）默认直接生效，可改为「待审核」。</div>
+                </div>
+              </el-alert>
+
+              <div v-if="kgResult" class="kg-result">
+                <div class="kg-result-title">
+                  最近一次名单导入结果
+                  <el-tag size="small" :type="kgTagType(kgResult.status)">{{ kgStatusText(kgResult.status) }}</el-tag>
+                </div>
+                <div class="kg-stats">
+                  <div class="kgs-item"><span class="num">{{ kgResult.total }}</span><span class="lbl">名单行数</span></div>
+                  <div class="kgs-item"><span class="num">{{ kgResult.matched }}</span><span class="lbl">匹配到人员</span></div>
+                  <div class="kgs-item is-ok"><span class="num">{{ kgResult.tagged }}</span><span class="lbl">新增标签</span></div>
+                  <div class="kgs-item"><span class="num">{{ kgResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
+                  <div class="kgs-item is-bad"><span class="num">{{ kgResult.fail }}</span><span class="lbl">未匹配/失败</span></div>
+                </div>
+                <div class="kg-result-ops">
+                  <el-button v-if="kgResult.fail" link type="primary" size="small" @click="downloadErrors({ id: kgResult.taskId })">下载错误行</el-button>
+                  <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
+                  <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
+                </div>
+              </div>
             </div>
+          </template>
 
-            <div class="kg-config">
-              <div class="kg-field">
-                <span class="kg-label">默认类别</span>
-                <el-select v-model="kgForm.defaultCode" placeholder="整张表都是同一类别时可在此指定" clearable filterable style="width: 200px">
-                  <el-option v-for="t in kgTypes" :key="t.code" :label="t.label" :value="t.code" />
-                </el-select>
+          <!-- 模式二：专项台账（残疾人 / 特困供养 / 低保） -->
+          <template v-else>
+            <div class="import-box">
+              <div class="steps">
+                <el-steps :active="1" align-center>
+                  <el-step title="选择台账类型" description="残疾人 / 特困供养 / 低保" />
+                  <el-step title="下载模板" description="列与人员详情页字段一致" />
+                  <el-step title="匹配并更新" description="按身份证号定位档案并写入台账" />
+                </el-steps>
               </div>
-              <div class="kg-field">
-                <span class="kg-label">生效方式</span>
-                <el-radio-group v-model="kgForm.applyMode">
-                  <el-radio value="ACTIVE">直接生效</el-radio>
-                  <el-radio value="AUDIT">敏感标签待审核</el-radio>
-                </el-radio-group>
+
+              <div class="kg-config">
+                <div class="kg-field">
+                  <span class="kg-label">台账类型</span>
+                  <el-select v-model="spForm.type" style="width: 200px" @change="onSpecialTypeChange">
+                    <el-option v-for="t in specialTypes" :key="t.type" :label="t.label" :value="t.type" />
+                  </el-select>
+                </div>
+              </div>
+
+              <!-- 当前类型的列说明：与人员详情页字段一一对应 -->
+              <div v-if="currentSpecial" class="sp-cols">
+                <div class="sp-cols-title">模板列（与人员详情页{{ currentSpecial.type === 'disability' ? '「残疾信息」' : '「补贴发放与走访评估」' }}区块一致）</div>
+                <div class="sp-col-tags">
+                  <el-tag v-for="(c, i) in currentSpecial.columns" :key="c" size="small" :type="i < 2 ? 'info' : 'primary'" effect="light">
+                    {{ c }}
+                  </el-tag>
+                </div>
+              </div>
+
+              <div class="import-actions">
+                <el-button v-if="auth.hasPermission('excel:import')" :disabled="!spForm.type" @click="downloadSpecialTemplate">
+                  <el-icon><Download /></el-icon>下载{{ currentSpecial?.label || '台账' }}模板
+                </el-button>
+                <el-upload
+                  v-if="auth.hasPermission('excel:import')"
+                  :show-file-list="false"
+                  :before-upload="beforeUpload"
+                  :http-request="doImportSpecial"
+                  accept=".xlsx,.xls"
+                  :disabled="!spForm.type"
+                >
+                  <el-button type="primary" :disabled="!spForm.type"><el-icon><Upload /></el-icon>上传并更新台账</el-button>
+                </el-upload>
+              </div>
+
+              <el-alert type="info" :closable="false" style="margin-top: 16px">
+                <div class="rule-list">
+                  <div v-for="(n, i) in currentSpecial?.notes || []" :key="i">{{ i + 1 }}. {{ n }}</div>
+                  <div>共 {{ currentSpecial?.columns.length || 0 }} 列，<b>姓名、身份证号必填</b>，其余列可留空。</div>
+                </div>
+              </el-alert>
+
+              <div v-if="spResult" class="kg-result">
+                <div class="kg-result-title">
+                  最近一次{{ currentSpecial?.label || '台账' }}导入结果
+                  <el-tag size="small" :type="kgTagType(spResult.status)">{{ kgStatusText(spResult.status) }}</el-tag>
+                </div>
+                <div class="kg-stats">
+                  <div class="kgs-item"><span class="num">{{ spResult.total }}</span><span class="lbl">表格行数</span></div>
+                  <div class="kgs-item"><span class="num">{{ spResult.matched }}</span><span class="lbl">匹配到人员</span></div>
+                  <div class="kgs-item is-ok"><span class="num">{{ spResult.updated }}</span><span class="lbl">更新档案</span></div>
+                  <div class="kgs-item" v-if="spResult.type === 'disability'">
+                    <span class="num">{{ spResult.disabilityUpserts }}</span><span class="lbl">残疾档案</span>
+                  </div>
+                  <div class="kgs-item is-ok"><span class="num">{{ spResult.tagged }}</span><span class="lbl">新增标签</span></div>
+                  <div class="kgs-item"><span class="num">{{ spResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
+                  <div class="kgs-item is-bad"><span class="num">{{ spResult.fail }}</span><span class="lbl">失败行</span></div>
+                </div>
+                <div class="kg-result-ops">
+                  <el-button v-if="spResult.fail" link type="primary" size="small" @click="downloadErrors({ id: spResult.taskId })">下载错误行</el-button>
+                  <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
+                  <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
+                </div>
               </div>
             </div>
+          </template>
 
-            <div class="import-actions">
-              <el-button v-if="auth.hasPermission('excel:import')" @click="downloadKeyGroupTemplate">
-                <el-icon><Download /></el-icon>下载名单模板
-              </el-button>
-              <el-upload
-                v-if="auth.hasPermission('excel:import')"
-                :show-file-list="false"
-                :before-upload="beforeUpload"
-                :http-request="doImportKeyGroup"
-                accept=".xlsx,.xls"
-              >
-                <el-button type="primary"><el-icon><Upload /></el-icon>上传并打标签</el-button>
-              </el-upload>
-            </div>
-
-            <el-alert type="info" :closable="false" style="margin-top: 16px">
-              <div class="rule-list">
-                <div>1. 模板共 5 列：<b>姓名、身份证号、人员类别、依据/备注、生效日期</b>（后两列可留空）。</div>
-                <div>2. 人员类别可写：{{ kgTypeText }}；也可直接写标签编码（如 VETERAN）。多个类别用逗号分隔。</div>
-                <div>3. 在「人口标签」里<b>新增的标签会自动生效</b>，按标签名称或编码填写即可，无需修改模板。</div>
-                <div>4. <b>本导入不新建人员</b>，只按身份证号匹配已有档案并打标签；未匹配到的行会报错并可下载错误行。</div>
-                <div>5. 身份证号留空时按姓名匹配，姓名在系统中不唯一会要求补填身份证号，避免张冠李戴。</div>
-                <div>6. 已存在的标签自动跳过，不会重复关联；敏感标签（优抚/低保/五保/残疾）默认直接生效，可改为「待审核」。</div>
-              </div>
-            </el-alert>
-
-            <div v-if="kgResult" class="kg-result">
-              <div class="kg-result-title">
-                最近一次导入结果
-                <el-tag size="small" :type="kgTagType(kgResult.status)">{{ kgStatusText(kgResult.status) }}</el-tag>
-              </div>
-              <div class="kg-stats">
-                <div class="kgs-item"><span class="num">{{ kgResult.total }}</span><span class="lbl">名单行数</span></div>
-                <div class="kgs-item"><span class="num">{{ kgResult.matched }}</span><span class="lbl">匹配到人员</span></div>
-                <div class="kgs-item is-ok"><span class="num">{{ kgResult.tagged }}</span><span class="lbl">新增标签</span></div>
-                <div class="kgs-item"><span class="num">{{ kgResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
-                <div class="kgs-item is-bad"><span class="num">{{ kgResult.fail }}</span><span class="lbl">未匹配/失败</span></div>
-              </div>
-              <div class="kg-result-ops">
-                <el-button v-if="kgResult.fail" link type="primary" size="small" @click="downloadErrors({ id: kgResult.taskId })">下载错误行</el-button>
-                <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
-                <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 任务记录来自后端，刷新/换页签都不会丢失 -->
+          <!-- 两类任务合并为一张记录表，用「类型」列区分（后端按 task_type 分别取后合并） -->
           <ImportTaskTable
-            title="名单导入任务记录"
-            :tasks="kgTasks" :loading="kgLoading" :show-type="false"
-            empty-text="暂无重点人群名单导入任务"
+            title="重点人群导入任务记录"
+            :tasks="kgAllTasks" :loading="kgLoading" :show-type="true"
+            empty-text="暂无重点人群导入任务"
             @refresh="loadKgTasks"
           />
         </el-tab-pane>
 
-        <el-tab-pane label="专项台账导入" name="special">
-          <div class="import-box">
-            <div class="steps">
-              <el-steps :active="1" align-center>
-                <el-step title="选择台账类型" description="残疾人 / 特困供养 / 低保" />
-                <el-step title="下载模板" description="列与人员详情页字段一致" />
-                <el-step title="匹配并更新" description="按身份证号定位档案并写入台账" />
-              </el-steps>
-            </div>
-
-            <div class="kg-config">
-              <div class="kg-field">
-                <span class="kg-label">台账类型</span>
-                <el-select v-model="spForm.type" style="width: 200px" @change="onSpecialTypeChange">
-                  <el-option v-for="t in specialTypes" :key="t.type" :label="t.label" :value="t.type" />
-                </el-select>
-              </div>
-            </div>
-
-            <!-- 当前类型的列说明：与人员详情页字段一一对应 -->
-            <div v-if="currentSpecial" class="sp-cols">
-              <div class="sp-cols-title">模板列（与人员详情页{{ currentSpecial.type === 'disability' ? '「残疾信息」' : '「补贴发放与走访评估」' }}区块一致）</div>
-              <div class="sp-col-tags">
-                <el-tag v-for="(c, i) in currentSpecial.columns" :key="c" size="small" :type="i < 2 ? 'info' : 'primary'" effect="light">
-                  {{ c }}
-                </el-tag>
-              </div>
-            </div>
-
-            <div class="import-actions">
-              <el-button v-if="auth.hasPermission('excel:import')" :disabled="!spForm.type" @click="downloadSpecialTemplate">
-                <el-icon><Download /></el-icon>下载{{ currentSpecial?.label || '台账' }}模板
-              </el-button>
-              <el-upload
-                v-if="auth.hasPermission('excel:import')"
-                :show-file-list="false"
-                :before-upload="beforeUpload"
-                :http-request="doImportSpecial"
-                accept=".xlsx,.xls"
-                :disabled="!spForm.type"
-              >
-                <el-button type="primary" :disabled="!spForm.type"><el-icon><Upload /></el-icon>上传并更新台账</el-button>
-              </el-upload>
-            </div>
-
-            <el-alert type="info" :closable="false" style="margin-top: 16px">
-              <div class="rule-list">
-                <div v-for="(n, i) in currentSpecial?.notes || []" :key="i">{{ i + 1 }}. {{ n }}</div>
-                <div>共 {{ currentSpecial?.columns.length || 0 }} 列，<b>姓名、身份证号必填</b>，其余列可留空。</div>
-              </div>
-            </el-alert>
-
-            <div v-if="spResult" class="kg-result">
-              <div class="kg-result-title">
-                最近一次{{ currentSpecial?.label || '台账' }}导入结果
-                <el-tag size="small" :type="kgTagType(spResult.status)">{{ kgStatusText(spResult.status) }}</el-tag>
-              </div>
-              <div class="kg-stats">
-                <div class="kgs-item"><span class="num">{{ spResult.total }}</span><span class="lbl">表格行数</span></div>
-                <div class="kgs-item"><span class="num">{{ spResult.matched }}</span><span class="lbl">匹配到人员</span></div>
-                <div class="kgs-item is-ok"><span class="num">{{ spResult.updated }}</span><span class="lbl">更新档案</span></div>
-                <div class="kgs-item" v-if="spResult.type === 'disability'">
-                  <span class="num">{{ spResult.disabilityUpserts }}</span><span class="lbl">残疾档案</span>
-                </div>
-                <div class="kgs-item is-ok"><span class="num">{{ spResult.tagged }}</span><span class="lbl">新增标签</span></div>
-                <div class="kgs-item"><span class="num">{{ spResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
-                <div class="kgs-item is-bad"><span class="num">{{ spResult.fail }}</span><span class="lbl">失败行</span></div>
-              </div>
-              <div class="kg-result-ops">
-                <el-button v-if="spResult.fail" link type="primary" size="small" @click="downloadErrors({ id: spResult.taskId })">下载错误行</el-button>
-                <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
-                <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
-              </div>
-            </div>
-          </div>
-
-          <ImportTaskTable
-            title="专项台账导入任务记录"
-            :tasks="spTasks" :loading="spLoading" :show-type="true"
-            empty-text="暂无专项台账导入任务"
-            @refresh="loadSpTasks"
-          />
-        </el-tab-pane>
 
         <!-- 导出 -->
         <el-tab-pane label="数据导出" name="export">
@@ -263,7 +266,8 @@ const loading = ref(false);
 const exportLoading = ref(false);
 const exporting = ref(false);
 const tasks = ref<any[]>([]);
-const kgTasks = ref<any[]>([]);
+/** 名单打标签 + 三类专项台账，合并成一张任务记录表（用「类型」列区分） */
+const kgAllTasks = ref<any[]>([]);
 const kgLoading = ref(false);
 const exportTasks = ref<any[]>([]);
 
@@ -313,15 +317,17 @@ async function doImport(options: any) {
   }
 }
 
+/** ===== 重点人群导入：两种模式（名单打标签 / 专项台账）===== */
+const kgMode = ref<'list' | 'special'>('list');
+
 /** ===== 专项台账导入（残疾人 / 特困供养 / 低保） ===== */
 const specialTypes = ref<any[]>([]);
 const spForm = reactive({ type: 'disability' });
 const spResult = ref<any>(null);
-const spTasks = ref<any[]>([]);
-const spLoading = ref(false);
 const currentSpecial = computed(() => specialTypes.value.find((t) => t.type === spForm.type) || null);
 
-/** 三类专项任务的 task_type（共享常量，与后端枚举同源），任务记录需合并展示 */
+/** 重点人群导入涉及的全部 task_type：名单 + 三类专项，用于合并任务记录 */
+const KG_TASK_TYPES = ['KEY_GROUP', ...SPECIAL_TASK_TYPES] as const;
 
 function onSpecialTypeChange() {
   spResult.value = null; // 切换类型时清掉上一类的结果，避免误读
@@ -332,24 +338,6 @@ async function loadSpecialTypes() {
     const res: any = await excelApi.specialTypes();
     specialTypes.value = res.data || [];
   } catch { specialTypes.value = []; }
-}
-
-async function loadSpTasks() {
-  spLoading.value = true;
-  try {
-    // 三类任务合并成一份记录，按类型分开拉取后合并（接口单类型过滤）
-    const lists = await Promise.all(
-      SPECIAL_TASK_TYPES.map((taskType) => excelApi.importTasks({ page: 1, pageSize: 50, taskType }))
-    );
-    const merged = lists
-      .flatMap((r: any) => r.data?.list || [])
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-    spTasks.value = merged;
-  } catch {
-    spTasks.value = [];
-  } finally {
-    spLoading.value = false;
-  }
 }
 
 async function downloadSpecialTemplate() {
@@ -381,10 +369,10 @@ async function doImportSpecial(options: any) {
       duration: 4000,
     });
     loadTasks();
-    loadSpTasks();
+    loadKgTasks();
   } catch {
     loadTasks();
-    loadSpTasks();
+    loadKgTasks();
   } finally {
     loading.value = false;
   }
@@ -471,13 +459,24 @@ async function loadTasks() {
   } finally { loading.value = false; }
 }
 
-/** 重点人群名单任务记录：后端按 task_type 过滤，刷新页面不会丢失 */
+/**
+ * 重点人群导入任务记录：名单打标签 + 三类专项台账合并成一张表。
+ * 后端按单个 task_type 过滤，因此按类型分别拉取后合并（页面每开一次 4 个请求，可接受）。
+ */
 async function loadKgTasks() {
   kgLoading.value = true;
   try {
-    const res = await excelApi.importTasks({ page: 1, pageSize: 50, taskType: 'KEY_GROUP' });
-    kgTasks.value = res.data.list;
-  } finally { kgLoading.value = false; }
+    const lists = await Promise.all(
+      KG_TASK_TYPES.map((taskType) => excelApi.importTasks({ page: 1, pageSize: 50, taskType }))
+    );
+    kgAllTasks.value = lists
+      .flatMap((r: any) => r.data?.list || [])
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  } catch {
+    kgAllTasks.value = [];
+  } finally {
+    kgLoading.value = false;
+  }
 }
 
 async function downloadErrors(row: any) {
@@ -525,7 +524,6 @@ onMounted(() => {
   loadExportTasks();
   loadKgTypes();
   loadSpecialTypes();
-  loadSpTasks();
 });
 </script>
 
@@ -540,6 +538,8 @@ onMounted(() => {
 /* 重点人群导入 */
 .kg-config { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 14px; }
 .kg-field { display: flex; align-items: center; gap: 8px; }
+/* 重点人群导入的两种模式切换 */
+.mode-switch { margin-bottom: 14px; }
 /* 专项台账：当前类型的列预览 */
 .sp-cols {
   margin: 0 0 16px;
