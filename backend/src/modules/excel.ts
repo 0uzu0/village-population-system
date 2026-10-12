@@ -15,6 +15,7 @@ import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import {
   SPECIAL_IMPORT_SPECS,
+  IMPORT_TASK_TYPES,
   mapRowFields,
   type SpecialImportSpec,
   type SpecialImportType,
@@ -1119,8 +1120,9 @@ router.get('/import-tasks', requirePermission('excel:import'), async (req: Reque
     .object({
       page: z.coerce.number().int().min(1).default(1),
       pageSize: z.coerce.number().int().min(1).max(500).default(20),
-      // 不传=全部；PERSON=人口档案；KEY_GROUP=重点人群名单
-      taskType: z.enum(['PERSON', 'KEY_GROUP']).optional(),
+      // 不传=全部。枚举来自 utils/specialImport 的 IMPORT_TASK_TYPES，
+      // 新增导入类型时那里改一处即可，这里不会再出现 Invalid enum value
+      taskType: z.enum(IMPORT_TASK_TYPES).optional(),
     })
     .parse(req.query);
   const whereSql = q.taskType ? 'WHERE eit.task_type = ?' : '';

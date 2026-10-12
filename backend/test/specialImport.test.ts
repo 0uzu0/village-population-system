@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import {
   SPECIAL_IMPORT_SPECS,
   SPECIAL_TASK_TYPE,
+  IMPORT_TASK_TYPES,
   normalizeCell,
   parseDisabilityLevel,
   parsePovertyMode,
@@ -37,6 +40,37 @@ describe('专项导入配置', () => {
   it('每份模板都有填写说明', () => {
     for (const s of Object.values(SPECIAL_IMPORT_SPECS)) {
       expect(s.notes.length, `${s.type} 缺少填写说明`).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * 回归：新增专项类型后，导入任务列表的 taskType 过滤曾报
+   * 「Invalid enum value. Expected 'PERSON' | 'KEY_GROUP'」——
+   * 写入用新类型、过滤却仍是旧枚举，任务记录因此查不出来。
+   */
+  it('IMPORT_TASK_TYPES 覆盖全部专项类型，可直接用于列表过滤', () => {
+    for (const t of Object.values(SPECIAL_TASK_TYPE)) {
+      expect(IMPORT_TASK_TYPES, `任务类型枚举缺少 ${t}`).toContain(t);
+    }
+    // 与原有两种类型并存，且去重
+    expect(IMPORT_TASK_TYPES).toContain('PERSON');
+    expect(IMPORT_TASK_TYPES).toContain('KEY_GROUP');
+    expect(new Set(IMPORT_TASK_TYPES).size).toBe(IMPORT_TASK_TYPES.length);
+  });
+
+  it('导入任务列表的 taskType 过滤用的是这个枚举，而不是写死的旧枚举', () => {
+    const src = fs.readFileSync(
+      path.resolve(__dirname, '../src/modules/excel.ts'),
+      'utf8'
+    );
+    expect(src).toContain('z.enum(IMPORT_TASK_TYPES)');
+    // 旧的硬编码枚举一旦被复制回来，这里会再次报 Invalid enum value
+    expect(src).not.toContain("z.enum(['PERSON', 'KEY_GROUP'])");
+  });
+
+  it('专项导入写入的 task_type 与过滤枚举一致', () => {
+    for (const spec of Object.values(SPECIAL_IMPORT_SPECS)) {
+      expect(IMPORT_TASK_TYPES).toContain(spec.taskType);
     }
   });
 });

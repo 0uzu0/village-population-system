@@ -9,10 +9,10 @@
 
     <el-table :data="tasks" v-loading="loading" row-key="id">
       <el-table-column prop="batch_no" label="批次号" min-width="160" show-overflow-tooltip />
-      <el-table-column v-if="showType" label="类型" width="104">
+      <el-table-column v-if="showType" label="类型" width="110">
         <template #default="{ row }">
-          <el-tag size="small" :type="row.task_type === 'KEY_GROUP' ? 'warning' : 'info'" effect="plain">
-            {{ row.task_type === 'KEY_GROUP' ? '重点人群' : '人口档案' }}
+          <el-tag size="small" :type="taskTypeTag(row.task_type)" effect="plain">
+            {{ taskTypeLabel(row.task_type) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -53,13 +53,14 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { excelApi } from '@/api';
+import { taskTypeLabel, taskTypeTag } from '@/utils/importTask';
 
 const props = withDefaults(
   defineProps<{
     tasks: any[];
     loading?: boolean;
     title?: string;
-    /** 是否显示「类型」列（人口档案 / 重点人群）；单一类型的列表可关闭 */
+    /** 是否显示「类型」列（人口档案 / 重点人群 / 专项台账）；单一类型的列表可关闭 */
     showType?: boolean;
     emptyText?: string;
   }>(),

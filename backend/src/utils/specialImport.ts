@@ -22,6 +22,16 @@ export const SPECIAL_TASK_TYPE: Record<SpecialImportType, string> = {
   low_income: 'LOW_INCOME',
 };
 
+/**
+ * 全部合法的 task_type 集合（含人口档案与重点人群名单）。
+ * 导入任务列表的 taskType 过滤直接用它做校验——新增导入类型时只改这一处，
+ * 否则会出现「任务写进去了但列表接口报 Invalid enum value」。
+ */
+export const IMPORT_TASK_TYPES = [
+  'PERSON', 'KEY_GROUP',
+  ...Object.values(SPECIAL_TASK_TYPE),
+] as const;
+
 /** 残疾等级单元格可接受的写法 → 标准编码 */
 export const DISABILITY_LEVEL_INPUT: Record<string, string> = {
   '一级': 'LEVEL_1', '一级（极重度）': 'LEVEL_1', '1级': 'LEVEL_1', '1': 'LEVEL_1',

@@ -206,7 +206,7 @@
 
           <ImportTaskTable
             title="专项台账导入任务记录"
-            :tasks="spTasks" :loading="spLoading" :show-type="false"
+            :tasks="spTasks" :loading="spLoading" :show-type="true"
             empty-text="暂无专项台账导入任务"
             @refresh="loadSpTasks"
           />
@@ -255,6 +255,7 @@ import { ElMessage } from 'element-plus';
 import { excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import ImportTaskTable from '@/components/ImportTaskTable.vue';
+import { SPECIAL_TASK_TYPES } from '@/utils/importTask';
 
 const auth = useAuthStore();
 const activeTab = ref('import');
@@ -320,8 +321,7 @@ const spTasks = ref<any[]>([]);
 const spLoading = ref(false);
 const currentSpecial = computed(() => specialTypes.value.find((t) => t.type === spForm.type) || null);
 
-/** 三类专项任务的 task_type，任务记录要合并展示 */
-const SPECIAL_TASK_TYPES = ['DISABLED', 'EXTREME_POVERTY', 'LOW_INCOME'];
+/** 三类专项任务的 task_type（共享常量，与后端枚举同源），任务记录需合并展示 */
 
 function onSpecialTypeChange() {
   spResult.value = null; // 切换类型时清掉上一类的结果，避免误读
