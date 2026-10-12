@@ -128,6 +128,90 @@
           />
         </el-tab-pane>
 
+        <el-tab-pane label="专项台账导入" name="special">
+          <div class="import-box">
+            <div class="steps">
+              <el-steps :active="1" align-center>
+                <el-step title="选择台账类型" description="残疾人 / 特困供养 / 低保" />
+                <el-step title="下载模板" description="列与人员详情页字段一致" />
+                <el-step title="匹配并更新" description="按身份证号定位档案并写入台账" />
+              </el-steps>
+            </div>
+
+            <div class="kg-config">
+              <div class="kg-field">
+                <span class="kg-label">台账类型</span>
+                <el-select v-model="spForm.type" style="width: 200px" @change="onSpecialTypeChange">
+                  <el-option v-for="t in specialTypes" :key="t.type" :label="t.label" :value="t.type" />
+                </el-select>
+              </div>
+            </div>
+
+            <!-- 当前类型的列说明：与人员详情页字段一一对应 -->
+            <div v-if="currentSpecial" class="sp-cols">
+              <div class="sp-cols-title">模板列（与人员详情页{{ currentSpecial.type === 'disability' ? '「残疾信息」' : '「补贴发放与走访评估」' }}区块一致）</div>
+              <div class="sp-col-tags">
+                <el-tag v-for="(c, i) in currentSpecial.columns" :key="c" size="small" :type="i < 2 ? 'info' : 'primary'" effect="light">
+                  {{ c }}
+                </el-tag>
+              </div>
+            </div>
+
+            <div class="import-actions">
+              <el-button v-if="auth.hasPermission('excel:import')" :disabled="!spForm.type" @click="downloadSpecialTemplate">
+                <el-icon><Download /></el-icon>下载{{ currentSpecial?.label || '台账' }}模板
+              </el-button>
+              <el-upload
+                v-if="auth.hasPermission('excel:import')"
+                :show-file-list="false"
+                :before-upload="beforeUpload"
+                :http-request="doImportSpecial"
+                accept=".xlsx,.xls"
+                :disabled="!spForm.type"
+              >
+                <el-button type="primary" :disabled="!spForm.type"><el-icon><Upload /></el-icon>上传并更新台账</el-button>
+              </el-upload>
+            </div>
+
+            <el-alert type="info" :closable="false" style="margin-top: 16px">
+              <div class="rule-list">
+                <div v-for="(n, i) in currentSpecial?.notes || []" :key="i">{{ i + 1 }}. {{ n }}</div>
+                <div>共 {{ currentSpecial?.columns.length || 0 }} 列，<b>姓名、身份证号必填</b>，其余列可留空。</div>
+              </div>
+            </el-alert>
+
+            <div v-if="spResult" class="kg-result">
+              <div class="kg-result-title">
+                最近一次{{ currentSpecial?.label || '台账' }}导入结果
+                <el-tag size="small" :type="kgTagType(spResult.status)">{{ kgStatusText(spResult.status) }}</el-tag>
+              </div>
+              <div class="kg-stats">
+                <div class="kgs-item"><span class="num">{{ spResult.total }}</span><span class="lbl">表格行数</span></div>
+                <div class="kgs-item"><span class="num">{{ spResult.matched }}</span><span class="lbl">匹配到人员</span></div>
+                <div class="kgs-item is-ok"><span class="num">{{ spResult.updated }}</span><span class="lbl">更新档案</span></div>
+                <div class="kgs-item" v-if="spResult.type === 'disability'">
+                  <span class="num">{{ spResult.disabilityUpserts }}</span><span class="lbl">残疾档案</span>
+                </div>
+                <div class="kgs-item is-ok"><span class="num">{{ spResult.tagged }}</span><span class="lbl">新增标签</span></div>
+                <div class="kgs-item"><span class="num">{{ spResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
+                <div class="kgs-item is-bad"><span class="num">{{ spResult.fail }}</span><span class="lbl">失败行</span></div>
+              </div>
+              <div class="kg-result-ops">
+                <el-button v-if="spResult.fail" link type="primary" size="small" @click="downloadErrors({ id: spResult.taskId })">下载错误行</el-button>
+                <el-button link type="primary" size="small" @click="$router.push('/persons')">查看人员档案</el-button>
+                <el-button link type="primary" size="small" @click="$router.push('/key-groups')">查看重点人群</el-button>
+              </div>
+            </div>
+          </div>
+
+          <ImportTaskTable
+            title="专项台账导入任务记录"
+            :tasks="spTasks" :loading="spLoading" :show-type="false"
+            empty-text="暂无专项台账导入任务"
+            @refresh="loadSpTasks"
+          />
+        </el-tab-pane>
+
         <!-- 导出 -->
         <el-tab-pane label="数据导出" name="export">
           <div class="export-box">
@@ -223,6 +307,84 @@ async function doImport(options: any) {
   } catch (e) {
     // 错误已由拦截器提示；这里刷新列表，让用户看到该批次被标记为「失败」而不是一直处理中
     loadTasks();
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** ===== 专项台账导入（残疾人 / 特困供养 / 低保） ===== */
+const specialTypes = ref<any[]>([]);
+const spForm = reactive({ type: 'disability' });
+const spResult = ref<any>(null);
+const spTasks = ref<any[]>([]);
+const spLoading = ref(false);
+const currentSpecial = computed(() => specialTypes.value.find((t) => t.type === spForm.type) || null);
+
+/** 三类专项任务的 task_type，任务记录要合并展示 */
+const SPECIAL_TASK_TYPES = ['DISABLED', 'EXTREME_POVERTY', 'LOW_INCOME'];
+
+function onSpecialTypeChange() {
+  spResult.value = null; // 切换类型时清掉上一类的结果，避免误读
+}
+
+async function loadSpecialTypes() {
+  try {
+    const res: any = await excelApi.specialTypes();
+    specialTypes.value = res.data || [];
+  } catch { specialTypes.value = []; }
+}
+
+async function loadSpTasks() {
+  spLoading.value = true;
+  try {
+    // 三类任务合并成一份记录，按类型分开拉取后合并（接口单类型过滤）
+    const lists = await Promise.all(
+      SPECIAL_TASK_TYPES.map((taskType) => excelApi.importTasks({ page: 1, pageSize: 50, taskType }))
+    );
+    const merged = lists
+      .flatMap((r: any) => r.data?.list || [])
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    spTasks.value = merged;
+  } catch {
+    spTasks.value = [];
+  } finally {
+    spLoading.value = false;
+  }
+}
+
+async function downloadSpecialTemplate() {
+  if (!spForm.type) return;
+  const res: any = await excelApi.specialTemplate(spForm.type);
+  const blob = new Blob([res.data]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `special_${spForm.type}_template.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function doImportSpecial(options: any) {
+  if (!spForm.type) { ElMessage.warning('请先选择台账类型'); return; }
+  const label = currentSpecial.value?.label || '专项台账';
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('type', spForm.type);
+  fd.append('batchNo', `${spForm.type.slice(0, 2).toUpperCase()}${Date.now()}`);
+  loading.value = true;
+  try {
+    const res: any = await excelApi.importSpecial(fd);
+    spResult.value = res.data;
+    const d = res.data;
+    ElMessage.success({
+      message: `${label}：更新 ${d.updated} 人，新增标签 ${d.tagged} 条${d.fail ? `，失败 ${d.fail} 条` : ''}`,
+      duration: 4000,
+    });
+    loadTasks();
+    loadSpTasks();
+  } catch {
+    loadTasks();
+    loadSpTasks();
   } finally {
     loading.value = false;
   }
@@ -362,6 +524,8 @@ onMounted(() => {
   loadKgTasks();
   loadExportTasks();
   loadKgTypes();
+  loadSpecialTypes();
+  loadSpTasks();
 });
 </script>
 
@@ -376,6 +540,15 @@ onMounted(() => {
 /* 重点人群导入 */
 .kg-config { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 14px; }
 .kg-field { display: flex; align-items: center; gap: 8px; }
+/* 专项台账：当前类型的列预览 */
+.sp-cols {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-button);
+}
+.sp-cols-title { font-size: var(--font-size-sm); color: var(--color-text-regular); margin-bottom: 8px; }
+.sp-col-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .kg-label { font-size: var(--font-size-sm); color: var(--color-text-regular); }
 .kg-result {
   margin-top: 16px; padding: 16px; border: 1px solid var(--color-border);
