@@ -47,4 +47,45 @@ describe('人员状态口径（V007）', () => {
       expect(src.includes('CANCELLED'), `${f} 仍引用了已取消的 CANCELLED 状态`).toBe(false);
     }
   });
+
+  it('统计模块在册口径统一走常量，不再内联状态列表', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/statistics.ts'), 'utf8');
+    expect(src).toContain('PERSON_ACTIVE_SQL');
+    // 源码里常量以 ${PERSON_ACTIVE_SQL} 形式拼进 SQL；手写列表说明有人绕开了常量
+    expect(src).not.toContain("p.status IN ('NORMAL','MOVED_IN')");
+  });
+});
+
+describe('工作台统计口径（/dashboard）', () => {
+  const src = fs.readFileSync(path.join(SRC_DIR, 'modules/statistics.ts'), 'utf8');
+  const start = src.indexOf("router.get('/dashboard'");
+  const end = src.indexOf("router.get('/distributions'");
+  const dash = src.slice(start, end);
+
+  it('能定位到 /dashboard 路由体', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+  });
+
+  it('个人标签计数只统计在册人员（死亡/迁出不计入服务名单）', () => {
+    // person_tag 的每个计数都必须经过 person 在册过滤
+    expect(dash).toContain('p.id = pt.person_id AND ${PERSON_ACTIVE_SQL}');
+    // 不允许出现没有在册过滤的裸计数
+    expect(dash).not.toMatch(/person_tag pt\s+WHERE pt\.tag_id = td\.id AND pt\.status='ACTIVE'\)/);
+    // 六类重点人群 + 户籍/常住口径都要覆盖
+    for (const code of ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON']) {
+      expect(dash, `工作台缺少 ${code} 的计数`).toContain(code);
+    }
+  });
+
+  it('低保家庭是 FAMILY 类型，必须从 family_tag 统计', () => {
+    // 历史 bug：LOW_INCOME_FAMILY 的 object_type 是 FAMILY，数据在 family_tag，
+    // 却从 person_tag 统计，导致「低保家庭」卡片恒为 0
+    const ftIdx = dash.indexOf('family_tag');
+    expect(ftIdx).toBeGreaterThan(-1);
+    expect(dash.slice(ftIdx, ftIdx + 400), 'family_tag 查询必须统计 LOW_INCOME_FAMILY').toContain("'LOW_INCOME_FAMILY'");
+    // 个人类标签列表里不应再包含它
+    const personTagIdx = dash.indexOf("FROM tag_definition td WHERE td.code IN");
+    expect(dash.slice(personTagIdx, dash.indexOf(')', personTagIdx)), '个人标签列表不应包含家庭标签').not.toContain('LOW_INCOME_FAMILY');
+  });
 });
