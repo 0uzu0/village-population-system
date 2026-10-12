@@ -837,9 +837,16 @@ router.get('/template/special/:type', requirePermission('excel:import'), async (
   ws.addRow(sampleRowFor(spec));
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF1FE' } };
-  ws.getRow(2).getCell('身份证号').numFmt = '@';
-  ws.getRow(2).getCell('残疾证号').numFmt = '@';
-  ws.getRow(2).getCell('监护人手机').numFmt = '@';
+  // 证件号、手机号、银行账号设为文本格式，否则 Excel 会把长数字显示成科学计数法、
+  // 丢掉前导零（银行账号长达 19 位，必须如此）。
+  // 必须按当前模板实际拥有的列设置——getCell 取不存在的列会抛错（曾导致特困/低保模板 500）。
+  // 注意不要把「残疾等级」「供养方式」这类枚举列设成文本格式，否则会破坏导入解析。
+  const textColumns = ['身份证号', '残疾证号', '监护人手机', '监护人电话', '银行账号'];
+  for (const col of textColumns) {
+    if (spec.columns.includes(col)) {
+      ws.getRow(2).getCell(col).numFmt = '@';
+    }
+  }
 
   // 第二张表：填写说明（不参与解析）
   const help = wb.addWorksheet('填写说明');
