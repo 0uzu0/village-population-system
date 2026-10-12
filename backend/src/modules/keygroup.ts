@@ -30,18 +30,13 @@ const QUICK_GROUPS: { label: string; code: string; minAge?: number; maxAge?: num
 
 /** 快捷入口统计（身份类按标签人数，年龄类按出生日期推算，均存在交叉、不可相加） */
 router.get('/quick', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
-  // 与 /query 同口径：只统计在册人员，已死亡/迁出的不再计入重点人群服务名单。
-  // excluded 单独统计被排除的数量，便于在界面上确认「死亡/迁出后人数是否已剔除」。
+  // 与 /query 同口径：只统计在册人员，已死亡/迁出的不再计入重点人群服务名单
   const tagRows = await query<any>(
     `SELECT td.code, td.name, td.color,
        (SELECT COUNT(*) FROM person_tag pt
           JOIN person p2 ON p2.id = pt.person_id
         WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
-          AND p2.status IN ('NORMAL','MOVED_IN')) AS cnt,
-       (SELECT COUNT(*) FROM person_tag pt
-          JOIN person p2 ON p2.id = pt.person_id
-        WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
-          AND p2.status NOT IN ('NORMAL','MOVED_IN')) AS excluded
+          AND p2.status IN ('NORMAL','MOVED_IN')) AS cnt
      FROM tag_definition td
      WHERE td.code IN (${QUICK_GROUPS.map(() => '?').join(',')})`,
     QUICK_GROUPS.map((g) => g.code)
@@ -53,32 +48,21 @@ router.get('/quick', requirePermission('keygroup:view'), async (req: Request, re
     const r = tagMap.get(g.code);
     const isAgeGroup = g.minAge != null || g.maxAge != null;
     let count = 0;
-    let excluded = 0;
     if (isAgeGroup) {
       // 年龄类：直接按出生日期推算，不依赖是否打过标签
       const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
-      const [activeRow, excludedRow] = await Promise.all([
-        queryOne<any>(
-          `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND p.status IN ('NORMAL','MOVED_IN')`,
-          af.params
-        ),
-        queryOne<any>(
-          `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND p.status NOT IN ('NORMAL','MOVED_IN')`,
-          af.params
-        ),
-      ]);
-      count = Number(activeRow?.cnt || 0);
-      excluded = Number(excludedRow?.cnt || 0);
+      const row = await queryOne<any>(
+        `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND p.status IN ('NORMAL','MOVED_IN')`,
+        af.params
+      );
+      count = Number(row?.cnt || 0);
     } else {
       count = r ? Number(r.cnt) : 0;
-      excluded = r ? Number(r.excluded) : 0;
     }
     list.push({
       label: g.label,
       code: g.code,
       count,
-      // 已被剔除的迁出/死亡档案数，仅用于界面核对口径是否生效
-      excluded,
       color: r ? r.color : '#3978F6',
       // 前端据此决定是「按标签筛」还是「按年龄筛」
       byAge: isAgeGroup,
@@ -88,8 +72,6 @@ router.get('/quick', requirePermission('keygroup:view'), async (req: Request, re
   }
   return ok(res, {
     list,
-    /** 统计口径标识：前端据此显示「仅统计在册」，也便于确认后端版本 */
-    scope: 'ACTIVE',
     note: `口径：仅统计在册人员（正常/迁入），已迁出、已死亡的不计入；各人群人数存在交叉，不可简单相加；老年人按 ${ELDERLY_MIN_AGE} 周岁及以上、未成年人按 ${MINOR_MAX_AGE + 1} 周岁以下自动判定，无需打标签`,
   });
 });

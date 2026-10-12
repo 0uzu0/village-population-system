@@ -16,12 +16,10 @@
           :key="g.code"
           class="quick-card"
           :class="{ active: isQuickActive(g) }"
-          :title="quickTitle(g)"
           @click="setQuickTag(g)"
         >
           <div class="num">{{ g.count }}</div>
           <div class="lbl">{{ g.label }}</div>
-          <div v-if="g.excluded" class="excluded">已剔除 {{ g.excluded }}</div>
         </div>
       </div>
       <div class="note">{{ quickNote }}</div>
@@ -35,8 +33,8 @@
           <el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
         <el-radio-group v-model="query.tagMode">
-          <el-radio-button value="ANY">并集（命中任一）</el-radio-button>
-          <el-radio-button value="ALL">交集（全部命中）</el-radio-button>
+          <el-radio-button value="ANY">并集</el-radio-button>
+          <el-radio-button value="ALL">交集</el-radio-button>
         </el-radio-group>
         <el-select v-model="query.familyTagIds" placeholder="家庭标签" multiple filterable collapse-tags style="width: 220px">
           <el-option v-for="t in familyTags" :key="t.id" :label="t.name" :value="t.id" />
@@ -197,12 +195,6 @@ const query = reactive<any>({ page: 1, pageSize: 20, tagIds: [] as number[], tag
 const activeOnly = ref(true);
 
 function statusLabel(s: string) { return statusLabelOf(s); }
-/** 卡片悬停提示：说明已剔除多少条迁出/死亡档案，便于核对在册口径是否生效 */
-function quickTitle(g: any) {
-  return g.excluded
-    ? `在册 ${g.count} 人，另有 ${g.excluded} 条已迁出/死亡的档案未计入`
-    : `在册 ${g.count} 人`;
-}
 function tagName(id: number) { return personTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function familyTagName(id: number) { return familyTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function gridName(id: number) { return grids.value.find((g: any) => g.id === id)?.name || `#${id}`; }
@@ -429,7 +421,6 @@ onMounted(async () => {
 .quick-card.active { border-color: var(--color-primary); background: var(--color-primary-light); box-shadow: 0 0 0 2px var(--color-primary-light); }
 .quick-card .num { font-size: var(--font-size-xl); font-weight: 700; color: var(--color-primary); }
 .quick-card .lbl { font-size: var(--font-size-sm); color: var(--color-text-regular); margin-top: 4px; }
-.quick-card .excluded { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 2px; }
 .note { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 10px; }
 .sep { color: var(--color-text-secondary); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
