@@ -88,8 +88,9 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   const params: any[] = [];
 
   if (q.keyword) {
-    where.push('(p.name LIKE ? OR p.person_no LIKE ?)');
-    params.push(`%${q.keyword}%`, `%${q.keyword}%`);
+    // 姓名 / 身份证号 / 手机号（含备用）模糊匹配
+    where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
+    params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`);
   }
   if (q.gender) {
     where.push('p.gender = ?');

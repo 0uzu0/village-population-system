@@ -92,7 +92,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
 
   const conditions: string[] = [];
 
-  if (q.keyword) { where.push('(p.name LIKE ? OR p.person_no LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`); conditions.push(`姓名/编号含「${q.keyword}」`); }
+  if (q.keyword) { where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`); conditions.push(`姓名/身份证号/手机号含「${q.keyword}」`); }
 
   const gridFilter = buildGridFilter(req, 'p.grid_id');
   if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }

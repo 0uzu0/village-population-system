@@ -22,7 +22,7 @@
     <!-- 搜索与筛选 -->
     <div class="vp-container">
       <div class="vp-search-bar">
-        <el-input v-model="query.keyword" placeholder="搜索姓名 / 人员编号" clearable style="width: 240px" @keyup.enter="doSearch" @clear="doSearch">
+        <el-input v-model="query.keyword" placeholder="搜索姓名 / 身份证号 / 手机号" clearable style="width: 280px" @keyup.enter="doSearch" @clear="doSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <el-select v-model="query.gender" placeholder="性别" clearable style="width: 100px" @change="doSearch">
@@ -103,6 +103,9 @@
         </el-table-column>
         <el-table-column v-if="isColVisible('gender')" prop="gender" label="性别" width="60">
           <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isColVisible('id_card')" prop="idCard" label="身份证号" width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.idCard || '—' }}</template>
         </el-table-column>
         <el-table-column v-if="isColVisible('age')" prop="age" label="年龄" width="70" sortable="custom" />
         <el-table-column v-if="isColVisible('phone')" prop="phone" label="联系电话" width="120">
@@ -289,6 +292,7 @@ const COLUMNS_STORAGE_KEY = 'person:columns';
 const DEFAULT_COLUMNS = [
   { prop: 'name', label: '姓名', visible: true },
   { prop: 'gender', label: '性别', visible: true },
+  { prop: 'id_card', label: '身份证号', visible: true },
   { prop: 'age', label: '年龄', visible: true },
   { prop: 'phone', label: '联系电话', visible: true },
   { prop: 'phone_backup', label: '备用手机号', visible: true },

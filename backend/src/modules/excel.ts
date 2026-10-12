@@ -885,7 +885,8 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
 
   const where: string[] = ['1=1'];
   const params: any[] = [];
-  if (body.keyword) { where.push('(p.name LIKE ? OR p.person_no LIKE ?)'); params.push(`%${body.keyword}%`, `%${body.keyword}%`); }
+  // 与人员列表保持同一搜索口径：姓名 / 身份证号 / 手机号（含备用）
+  if (body.keyword) { where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)'); params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`); }
   if (body.gridId) { where.push('p.grid_id = ?'); params.push(body.gridId); }
   if (body.familyId) { where.push('p.family_id = ?'); params.push(body.familyId); }
   if (body.gender) { where.push('p.gender = ?'); params.push(body.gender); }
