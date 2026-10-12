@@ -117,12 +117,16 @@ const autoGroupSchema = z.object({
 });
 
 /** 户主判定：优先 relation=HEAD，其次年龄最大者，最后取组内第一条 */
+/** 推定户主：显式 HEAD 优先，否则取出生日期最早者（年龄最长） */
 function pickHead(list: any[]): any {
   const head = list.find((p) => p.relation === 'HEAD');
   if (head) return head;
   const withBirth = list.filter((p) => p.birth_date);
   if (withBirth.length) {
-    return withBirth.sort((a, b) => new Date(a.birth_date).getTime() - new Date(b.birth_date).getTime())[0];
+    // 用字符串比较而非 new Date().getTime()：DATE 列已配 dateStrings 返回
+    // 'YYYY-MM-DD'，字典序即时间序；转 Date 会在非 +08:00 环境（CI/容器）
+    // 把字符串按 UTC、Date 按本地解析，混排时结果不可靠
+    return [...withBirth].sort((a, b) => String(a.birth_date).localeCompare(String(b.birth_date)))[0];
   }
   return list[0];
 }

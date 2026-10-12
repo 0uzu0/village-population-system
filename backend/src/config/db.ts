@@ -13,6 +13,18 @@ export const pool: Pool = mysql.createPool({
   queueLimit: 0,
   charset: 'utf8mb4',
   timezone: '+08:00',
+  /**
+   * DATE 列直接以字符串返回（'YYYY-MM-DD'），不做 Date 转换。
+   *
+   * 为什么必须这样：DATE 是「日历日期」，不含时刻。若转成 Date 对象，
+   * mysql2 会按 timezone(+08:00) 把它解释为本地零点（1990-01-15 00:00 +08:00
+   * = UTC 1990-01-14 16:00Z），此时再按 UTC 取日期就得到 1990-01-14，
+   * **且换个环境时区结果就不同**（+08:00 机器上对、UTC 机器上错）。
+   * 直接拿字符串没有时区歧义，也不受部署环境时区影响。
+   *
+   * 只对 DATE 生效；DATETIME（如 created_at）仍返回 Date，行为不变。
+   */
+  dateStrings: ['DATE'],
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 });

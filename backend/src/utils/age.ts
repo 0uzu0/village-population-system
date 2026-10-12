@@ -2,16 +2,43 @@
  * 年龄计算与年龄段划分
  */
 
-/** 根据出生日期计算周岁年龄 */
+/**
+ * 统一把出生日期解析为「UTC 年/���/日」三个整数。
+ *
+ * 不返回 Date 对象：JS 对 'YYYY-MM-DD' 字符串按 UTC 解析，而对 Date 走本地取值，
+ * 两者混用会在非 +08:00 环境（CI/容器）出现偏差。直接取出年月日三元组后比较，
+ * 结果与环境时区无关。
+ *
+ * Date 输入（如遗留路径）按 UTC 取值——它代表「时刻」，我们要的是其中的日历日期。
+ */
+function toYmd(birthDate: string | Date): { y: number; m: number; d: number } | null {
+  if (typeof birthDate === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(birthDate.trim());
+    if (!m) {
+      const d = new Date(birthDate);
+      if (Number.isNaN(d.getTime())) return null;
+      return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+    }
+    return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
+  }
+  if (Number.isNaN(birthDate.getTime())) return null;
+  return { y: birthDate.getUTCFullYear(), m: birthDate.getUTCMonth() + 1, d: birthDate.getUTCDate() };
+}
+
+/** 根据出生日期计算周岁年龄（不受运行环境时区影响） */
 export function calcAge(birthDate: string | Date | null | undefined, at?: Date): number | null {
   if (!birthDate) return null;
-  const birth = typeof birthDate === 'string' ? new Date(birthDate) : birthDate;
-  if (isNaN(birth.getTime())) return null;
+  const b = toYmd(birthDate);
+  if (!b) return null;
+
   const now = at || new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const m = now.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
-  return age;
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+
+  let age = y - b.y;
+  if (m < b.m || (m === b.m && d < b.d)) age--;
+  return age >= 0 && age < 150 ? age : null;
 }
 
 export interface AgeBand {
