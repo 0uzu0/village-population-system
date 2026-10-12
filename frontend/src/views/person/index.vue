@@ -170,25 +170,71 @@
     </div>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑人员' : '新增人员'" width="680px">
-      <el-form :model="form" label-width="100px">
-        <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="form.name" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="曾用名"><el-input v-model="form.formerName" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="性别"><el-radio-group v-model="form.gender"><el-radio value="MALE">男</el-radio><el-radio value="FEMALE">女</el-radio></el-radio-group></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="出生日期"><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="备用手机号"><el-input v-model="form.phoneBackup" placeholder="家属/第二联系人" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="所属家庭"><el-select v-model="form.familyId" filterable clearable style="width: 100%"><el-option v-for="f in options.families" :key="f.id" :label="f.family_no" :value="f.id" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="所属村庄"><el-input v-model="form.village" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="户籍地址"><el-input v-model="form.hukouAddress" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="居住地址"><el-input v-model="form.liveAddress" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
-        </el-row>
-      </el-form>
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑人员' : '新增人员'" width="720px" top="6vh">
+      <el-tabs v-model="formTab" class="form-tabs">
+        <el-tab-pane label="基本信息" name="basic">
+          <el-form :model="form" label-width="100px">
+            <el-row :gutter="16">
+              <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="form.name" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="曾用名"><el-input v-model="form.formerName" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="性别"><el-radio-group v-model="form.gender"><el-radio value="MALE">男</el-radio><el-radio value="FEMALE">女</el-radio></el-radio-group></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="出生日期"><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="备用手机号"><el-input v-model="form.phoneBackup" placeholder="家属/第二联系人" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="所属家庭"><el-select v-model="form.familyId" filterable clearable style="width: 100%"><el-option v-for="f in options.families" :key="f.id" :label="f.family_no" :value="f.id" /></el-select></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="所属村庄"><el-input v-model="form.village" /></el-form-item></el-col>
+              <el-col :span="24"><el-form-item label="户籍地址"><el-input v-model="form.hukouAddress" /></el-form-item></el-col>
+              <el-col :span="24"><el-form-item label="居住地址"><el-input v-model="form.liveAddress" /></el-form-item></el-col>
+              <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
+            </el-row>
+          </el-form>
+        </el-tab-pane>
+
+        <el-tab-pane label="补贴与评估" name="subsidy">
+          <el-form :model="form" label-width="100px">
+            <el-row :gutter="16">
+              <el-col :span="12"><el-form-item label="银行账号"><el-input v-model="form.bankAccount" placeholder="补贴发放到账账号" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="发放金额">
+                <el-input-number v-model="form.subsidyAmount" :min="0" :precision="2" :step="50" controls-position="right" style="width: 100%" placeholder="元/月" />
+              </el-form-item></el-col>
+              <el-col :span="24"><el-form-item label="家庭情况描述">
+                <el-input v-model="form.familyCondition" type="textarea" :rows="4" placeholder="家庭成员情况、收入来源、照护压力等" />
+              </el-form-item></el-col>
+              <el-col :span="24"><el-form-item label="身体评估结果">
+                <el-input v-model="form.healthAssessment" type="textarea" :rows="4" placeholder="健康状况、行动能力、就医需求等" />
+              </el-form-item></el-col>
+            </el-row>
+            <el-alert type="info" :closable="false" show-icon
+              title="发放金额为当前应发标准（元/月），用于重点人群筛查与补贴发放台账；如需逐次发放记录需另建发放台账。" />
+          </el-form>
+        </el-tab-pane>
+
+        <el-tab-pane label="残疾信息" name="disability">
+          <el-form :model="form" label-width="100px">
+            <el-row :gutter="16">
+              <el-col :span="12"><el-form-item label="残疾类别">
+                <el-select v-model="form.disabilityType" clearable filterable allow-create placeholder="非残疾人可留空" style="width: 100%">
+                  <el-option v-for="t in DISABILITY_TYPES" :key="t" :label="t" :value="t" />
+                </el-select>
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="残疾等级">
+                <el-select v-model="form.disabilityLevel" clearable placeholder="一级最重" style="width: 100%">
+                  <el-option v-for="l in DISABILITY_LEVELS" :key="l.value" :label="l.label" :value="l.value" />
+                </el-select>
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="残疾证号"><el-input v-model="form.disabilityCard" placeholder="如 132101199001011234" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="监护人"><el-input v-model="form.guardianName" placeholder="一级、二级必填" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="监护人手机"><el-input v-model="form.guardianPhone" placeholder="监护人联系电话" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="备注"><el-input v-model="form.disabilityRemark" /></el-form-item></el-col>
+            </el-row>
+            <el-alert type="warning" :closable="false" show-icon
+              title="残疾信息全部留空即视为「非残疾人」，保存时会清除该人员的残疾档案记录。" />
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveForm">保存</el-button>
@@ -276,6 +322,7 @@ import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
 import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
+import { DISABILITY_LEVELS, DISABILITY_TYPES } from '@/utils/disability';
 import TagPill from '@/components/TagPill.vue';
 import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
@@ -369,11 +416,32 @@ const exportFields = [
   { key: 'grid_name', label: '所属网格' },
   { key: 'family_name', label: '所属家庭' },
   { key: 'status', label: '人员状态' },
+  // 重点人群台账字段（V008）
+  { key: 'bank_account', label: '银行账号' },
+  { key: 'subsidy_amount', label: '发放金额' },
+  { key: 'disability_type', label: '残疾类别' },
+  { key: 'disability_level_label', label: '残疾等级' },
+  { key: 'disability_card', label: '残疾证号' },
+  { key: 'guardian_name', label: '监护人' },
+  { key: 'guardian_phone', label: '监护人手机' },
+  { key: 'family_condition', label: '家庭情况描述' },
+  { key: 'health_assessment', label: '身体评估结果' },
 ];
 
 // 表单
 const formVisible = ref(false);
-const form = reactive<any>({ id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+const formTab = ref('basic');
+/** 表单初始值：新增与重置共用，避免两处漏改字段 */
+const emptyForm = () => ({
+  id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '',
+  gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '',
+  // 补贴与评估（V008）
+  bankAccount: '', subsidyAmount: undefined as number | undefined, familyCondition: '', healthAssessment: '',
+  // 残疾档案（V008）：全部为空表示非残疾人，保存时后端会清除档案
+  disabilityType: '', disabilityLevel: '', disabilityCard: '',
+  guardianName: '', guardianPhone: '', disabilityRemark: '',
+});
+const form = reactive<any>(emptyForm());
 
 const tagVisible = ref(false);
 const tagTarget = ref<any>(null);
@@ -475,19 +543,55 @@ function toggleColumn(prop: string) {
 }
 
 function openCreate() {
-  Object.assign(form, { id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '', gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '' });
+  Object.assign(form, emptyForm());
+  formTab.value = 'basic';
   formVisible.value = true;
 }
-function openEdit(row: any) {
-  Object.assign(form, { id: row.id, name: row.name, formerName: row.formerName || '', gender: row.gender, birthDate: row.birthDate || '', idCard: row.idCard || '', phone: row.phone || '', phoneBackup: row.phoneBackup || '', gridId: row.gridId, familyId: row.familyId, relation: row.relation, village: row.village || '', hukouAddress: row.hukouAddress || '', liveAddress: row.liveAddress || '', remark: row.remark || '' });
+/**
+ * 编辑时拉一次详情：列表行不含残疾档案（person_disability 是 LEFT JOIN，
+ * 未接进列表查询），否则打开弹窗会看到空白的残疾信息，误以为没建档。
+ */
+async function openEdit(row: any) {
+  Object.assign(form, emptyForm());
+  formTab.value = 'basic';
+  const d = await personApi.detail(row.id);
+  const p = d.data || row;
+  Object.assign(form, {
+    id: p.id, name: p.name, formerName: p.formerName || '', gender: p.gender, birthDate: p.birthDate || '',
+    idCard: p.idCard || '', phone: p.phone || '', phoneBackup: p.phoneBackup || '',
+    gridId: p.gridId, familyId: p.familyId, relation: p.relation,
+    village: p.village || '', hukouAddress: p.hukouAddress || '', liveAddress: p.liveAddress || '', remark: p.remark || '',
+    bankAccount: p.bankAccount || '',
+    subsidyAmount: p.subsidyAmount ?? undefined,
+    familyCondition: p.familyCondition || '', healthAssessment: p.healthAssessment || '',
+    disabilityType: p.disability?.type || '',
+    disabilityLevel: p.disability?.level || '',
+    disabilityCard: p.disability?.card || '',
+    guardianName: p.disability?.guardianName || '',
+    guardianPhone: p.disability?.guardianPhone || '',
+    disabilityRemark: p.disability?.remark || '',
+  });
   formVisible.value = true;
 }
 async function saveForm() {
   if (!form.name) { ElMessage.warning('请填写姓名'); return; }
   saving.value = true;
   try {
-    if (form.id) await personApi.update(form.id, form);
-    else await personApi.create(form);
+    // 残疾信息作为嵌套对象提交；全空时后端按「非残疾人」处理并清除档案
+    const payload = {
+      ...form,
+      subsidyAmount: form.subsidyAmount ?? null,
+      disability: {
+        disabilityType: form.disabilityType,
+        disabilityLevel: form.disabilityLevel,
+        disabilityCard: form.disabilityCard,
+        guardianName: form.guardianName,
+        guardianPhone: form.guardianPhone,
+        remark: form.disabilityRemark,
+      },
+    };
+    if (form.id) await personApi.update(form.id, payload);
+    else await personApi.create(payload);
     ElMessage.success('保存成功');
     formVisible.value = false;
     load();

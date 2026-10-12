@@ -12,6 +12,7 @@ import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { env } from '../config/env';
 import { z } from 'zod';
@@ -863,6 +864,14 @@ const exportSchema = z.object({
   maxAge: z.coerce.number().optional(),
   /** 只看在册（默认开启），与人员列表口径一致；传 false 可导出含已迁出/死亡的历史档案 */
   activeOnly: z.boolean().optional().default(true),
+  /** 重点人群个性化筛选（V008），与 /api/keygroup/query 保持同口径 */
+  extremePovertyMode: z.enum(['CENTRALIZED', 'DISPERSED']).optional(),
+  minDisabilityLevel: z.enum(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4']).optional(),
+  maxDisabilityLevel: z.enum(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4']).optional(),
+  disabilityType: z.string().max(64).optional(),
+  minSubsidy: z.coerce.number().min(0).optional(),
+  maxSubsidy: z.coerce.number().min(0).optional(),
+  guardian: z.enum(['YES', 'NO']).optional(),
 });
 
 /** 导出字段定义 */
@@ -880,6 +889,16 @@ const EXPORT_FIELDS: { key: string; label: string }[] = [
   { key: 'grid_name', label: '所属网格' },
   { key: 'family_name', label: '所属家庭' },
   { key: 'status', label: '人员状态' },
+  // 重点人群台账字段（V008）
+  { key: 'bank_account', label: '银行账号' },
+  { key: 'subsidy_amount', label: '发放金额' },
+  { key: 'disability_type', label: '残疾类别' },
+  { key: 'disability_level_label', label: '残疾等级' },
+  { key: 'disability_card', label: '残疾证号' },
+  { key: 'guardian_name', label: '监护人' },
+  { key: 'guardian_phone', label: '监护人手机' },
+  { key: 'family_condition', label: '家庭情况描述' },
+  { key: 'health_assessment', label: '身体评估结果' },
 ];
 
 /** 创建导出任务（同步生成文件，记录任务状态与审计） */
@@ -910,7 +929,31 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     if (tagFilter.where) { where.push(tagFilter.where.replace(/^ AND /, '')); params.push(...tagFilter.params); }
   }
 
+  // 个性化筛选（V008）：必须与 keygroup /query 同口径，否则筛完导出会是另一批人
+  let needDisabilityJoin = false;
+  if (body.extremePovertyMode) {
+    const code = body.extremePovertyMode === 'CENTRALIZED' ? 'EXTREME_POVERTY_CENTRALIZED' : 'EXTREME_POVERTY_DISPERSED';
+    where.push(`EXISTS (SELECT 1 FROM person_tag pt2 JOIN tag_definition td2 ON td2.id = pt2.tag_id
+      WHERE pt2.person_id = p.id AND pt2.status = 'ACTIVE' AND td2.code = ?)`);
+    params.push(code);
+  }
+  if (body.minDisabilityLevel || body.maxDisabilityLevel || body.disabilityType || body.guardian) {
+    needDisabilityJoin = true;
+    where.push('pd.person_id IS NOT NULL');
+    const lvl = buildDisabilityLevelFilter(body.minDisabilityLevel, body.maxDisabilityLevel);
+    if (lvl.where) { where.push(lvl.where); params.push(...lvl.params); }
+    if (body.disabilityType) { where.push('pd.disability_type = ?'); params.push(body.disabilityType); }
+    if (body.guardian) {
+      where.push(body.guardian === 'YES'
+        ? "pd.guardian_name IS NOT NULL AND pd.guardian_name <> ''"
+        : "(pd.guardian_name IS NULL OR pd.guardian_name = '')");
+    }
+  }
+  if (body.minSubsidy != null) { where.push('p.subsidy_amount >= ?'); params.push(body.minSubsidy); }
+  if (body.maxSubsidy != null) { where.push('p.subsidy_amount <= ?'); params.push(body.maxSubsidy); }
+
   const whereSql = where.join(' AND ');
+  const fromSql = `FROM person p ${needDisabilityJoin ? 'LEFT JOIN person_disability pd ON pd.person_id = p.id' : ''}`;
 
   // 分批读取（避免一次加载上万条到内存）
   const BATCH = 2000;
@@ -937,8 +980,10 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     let total = 0;
     while (true) {
       const rows = await query<any>(
-        `SELECT p.*, g.name AS grid_name, f.family_no AS family_name
-         FROM person p LEFT JOIN grid g ON g.id=p.grid_id LEFT JOIN family f ON f.id=p.family_id
+        `SELECT p.*, g.name AS grid_name, f.family_no AS family_name,
+                pd.disability_type, pd.disability_level, pd.disability_card,
+                pd.guardian_name, pd.guardian_phone
+         ${fromSql} LEFT JOIN grid g ON g.id=p.grid_id LEFT JOIN family f ON f.id=p.family_id
          WHERE ${whereSql} AND p.id > ? ORDER BY p.id LIMIT ?`,
         [...params, lastId, BATCH]
       );
@@ -951,6 +996,8 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
           else if (k === 'grid_name') rowData.push(r.grid_name || '');
           else if (k === 'family_name') rowData.push(r.family_name || '');
           else if (k === 'status') rowData.push(r.status || '');
+          // 残疾等级导出中文全称（一级（极重度）），台账直接可读
+          else if (k === 'disability_level_label') rowData.push(disabilityLevelLabel(r.disability_level));
           else rowData.push(r[k] ?? '');
         }
         ws.addRow(rowData);

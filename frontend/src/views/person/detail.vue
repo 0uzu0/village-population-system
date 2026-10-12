@@ -51,6 +51,47 @@
         </el-descriptions>
       </div>
 
+      <!-- 补贴发放与走访评估（V008） -->
+      <div class="vp-card">
+        <div class="card-title">补贴发放与走访评估</div>
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="银行账号">{{ person?.bankAccount || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="发放金额">
+            <span v-if="person?.subsidyAmount != null">{{ money(person.subsidyAmount) }} 元/月</span>
+            <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="特困供养方式">
+            <el-tag v-if="extremePovertyMode" size="small" :type="extremePovertyMode === 'CENTRALIZED' ? 'danger' : 'warning'">
+              {{ extremePovertyMode === 'CENTRALIZED' ? '集中供养' : '分散供养' }}
+            </el-tag>
+            <span v-else>—</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="家庭情况描述" :span="3">
+            <span class="multiline">{{ person?.familyCondition || '—' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="身体评估结果" :span="3">
+            <span class="multiline">{{ person?.healthAssessment || '—' }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <!-- 残疾专项档案（V008，仅残疾人有记录） -->
+      <div class="vp-card">
+        <div class="card-title">
+          残疾信息
+          <el-tag v-if="person?.disability" size="small" type="success" effect="light">已建档</el-tag>
+        </div>
+        <el-descriptions v-if="person?.disability" :column="3" border>
+          <el-descriptions-item label="残疾类别">{{ person.disability.type || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="残疾等级">{{ person.disability.levelLabel || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="残疾证号">{{ person.disability.card || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="监护人">{{ person.disability.guardianName || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="监护人手机">{{ person.disability.guardianPhone || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="备注">{{ person.disability.remark || '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-empty v-else description="暂无残疾建档信息" :image-size="60" />
+      </div>
+
       <!-- 人口标签 -->
       <div class="vp-card">
         <div class="card-title">人口标签</div>
@@ -117,6 +158,24 @@ function goBack() { router.push(back.value.path); }
 function statusTag(s?: string): any { return statusTagType(s); }
 function relationLabel(r?: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r || ''] || r || '—'; }
 function linkStatusLabel(s: string) { return { ACTIVE: '生效中', INACTIVE: '已失效', PENDING: '待审核' }[s] || s; }
+/** 发放金额：整数不显示小数位，非整数保留两位（台账金额多为整数） */
+function money(n?: number | null): string {
+  if (n == null) return '';
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+/**
+ * 特困供养方式（V008）：走标签维度而非独立字段，
+ * 依据「集中供养特困人员 / 分散供养特困人员」两个标签判定。
+ */
+const extremePovertyMode = computed(() => {
+  const tags = person.value?.tags || [];
+  const has = (code: string) => tags.some((t: any) => t.code === code);
+  if (has('EXTREME_POVERTY_CENTRALIZED')) return 'CENTRALIZED';
+  if (has('EXTREME_POVERTY_DISPERSED')) return 'DISPERSED';
+  return '';
+});
+
 function typeLabel(t: string) { return { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' }[t] || t; }
 
 async function reload() {
@@ -155,6 +214,12 @@ onMounted(async () => {
   margin-left: 8px;
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+/* 家庭情况描述 / 身体评估结果：长文本保留换行 */
+.multiline {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
 }
 .grid {
   display: flex;

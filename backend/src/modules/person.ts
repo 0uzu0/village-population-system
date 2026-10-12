@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { query, queryOne, execute, withTransaction } from '../config/db';
+import { query, queryOne, execute, withTransaction, pool } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
@@ -8,6 +8,7 @@ import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idca
 import { calcAge } from '../utils/age';
 import { genPersonNo } from '../utils/id';
 import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import { DISABILITY_LEVELS, disabilityLevelLabel } from '../utils/disability';
 import {
   PERSON_STATUSES,
   PERSON_ACTIVE_SQL,
@@ -63,6 +64,24 @@ function toPersonVO(row: any): any {
     status: row.status,
     statusDate: row.status_date ? new Date(row.status_date).toISOString().slice(0, 10) : null,
     remark: row.remark,
+    // 重点人群服务台账
+    bankAccount: row.bank_account,
+    subsidyAmount: row.subsidy_amount != null ? Number(row.subsidy_amount) : null,
+    familyCondition: row.family_condition,
+    healthAssessment: row.health_assessment,
+    // 残疾专项档案：只有 person_disability 有记录时才返回对象，
+    // 列名与 person_disability 字段同名（无歧义，person 表无同名列）
+    disability: row.disability_person_id
+      ? {
+          type: row.disability_type,
+          level: row.disability_level,
+          levelLabel: disabilityLevelLabel(row.disability_level),
+          card: row.disability_card,
+          guardianName: row.guardian_name,
+          guardianPhone: row.guardian_phone,
+          remark: row.disability_remark,
+        }
+      : null,
     dataSource: row.data_source,
     updatedAt: row.updated_at,
     tags: row.tags || [],
@@ -216,10 +235,14 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
 router.get('/:id', requirePermission('person:view'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const row = await queryOne<any>(
-    `SELECT p.*, g.name AS grid_name, f.family_no AS family_name
+    // disability_person_id 用于判断有无残疾档案；pd.remark 与 person.remark 同名，
+    // 必须显式取别名，否则 p.* 的 remark 会覆盖它（连接查询中同名列后者优先）
+    `SELECT p.*, g.name AS grid_name, f.family_no AS family_name,
+            pd.person_id AS disability_person_id, pd.remark AS disability_remark
      FROM person p
      LEFT JOIN grid g ON g.id = p.grid_id
      LEFT JOIN family f ON f.id = p.family_id
+     LEFT JOIN person_disability pd ON pd.person_id = p.id
      WHERE p.id = ?`,
     [id]
   );
@@ -261,6 +284,43 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
   return ok(res, vo);
 });
 
+/**
+ * 残疾专项档案读写（person_disability 与 person 一对一）。
+ * 全空视为「不是残疾人」→ 删除记录；否则 upsert（INSERT ... ON DUPLICATE KEY UPDATE）。
+ */
+async function saveDisability(
+  conn: { query: (sql: string, params?: any[]) => Promise<any> },
+  personId: number,
+  d: NonNullable<z.infer<typeof personSchema>['disability']>,
+) {
+  const values = [
+    d.disabilityType || null,
+    d.disabilityLevel || null,
+    d.disabilityCard || null,
+    d.guardianName || null,
+    d.guardianPhone || null,
+    d.remark || null,
+  ];
+  const empty = values.every((v) => v === null);
+  if (empty) {
+    await conn.query('DELETE FROM person_disability WHERE person_id = ?', [personId]);
+    return;
+  }
+  await conn.query(
+    `INSERT INTO person_disability
+       (person_id, disability_type, disability_level, disability_card, guardian_name, guardian_phone, remark)
+     VALUES (?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE
+       disability_type = VALUES(disability_type),
+       disability_level = VALUES(disability_level),
+       disability_card  = VALUES(disability_card),
+       guardian_name   = VALUES(guardian_name),
+       guardian_phone  = VALUES(guardian_phone),
+       remark          = VALUES(remark)`,
+    [personId, ...values]
+  );
+}
+
 const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
   formerName: z.string().max(64).optional().or(z.literal('')),
@@ -278,6 +338,20 @@ const personSchema = z.object({
   status: z.string().optional(),
   remark: z.string().max(500).optional().or(z.literal('')),
   changeReason: z.string().max(255).optional().or(z.literal('')),
+  /** 重点人群服务台账：银行账号 / 当前应发金额 / 家庭情况 / 身体评估 */
+  bankAccount: z.string().max(32).optional().or(z.literal('')),
+  subsidyAmount: z.coerce.number().min(0, '发放金额不能为负').max(999999.99, '发放金额过大').nullable().optional(),
+  familyCondition: z.string().max(1000).optional().or(z.literal('')),
+  healthAssessment: z.string().max(1000).optional().or(z.literal('')),
+  /** 残疾专项档案（person_disability，与人员一对一） */
+  disability: z.object({
+    disabilityType: z.string().max(64).optional().or(z.literal('')),
+    disabilityLevel: z.enum(DISABILITY_LEVELS).optional().or(z.literal('')),
+    disabilityCard: z.string().max(64).optional().or(z.literal('')),
+    guardianName: z.string().max(64).optional().or(z.literal('')),
+    guardianPhone: z.string().max(20).optional().or(z.literal('')),
+    remark: z.string().max(500).optional().or(z.literal('')),
+  }).optional(),
 });
 
 /** 新增人员 */
@@ -293,15 +367,19 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
   const personNo = genPersonNo();
   const insertResult = await execute(
     `INSERT INTO person (person_no, name, former_name, gender, birth_date, id_card, phone, phone_backup,
-      hukou_address, live_address, village, grid_id, family_id, relation, status, remark, data_source, change_reason, created_by, updated_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      hukou_address, live_address, bank_account, subsidy_amount, village, grid_id, family_id, relation,
+      status, remark, family_condition, health_assessment, data_source, change_reason, created_by, updated_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       personNo, body.name, body.formerName || null, body.gender || identity.gender || 'MALE',
       body.birthDate || identity.birth_date || null,
       identity.id_card || null, identity.phone || null, identity.phone_backup || null,
-      body.hukouAddress || null, body.liveAddress || null, body.village || null,
+      body.hukouAddress || null, body.liveAddress || null,
+      body.bankAccount || null, body.subsidyAmount ?? null, body.village || null,
       body.gridId || null, body.familyId || null, body.relation || null,
-      body.status || 'NORMAL', body.remark || null, 'MANUAL', body.changeReason || null,
+      body.status || 'NORMAL', body.remark || null,
+      body.familyCondition || null, body.healthAssessment || null,
+      'MANUAL', body.changeReason || null,
       req.user!.id, req.user!.id,
     ]
   );
@@ -315,6 +393,9 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
       [body.familyId, newId, body.relation || 'OTHER', body.relation === 'HEAD' ? 1 : 0]
     );
   }
+
+  // 残疾专项档案（有内容才建记录；全空即视为非残疾人）
+  if (body.disability) await saveDisability(pool, newId, body.disability);
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:create', request: { personNo, name: body.name }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id: newId, personNo }, '新增成功');
@@ -342,6 +423,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
     phoneBackup: 'phone_backup',
     hukouAddress: 'hukou_address', liveAddress: 'live_address', village: 'village',
     gridId: 'grid_id', familyId: 'family_id', relation: 'relation', remark: 'remark', changeReason: 'change_reason',
+    bankAccount: 'bank_account', familyCondition: 'family_condition', healthAssessment: 'health_assessment',
   };
   for (const [key, col] of Object.entries(fieldMap)) {
     if ((body as any)[key] !== undefined) {
@@ -353,6 +435,13 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   if (identity.phone !== undefined) { sets.push('phone = ?'); params.push(identity.phone); }
   if (identity.gender !== undefined && body.gender === undefined) { sets.push('gender = ?'); params.push(identity.gender); }
   if (identity.birth_date !== undefined && body.birthDate === undefined) { sets.push('birth_date = ?'); params.push(identity.birth_date); }
+  // 发放金额：0 是合法值（享受但金额为 0），故用 ?? 而非 || 判断
+  if (body.subsidyAmount !== undefined) { sets.push('subsidy_amount = ?'); params.push(body.subsidyAmount ?? null); }
+
+  // 残疾档案与人员主表一并写入：独立 upsert，不影响 sets 动态更新的判定
+  if (body.disability !== undefined) {
+    await saveDisability(pool, id, body.disability);
+  }
 
   if (sets.length) {
     sets.push('updated_by = ?');
@@ -383,6 +472,7 @@ router.delete('/:id', requirePermission('person:edit'), async (req: Request, res
     await conn.query('DELETE FROM person_tag WHERE person_id = ?', [id]);
     await conn.query('DELETE FROM family_member WHERE person_id = ?', [id]);
     await conn.query('DELETE FROM person_change_log WHERE person_id = ?', [id]);
+    await conn.query('DELETE FROM person_disability WHERE person_id = ?', [id]);
     // 若该人员是某户户主，解除户主引用（家庭本身保留）
     await conn.query('UPDATE family SET head_person_id = NULL WHERE head_person_id = ?', [id]);
     await conn.query('DELETE FROM person WHERE id = ?', [id]);

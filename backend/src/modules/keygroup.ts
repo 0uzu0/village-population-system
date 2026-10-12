@@ -5,6 +5,7 @@ import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
+import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { z } from 'zod';
 
@@ -91,6 +92,20 @@ const querySchema = z.object({
    * 低保、残疾、退役军人等名单里。传 activeOnly=false 可查历史档案。
    */
   activeOnly: z.enum(['true', 'false']).optional().default('true'),
+  /**
+   * 重点人群个性化筛选（V008）：
+   * - 特困供养方式：集中 / 分散（按 tag_definition.code 走标签维度）
+   * - 残疾等级区间：LEVEL_1~LEVEL_4（一级最重，支持只传一端）
+   * - 发放金额区间（元/月）
+   * - 监护人：有监护人 / 无监护人
+   */
+  extremePovertyMode: z.enum(['CENTRALIZED', 'DISPERSED']).optional(),
+  minDisabilityLevel: z.enum(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4']).optional(),
+  maxDisabilityLevel: z.enum(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4']).optional(),
+  disabilityType: z.string().max(64).optional(),
+  minSubsidy: z.coerce.number().min(0).optional(),
+  maxSubsidy: z.coerce.number().min(0).optional(),
+  guardian: z.enum(['YES', 'NO']).optional(),
 });
 
 /**
@@ -126,6 +141,63 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');
   if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); conditions.push(`年龄 ${ageRangeText(q.minAge, q.maxAge)}`); }
 
+  // ---- 特困供养方式：集中 / 分散（标签维度，与既有筛选器口径一致）----
+  if (q.extremePovertyMode) {
+    const code = q.extremePovertyMode === 'CENTRALIZED' ? 'EXTREME_POVERTY_CENTRALIZED' : 'EXTREME_POVERTY_DISPERSED';
+    where.push(
+      `EXISTS (SELECT 1 FROM person_tag pt2 JOIN tag_definition td2 ON td2.id = pt2.tag_id
+        WHERE pt2.person_id = p.id AND pt2.status = 'ACTIVE' AND td2.code = ?)`
+    );
+    params.push(code);
+    conditions.push(`特困供养方式：${q.extremePovertyMode === 'CENTRALIZED' ? '集中供养' : '分散供养'}`);
+  }
+
+  // ---- 残疾等级 / 类别 / 监护人：需 LEFT JOIN 残疾档案表 ----
+  let needDisabilityJoin = false;
+  if (q.minDisabilityLevel || q.maxDisabilityLevel || q.disabilityType || q.guardian) {
+    needDisabilityJoin = true;
+    // 筛残疾条件即要求存在残疾档案，否则非残疾人会被算进来
+    where.push('pd.person_id IS NOT NULL');
+
+    const lvl = buildDisabilityLevelFilter(q.minDisabilityLevel, q.maxDisabilityLevel);
+    if (lvl.where) {
+      where.push(lvl.where);
+      params.push(...lvl.params);
+      const label = (v?: string) => disabilityLevelLabel(v).replace(/（.*）/, '');
+      if (q.minDisabilityLevel && q.maxDisabilityLevel) conditions.push(`残疾等级 ${label(q.minDisabilityLevel)}~${label(q.maxDisabilityLevel)}`);
+      else if (q.minDisabilityLevel) conditions.push(`残疾等级 不轻于${label(q.minDisabilityLevel)}`);
+      else if (q.maxDisabilityLevel) conditions.push(`残疾等级 不重于${label(q.maxDisabilityLevel)}`);
+    }
+    if (q.disabilityType) {
+      where.push('pd.disability_type = ?');
+      params.push(q.disabilityType);
+      conditions.push(`残疾类别：${q.disabilityType}`);
+    }
+    if (q.guardian) {
+      if (q.guardian === 'YES') {
+        where.push("pd.guardian_name IS NOT NULL AND pd.guardian_name <> ''");
+        conditions.push('已登记监护人');
+      } else {
+        where.push("(pd.guardian_name IS NULL OR pd.guardian_name = '')");
+        conditions.push('未登记监护人');
+      }
+    }
+  }
+
+  // ---- 发放金额区间（元/月）----
+  if (q.minSubsidy != null || q.maxSubsidy != null) {
+    const lo = q.minSubsidy;
+    const hi = q.maxSubsidy;
+    if (lo != null) { where.push('p.subsidy_amount >= ?'); params.push(lo); }
+    if (hi != null) { where.push('p.subsidy_amount <= ?'); params.push(hi); }
+    const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+    conditions.push(
+      lo != null && hi != null ? `发放金额 ${fmt(lo)}~${fmt(hi)} 元/月`
+        : lo != null ? `发放金额 ≥ ${fmt(lo)} 元/月`
+        : `发放金额 ≤ ${fmt(hi as number)} 元/月`
+    );
+  }
+
   /** 把标签 ID 翻成名称，避免界面上只显示一串数字 */
   async function tagNames(ids: number[]): Promise<string[]> {
     if (!ids.length) return [];
@@ -159,14 +231,23 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   }
 
   const whereSql = where.join(' AND ');
+  // 残疾相关筛选依赖 person_disability 表，其余查询不该为此多付一次 JOIN 成本
+  const disabilityJoin = needDisabilityJoin
+    ? 'LEFT JOIN person_disability pd ON pd.person_id = p.id'
+    : '';
+  const fromSql = `FROM person p ${disabilityJoin}`;
 
-  const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM person p WHERE ${whereSql}`, params);
+  const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt ${fromSql} WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
 
   const rows = await query<any>(
     `SELECT p.id, p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone, p.phone_backup,
-            p.grid_id, g.name AS grid_name, p.family_id, f.family_no AS family_name, p.status
-     FROM person p LEFT JOIN grid g ON g.id = p.grid_id LEFT JOIN family f ON f.id = p.family_id
+            p.grid_id, g.name AS grid_name, p.family_id, f.family_no AS family_name, p.status,
+            p.bank_account, p.subsidy_amount, p.family_condition, p.health_assessment,
+            pd.disability_type, pd.disability_level, pd.disability_card,
+            pd.guardian_name, pd.guardian_phone
+     ${fromSql}
+     LEFT JOIN grid g ON g.id = p.grid_id LEFT JOIN family f ON f.id = p.family_id
      WHERE ${whereSql} ORDER BY p.id LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
@@ -202,16 +283,29 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     familyName: r.family_name,
     status: r.status,
     tags: tagMap.get(r.id) || [],
+    // 个性化台账字段（重点人群服务所需）
+    bankAccount: r.bank_account,
+    subsidyAmount: r.subsidy_amount != null ? Number(r.subsidy_amount) : null,
+    familyCondition: r.family_condition,
+    healthAssessment: r.health_assessment,
+    disability: r.disability_type || r.disability_level || r.guardian_name ? {
+      type: r.disability_type,
+      level: r.disability_level,
+      levelLabel: disabilityLevelLabel(r.disability_level),
+      card: r.disability_card,
+      guardianName: r.guardian_name,
+      guardianPhone: r.guardian_phone,
+    } : null,
   }));
 
   // 结果集分布统计（整批结果，而非仅当前页）
   const genderRows = await query<any>(
-    `SELECT COALESCE(p.gender, 'UNKNOWN') AS k, COUNT(*) AS cnt FROM person p WHERE ${whereSql} GROUP BY p.gender`,
+    `SELECT COALESCE(p.gender, 'UNKNOWN') AS k, COUNT(*) AS cnt ${fromSql} WHERE ${whereSql} GROUP BY p.gender`,
     params
   );
   const gridRows = await query<any>(
     `SELECT COALESCE(g.name, '未分配网格') AS k, COUNT(*) AS cnt
-     FROM person p LEFT JOIN grid g ON g.id = p.grid_id
+     ${fromSql} LEFT JOIN grid g ON g.id = p.grid_id
      WHERE ${whereSql} GROUP BY g.name ORDER BY cnt DESC`,
     params
   );
@@ -228,6 +322,13 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
       minAge: q.minAge ?? null,
       maxAge: q.maxAge ?? null,
       keyword: q.keyword || null,
+      extremePovertyMode: q.extremePovertyMode || null,
+      minDisabilityLevel: q.minDisabilityLevel || null,
+      maxDisabilityLevel: q.maxDisabilityLevel || null,
+      disabilityType: q.disabilityType || null,
+      minSubsidy: q.minSubsidy ?? null,
+      maxSubsidy: q.maxSubsidy ?? null,
+      guardian: q.guardian || null,
       hasFilter: conditions.length > 0,
       summary: conditions.length ? conditions.join('；') : '全部人口',
     },
