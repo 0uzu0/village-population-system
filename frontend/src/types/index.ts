@@ -48,6 +48,8 @@ export interface PersonItem {
   familyName?: string;
   relation?: string;
   status: string;
+  /** 状态生效日期：死亡日期 / 迁出日期 */
+  statusDate?: string | null;
   remark?: string;
   dataSource?: string;
   updatedAt?: string;

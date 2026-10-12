@@ -9,6 +9,9 @@
         <h2 class="vp-page-title" style="margin-top: 8px">{{ person?.name }} <span class="no">{{ person?.personNo }}</span></h2>
       </div>
       <div class="actions">
+        <el-button v-if="auth.hasPermission('person:status')" @click="statusVisible = true">
+          <el-icon><Refresh /></el-icon>变更状态
+        </el-button>
         <el-button type="primary" @click="goBack">返回{{ back.title }}</el-button>
       </div>
     </div>
@@ -25,6 +28,7 @@
           <el-descriptions-item label="年龄">{{ person?.age ?? '—' }} 岁</el-descriptions-item>
           <el-descriptions-item label="人员状态">
             <el-tag size="small" :type="statusTag(person?.status)">{{ statusLabel(person?.status) }}</el-tag>
+            <span v-if="person?.statusDate" class="date-hint">{{ person.statusDate }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="身份证号">{{ person?.idCard || '—' }}</el-descriptions-item>
           <el-descriptions-item label="联系电话">{{ person?.phone || '—' }}</el-descriptions-item>
@@ -68,14 +72,24 @@
             <template #default="{ row }">{{ typeLabel(row.change_type) }}</template>
           </el-table-column>
           <el-table-column prop="field_name" label="字段" width="100" />
-          <el-table-column prop="old_value" label="旧值" show-overflow-tooltip />
-          <el-table-column prop="new_value" label="新值" show-overflow-tooltip />
+          <el-table-column prop="old_value" label="旧值" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.field_name === 'status' ? statusLabel(row.old_value) : row.old_value || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="new_value" label="新值" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.field_name === 'status' ? statusLabel(row.new_value) : row.new_value || '—' }}</template>
+          </el-table-column>
           <el-table-column prop="reason" label="原因" show-overflow-tooltip />
           <el-table-column prop="created_at" label="时间" width="160" />
         </el-table>
         <el-empty v-if="!(person?.changes?.length)" description="暂无变更记录" :image-size="60" />
       </div>
     </div>
+
+    <StatusChangeDialog
+      v-model="statusVisible"
+      :persons="person ? [{ id: person.id, name: person.name, status: person.status }] : []"
+      @done="reload"
+    />
   </div>
 </template>
 
@@ -84,29 +98,37 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { personApi } from '@/api';
 import { parseFrom } from '@/utils/nav';
+import { useAuthStore } from '@/stores/auth';
+import { statusLabel, statusTagType } from '@/utils/personStatus';
 import TagPill from '@/components/TagPill.vue';
+import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
 const loading = ref(false);
 const person = ref<any>(null);
+const statusVisible = ref(false);
 
 /** 来源页：从人口档案/重点人群等页面进来，返回时原样退回（含筛选条件） */
 const back = computed(() => parseFrom(route));
 function goBack() { router.push(back.value.path); }
 
-function statusLabel(s: string) { return { NORMAL: '正常', MOVED_IN: '迁入', MOVED_OUT: '迁出', CANCELLED: '注销' }[s] || s; }
-function statusTag(s?: string): any { return { NORMAL: 'success', MOVED_IN: 'primary', MOVED_OUT: 'warning', CANCELLED: 'danger' }[s || ''] || 'info'; }
+function statusTag(s?: string): any { return statusTagType(s); }
 function relationLabel(r?: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r || ''] || r || '—'; }
 function linkStatusLabel(s: string) { return { ACTIVE: '生效中', INACTIVE: '已失效', PENDING: '待审核' }[s] || s; }
 function typeLabel(t: string) { return { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' }[t] || t; }
 
+async function reload() {
+  const id = Number(route.params.id);
+  const res = await personApi.detail(id);
+  person.value = res.data;
+}
+
 onMounted(async () => {
   loading.value = true;
   try {
-    const id = Number(route.params.id);
-    const res = await personApi.detail(id);
-    person.value = res.data;
+    await reload();
   } finally {
     loading.value = false;
   }
@@ -128,6 +150,11 @@ onMounted(async () => {
 .actions {
   display: flex;
   gap: 8px;
+}
+.date-hint {
+  margin-left: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }
 .grid {
   display: flex;

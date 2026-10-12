@@ -5,6 +5,7 @@ import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
+import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { z } from 'zod';
 
 const router = Router();
@@ -30,8 +31,12 @@ const QUICK_GROUPS: { label: string; code: string; minAge?: number; maxAge?: num
 /** 快捷入口统计（身份类按标签人数，年龄类按出生日期推算，均存在交叉、不可相加） */
 router.get('/quick', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
   const tagRows = await query<any>(
+    // 与 /query 同口径：只统计在册人员，已死亡/迁出的不再计入重点人群服务名单
     `SELECT td.code, td.name, td.color,
-       (SELECT COUNT(*) FROM person_tag pt WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE') AS cnt
+       (SELECT COUNT(*) FROM person_tag pt
+          JOIN person p2 ON p2.id = pt.person_id
+        WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
+          AND p2.status IN ('NORMAL','MOVED_IN')) AS cnt
      FROM tag_definition td
      WHERE td.code IN (${QUICK_GROUPS.map(() => '?').join(',')})`,
     QUICK_GROUPS.map((g) => g.code)
@@ -46,7 +51,10 @@ router.get('/quick', requirePermission('keygroup:view'), async (req: Request, re
     if (isAgeGroup) {
       // 年龄类：直接按出生日期推算，不依赖是否打过标签
       const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
-      const row = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where}`, af.params);
+      const row = await queryOne<any>(
+        `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND p.status IN ('NORMAL','MOVED_IN')`,
+        af.params
+      );
       count = Number(row?.cnt || 0);
     } else {
       count = r ? Number(r.cnt) : 0;
@@ -78,6 +86,11 @@ const querySchema = z.object({
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   keyword: z.string().optional(),
+  /**
+   * 只看在册（默认开启）。此前该查询完全不过滤状态，已死亡/迁出的人员仍会出现在
+   * 低保、残疾、退役军人等名单里。传 activeOnly=false 可查历史档案。
+   */
+  activeOnly: z.enum(['true', 'false']).optional().default('true'),
 });
 
 /**
@@ -91,6 +104,14 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const params: any[] = [];
 
   const conditions: string[] = [];
+
+  // 默认只统计在册人口：死亡/迁出人员已从重点人群服务名单中退出
+  if (q.activeOnly !== 'false') {
+    where.push(PERSON_ACTIVE_SQL);
+    conditions.push('仅统计在册人员');
+  } else {
+    conditions.push('含已迁出/死亡的历史档案');
+  }
 
   if (q.keyword) { where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`); conditions.push(`姓名/身份证号/手机号含「${q.keyword}」`); }
 

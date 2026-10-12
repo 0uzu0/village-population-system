@@ -35,8 +35,9 @@
           <el-option v-for="v in options.villages" :key="v.name" :label="v.name" :value="v.name" />
         </el-select>
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="doSearch">
-          <el-option label="正常" value="NORMAL" /><el-option label="迁入" value="MOVED_IN" /><el-option label="迁出" value="MOVED_OUT" /><el-option label="注销" value="CANCELLED" />
+          <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
+        <el-checkbox v-model="activeOnly" style="margin-left: 4px" @change="doSearch">只看在册</el-checkbox>
         <el-select v-model="query.tagIds" placeholder="标签（并集）" clearable multiple filterable collapse-tags style="width: 200px" @change="doSearch">
           <el-option v-for="t in commonTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
@@ -65,6 +66,9 @@
           </el-button>
           <el-button v-if="selectedIds.size && auth.hasPermission('person:edit')" size="small" @click="openBatchTransfer">
             批量转网格
+          </el-button>
+          <el-button v-if="selectedIds.size && auth.hasPermission('person:status')" size="small" @click="openBatchStatus">
+            变更状态
           </el-button>
           <el-button
             v-if="selectedIds.size && auth.hasPermission('person:edit')"
@@ -137,9 +141,10 @@
         <el-table-column v-if="isColVisible('updated_at')" prop="updatedAt" label="更新时间" width="160" sortable="custom">
           <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="$router.push(toPersonDetail(route, row.id))">详情</el-button>
+            <el-button v-if="auth.hasPermission('person:status')" link type="primary" size="small" @click="openStatus(row)">状态</el-button>
             <el-button v-if="auth.hasPermission('person:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="auth.hasPermission('tag:manage')" link type="primary" size="small" @click="openTagManager(row)">标签</el-button>
             <el-button
@@ -247,12 +252,19 @@
             <el-checkbox v-for="f in exportFields" :key="f.key" :value="f.key">{{ f.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
+        <el-form-item label="数据范围">
+          <el-checkbox v-model="exportForm.activeOnly">只导出在册人员</el-checkbox>
+          <div class="hint">取消勾选可导出含已迁出、已死亡的历史档案</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="exportVisible = false">取消</el-button>
         <el-button type="primary" :loading="exporting" @click="submitExport">导出</el-button>
       </template>
     </el-dialog>
+
+    <!-- 状态变更弹窗（单条 / 批量共用） -->
+    <StatusChangeDialog v-model="statusVisible" :persons="statusTargets" @done="load" />
   </div>
 </template>
 
@@ -263,7 +275,9 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
+import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
 import TagPill from '@/components/TagPill.vue';
+import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -282,6 +296,23 @@ const commonTags = ref<any[]>([]);
 const query = reactive<any>({
   page: 1, pageSize: 20, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], tagMode: 'ANY', sortBy: '', sortOrder: '',
 });
+
+/** 只看在册（默认开启）：隐藏已迁出/已死亡的历史档案，勾选状态筛选时以后者为准 */
+const activeOnly = ref(true);
+
+/** 状态变更弹窗目标人员（单条或批量） */
+const statusVisible = ref(false);
+const statusTargets = ref<{ id: number; name: string; status?: string }[]>([]);
+function openStatus(row: any) {
+  statusTargets.value = [{ id: row.id, name: row.name, status: row.status }];
+  statusVisible.value = true;
+}
+function openBatchStatus() {
+  const rows = list.value.filter((r: any) => selectedIds.value.has(r.id));
+  if (!rows.length) { ElMessage.warning('请先在列表中选择人员'); return; }
+  statusTargets.value = rows.map((r: any) => ({ id: r.id, name: r.name, status: r.status }));
+  statusVisible.value = true;
+}
 
 const quickTagCodes = ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON', 'ELDERLY', 'MINOR'];
 const quickTags = computed(() => commonTags.value.filter((t) => quickTagCodes.includes(t.code)));
@@ -355,16 +386,15 @@ const transferVisible = ref(false);
 const transferForm = reactive({ targetGridId: null as number | null, reason: '' });
 
 const exportVisible = ref(false);
-const exportForm = reactive({ fields: exportFields.map((f) => f.key) });
+const exportForm = reactive({ fields: exportFields.map((f) => f.key), activeOnly: true });
 
-function statusLabel(s: string) { return { NORMAL: '正常', MOVED_IN: '迁入', MOVED_OUT: '迁出', CANCELLED: '注销' }[s] || s; }
-function statusTag(s: string): any { return { NORMAL: 'success', MOVED_IN: 'primary', MOVED_OUT: 'warning', CANCELLED: 'danger' }[s] || 'info'; }
+function statusTag(s: string): any { return statusTagType(s); }
 function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '—'; }
 
 async function load() {
   loading.value = true;
   try {
-    const params: any = { ...query };
+    const params: any = { ...query, activeOnly: activeOnly.value ? 'true' : 'false' };
     if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
     else delete params.tagIds;
     const res = await personApi.list(params);
@@ -387,6 +417,7 @@ function syncUrl() {
   if (query.gridId) q.gridId = String(query.gridId);
   if (query.village) q.village = String(query.village);
   if (query.status) q.status = String(query.status);
+  if (!activeOnly.value) q.activeOnly = 'false';
   if (query.tagIds?.length) q.tagIds = query.tagIds.join(',');
   if (query.page > 1) q.page = String(query.page);
   if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
@@ -401,6 +432,7 @@ function restoreQuery() {
   if (rq.keyword) query.keyword = String(rq.keyword);
   if (rq.gender) query.gender = String(rq.gender);
   if (rq.status) query.status = String(rq.status);
+  if (rq.activeOnly === 'false') activeOnly.value = false;
   if (rq.tagIds) {
     query.tagIds = String(rq.tagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
   }
@@ -409,7 +441,11 @@ function restoreQuery() {
 }
 
 function doSearch() { query.page = 1; load(); }
-function resetQuery() { Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], sortBy: '', sortOrder: '' }); load(); }
+function resetQuery() {
+  Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], sortBy: '', sortOrder: '' });
+  activeOnly.value = true;
+  load();
+}
 
 function toggleQuickTag(id: number) {
   const idx = query.tagIds.indexOf(id);
@@ -541,7 +577,15 @@ function openExport() { exportVisible.value = true; }
 async function submitExport() {
   exporting.value = true;
   try {
-    const res: any = await excelApi.export({ ...exportForm, keyword: query.keyword, gridId: query.gridId, status: query.status, gender: query.gender });
+    const res: any = await excelApi.export({
+      ...exportForm,
+      keyword: query.keyword,
+      gridId: query.gridId,
+      status: query.status,
+      gender: query.gender,
+      // 导出的数据范围与列表保持一致
+      activeOnly: exportForm.activeOnly,
+    });
     ElMessage.success(`导出完成，共 ${res.data.total} 条，请到 Excel 页面下载`);
     exportVisible.value = false;
   } finally { exporting.value = false; }
@@ -623,6 +667,11 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+.hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
 }
 .tag-manager .tag-add {
   display: flex;

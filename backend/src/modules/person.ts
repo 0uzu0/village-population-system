@@ -8,6 +8,12 @@ import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idca
 import { calcAge } from '../utils/age';
 import { genPersonNo } from '../utils/id';
 import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import {
+  PERSON_STATUSES,
+  PERSON_ACTIVE_SQL,
+  STATUS_LABELS,
+  isInactiveStatus,
+} from '../utils/personStatus';
 import { z } from 'zod';
 
 const router = Router();
@@ -55,6 +61,7 @@ function toPersonVO(row: any): any {
     familyName: row.family_name,
     relation: row.relation,
     status: row.status,
+    statusDate: row.status_date ? new Date(row.status_date).toISOString().slice(0, 10) : null,
     remark: row.remark,
     dataSource: row.data_source,
     updatedAt: row.updated_at,
@@ -71,6 +78,11 @@ const listQuerySchema = z.object({
   familyId: z.coerce.number().optional(),
   village: z.string().optional(),
   status: z.string().optional(),
+  /**
+   * 只看在册（默认开启）：排除死亡/迁出人员，避免日常翻名单时混进历史档案。
+   * 显式按 status 筛选时以 status 为准；前端传 activeOnly=false 可查看全部。
+   */
+  activeOnly: z.enum(['true', 'false']).optional().default('true'),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   tagIds: z.string().optional(),
@@ -111,6 +123,8 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
   if (q.status) {
     where.push('p.status = ?');
     params.push(q.status);
+  } else if (q.activeOnly !== 'false') {
+    where.push(PERSON_ACTIVE_SQL);
   }
 
   // 网格数据范围（已简化为全部数据，恒不过滤）
@@ -386,32 +400,99 @@ router.delete('/:id', requirePermission('person:edit'), async (req: Request, res
 });
 
 const statusSchema = z.object({
-  status: z.enum(['NORMAL', 'MOVED_IN', 'MOVED_OUT', 'CANCELLED']),
+  status: z.enum(PERSON_STATUSES),
+  /** 状态生效日期：死亡记死亡日期、迁出记迁出日期；改回在册时前端传 null 清空 */
+  statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
   reason: z.string().max(255).optional().or(z.literal('')),
 });
 
-/** 人员状态变更（迁入/迁出/注销，不删除档案） */
+/**
+ * 人员状态变更（迁入/迁出/死亡登记，不删除档案）。
+ * 死亡与迁出一律走这里：档案、标签与变更记录全部保留，
+ * 仅在人口统计中被排除（在册口径 NORMAL/MOVED_IN）。
+ */
 router.post('/:id/status', requirePermission('person:status'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
-  const { status, reason } = statusSchema.parse(req.body);
-  const existing = await queryOne<any>('SELECT status FROM person WHERE id = ?', [id]);
+  const { status, statusDate, reason } = statusSchema.parse(req.body);
+  const existing = await queryOne<any>('SELECT id, name, status FROM person WHERE id = ?', [id]);
   if (!existing) throw new AppError('人员不存在', 404, 'NOT_FOUND');
+  if (existing.status === status) {
+    throw new AppError(`该人员当前已是「${STATUS_LABELS[status]}」状态`, 400, 'NO_CHANGE');
+  }
+
+  // 生效日期：不传时非在册默认取当天（死亡/迁出当天），改回在册则清空
+  const effectiveDate = statusDate === null
+    ? null
+    : statusDate || (isInactiveStatus(status) ? new Date().toISOString().slice(0, 10) : null);
 
   await withTransaction(async (conn) => {
-    await conn.query('UPDATE person SET status = ?, change_reason = ?, updated_by = ? WHERE id = ?', [status, reason || null, req.user!.id, id]);
+    await conn.query(
+      'UPDATE person SET status = ?, status_date = ?, change_reason = ?, updated_by = ? WHERE id = ?',
+      [status, effectiveDate, reason || null, req.user!.id, id]
+    );
     await conn.query(
       `INSERT INTO person_change_log (person_id, field_name, old_value, new_value, change_type, reason, operator_id)
        VALUES (?, 'status', ?, ?, 'STATUS_CHANGE', ?, ?)`,
       [id, existing.status, status, reason || null, req.user!.id]
     );
-    // 迁出/注销时，家庭成员关联标记离开
-    if (status === 'MOVED_OUT' || status === 'CANCELLED') {
+    // 转为非在册（迁出/死亡）时，家庭成员关联标记离开，家庭本身保留
+    if (isInactiveStatus(status)) {
       await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [id]);
     }
   });
 
-  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:status', request: { id, status }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { id, status }, '状态已更新');
+  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:status', request: { id, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
+  return ok(res, { id, status, statusDate: effectiveDate }, `已变更为「${STATUS_LABELS[status]}」`);
+});
+
+const batchStatusSchema = z.object({
+  personIds: z.array(z.number().int().positive()).min(1).max(500),
+  status: z.enum(PERSON_STATUSES),
+  statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
+  reason: z.string().max(255).optional().or(z.literal('')),
+});
+
+/**
+ * 批量状态变更（如一次性登记多名迁出/死亡人员）。
+ * 单事务内完成，已是目标状态的人员自动跳过（不计入成功数），逐人留变更记录。
+ */
+router.post('/batch-status', requirePermission('person:status'), async (req: Request, res: Response) => {
+  const { personIds, status, statusDate, reason } = batchStatusSchema.parse(req.body);
+  const effectiveDate = statusDate === null
+    ? null
+    : statusDate || (isInactiveStatus(status) ? new Date().toISOString().slice(0, 10) : null);
+
+  let changed = 0;
+  let skipped = 0;
+  const inactive = isInactiveStatus(status);
+
+  await withTransaction(async (conn) => {
+    for (const pid of personIds) {
+      const [rows] = (await conn.query('SELECT status FROM person WHERE id = ?', [pid])) as any[];
+      const current = rows[0]?.status;
+      if (!current || current === status) { skipped++; continue; }
+      await conn.query(
+        'UPDATE person SET status = ?, status_date = ?, change_reason = ?, updated_by = ? WHERE id = ?',
+        [status, effectiveDate, reason || null, req.user!.id, pid]
+      );
+      await conn.query(
+        `INSERT INTO person_change_log (person_id, field_name, old_value, new_value, change_type, reason, operator_id)
+         VALUES (?, 'status', ?, ?, 'STATUS_CHANGE', ?, ?)`,
+        [pid, current, status, reason || null, req.user!.id]
+      );
+      if (inactive) {
+        await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [pid]);
+      }
+      changed++;
+    }
+  });
+
+  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:batch-status', request: { count: personIds.length, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
+  return ok(
+    res,
+    { changed, skipped, status },
+    skipped ? `已变更 ${changed} 人，${skipped} 人已是「${STATUS_LABELS[status]}」或不存在` : `已变更 ${changed} 人为「${STATUS_LABELS[status]}」`
+  );
 });
 
 /** 变更历史 */

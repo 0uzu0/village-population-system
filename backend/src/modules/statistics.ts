@@ -91,8 +91,11 @@ router.get('/distributions', requirePermission('statistics:view'), async (req: R
   );
 
   const tags = await query<any>(
+    // 只统计在册人员：已死亡/迁出的档案仍保留标签，但不应计入当前服务人数
     `SELECT td.code, td.name, td.color, COUNT(pt.id) AS cnt
-     FROM tag_definition td LEFT JOIN person_tag pt ON pt.tag_id = td.id AND pt.status='ACTIVE'
+     FROM tag_definition td
+     LEFT JOIN person_tag pt ON pt.tag_id = td.id AND pt.status='ACTIVE'
+       AND EXISTS (SELECT 1 FROM person p WHERE p.id = pt.person_id AND p.status IN ('NORMAL','MOVED_IN'))
      WHERE td.object_type='PERSON' GROUP BY td.id ORDER BY cnt DESC LIMIT 15`
   );
 

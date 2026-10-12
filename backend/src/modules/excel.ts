@@ -12,6 +12,7 @@ import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { env } from '../config/env';
 import { z } from 'zod';
 
@@ -860,6 +861,8 @@ const exportSchema = z.object({
   tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
+  /** 只看在册（默认开启），与人员列表口径一致；传 false 可导出含已迁出/死亡的历史档案 */
+  activeOnly: z.boolean().optional().default(true),
 });
 
 /** 导出字段定义 */
@@ -891,6 +894,7 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   if (body.familyId) { where.push('p.family_id = ?'); params.push(body.familyId); }
   if (body.gender) { where.push('p.gender = ?'); params.push(body.gender); }
   if (body.status) { where.push('p.status = ?'); params.push(body.status); }
+  else if (body.activeOnly !== false) { where.push(PERSON_ACTIVE_SQL); }
 
   const gridFilter = buildGridFilter(req, 'p.grid_id');
   if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }

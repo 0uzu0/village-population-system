@@ -267,7 +267,8 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
     `SELECT fm.id AS memberId, fm.relation, fm.is_householder, fm.join_date,
             p.id, p.name, p.gender, p.birth_date, p.person_no, p.id_card, p.phone, p.phone_backup, p.status
      FROM family_member fm JOIN person p ON p.id = fm.person_id
-     WHERE fm.family_id = ? ORDER BY fm.is_householder DESC, fm.id`,
+     WHERE fm.family_id = ? AND fm.status = 1
+     ORDER BY fm.is_householder DESC, fm.id`,
     [id]
   );
   fam.members = members.map((m: any) => ({

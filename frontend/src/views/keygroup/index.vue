@@ -39,6 +39,7 @@
         <el-input-number v-model="query.minAge" :min="0" :max="150" placeholder="最小年龄" controls-position="right" style="width: 110px" />
         <span class="sep">—</span>
         <el-input-number v-model="query.maxAge" :min="0" :max="150" placeholder="最大年龄" controls-position="right" style="width: 110px" />
+        <el-checkbox v-model="activeOnly">只看在册（排除已迁出/已死亡）</el-checkbox>
         <el-button type="primary" @click="doSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="reset">重置</el-button>
       </div>
@@ -162,6 +163,7 @@ import { ElMessage } from 'element-plus';
 import { keyGroupApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
+import { statusLabel as statusLabelOf } from '@/utils/personStatus';
 import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
@@ -183,7 +185,10 @@ const hitTagIds = ref<number[]>([]);
 
 const query = reactive<any>({ page: 1, pageSize: 20, tagIds: [] as number[], tagMode: 'ANY', familyTagIds: [] as number[], gridId: null, minAge: null, maxAge: null });
 
-function statusLabel(s: string) { return { NORMAL: '正常', MOVED_IN: '迁入', MOVED_OUT: '迁出', CANCELLED: '注销' }[s] || s; }
+/** 只统计在册人员：已死亡/迁出的不再计入重点人群服务名单 */
+const activeOnly = ref(true);
+
+function statusLabel(s: string) { return statusLabelOf(s); }
 function tagName(id: number) { return personTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function familyTagName(id: number) { return familyTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function gridName(id: number) { return grids.value.find((g: any) => g.id === id)?.name || `#${id}`; }
@@ -275,6 +280,7 @@ function syncUrl() {
   if (query.gridId != null) q.gridId = String(query.gridId);
   if (query.minAge != null) q.minAge = String(query.minAge);
   if (query.maxAge != null) q.maxAge = String(query.maxAge);
+  if (!activeOnly.value) q.activeOnly = 'false';
   if (query.page > 1) q.page = String(query.page);
   if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
   router.replace({ path: '/key-groups', query: q });
@@ -293,6 +299,7 @@ function restoreQuery() {
   if (rq.gridId) query.gridId = Number(rq.gridId);
   if (rq.minAge != null && rq.minAge !== '') query.minAge = Number(rq.minAge);
   if (rq.maxAge != null && rq.maxAge !== '') query.maxAge = Number(rq.maxAge);
+  if (rq.activeOnly === 'false') activeOnly.value = false;
   if (rq.page) query.page = Number(rq.page) || 1;
   if (rq.pageSize) query.pageSize = Number(rq.pageSize) || 20;
 }
@@ -300,7 +307,7 @@ function restoreQuery() {
 async function load() {
   loading.value = true;
   try {
-    const params: any = { ...query };
+    const params: any = { ...query, activeOnly: activeOnly.value ? 'true' : 'false' };
     if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
     else delete params.tagIds;
     if (query.familyTagIds.length) params.familyTagIds = query.familyTagIds.join(',');
@@ -329,6 +336,7 @@ function doSearch() {
 /** 回到未筛查状态并清空结果 */
 function reset() {
   Object.assign(query, { page: 1, tagIds: [], tagMode: 'ANY', familyTagIds: [], gridId: null, minAge: null, maxAge: null });
+  activeOnly.value = true;
   searched.value = false;
   list.value = [];
   total.value = 0;

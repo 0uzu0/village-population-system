@@ -15,6 +15,7 @@ export const personApi = {
   create: (data: any) => post('/persons', data),
   update: (id: number, data: any) => put(`/persons/${id}`, data),
   changeStatus: (id: number, data: any) => post(`/persons/${id}/status`, data),
+  batchStatus: (data: any) => post('/persons/batch-status', data),
   changes: (id: number) => get(`/persons/${id}/changes`),
   addTag: (id: number, data: any) => post(`/persons/${id}/tags`, data),
   removeTag: (id: number, linkId: number) => del(`/persons/${id}/tags/${linkId}`),
