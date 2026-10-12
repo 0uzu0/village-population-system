@@ -69,9 +69,6 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
   for (const r of [...personTagCounts, ...familyTagCounts]) tagMap.set(r.code, Number(r.cnt));
 
   return ok(res, {
-    // 口径标识：前端据此显示统计口径说明。旧版后端不返回该字段，
-    // 页面上没有口径说明即代表后端未更新（数字仍是含迁出/死亡的全量口径）。
-    scope: 'ACTIVE_ONLY',
     totalPopulation: Number(total?.total_population || 0),
     familyCount: Number(total?.family_count || 0),
     gridCount: Number(total?.grid_count || 0),

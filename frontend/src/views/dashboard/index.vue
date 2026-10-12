@@ -2,22 +2,15 @@
   <div class="dashboard">
     <!-- 统计卡片 -->
     <div class="stat-grid">
-      <el-tooltip v-for="card in statCards" :key="card.label" :content="card.tip || ''" placement="bottom" :disabled="!card.tip">
-        <div class="stat-card">
-          <div class="stat-icon" :style="{ background: card.bg, color: card.color }">
-            <el-icon :size="22"><component :is="card.icon" /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ card.value }}</div>
-            <div class="stat-label">{{ card.label }}</div>
-          </div>
+      <div v-for="card in statCards" :key="card.label" class="stat-card">
+        <div class="stat-icon" :style="{ background: card.bg, color: card.color }">
+          <el-icon :size="22"><component :is="card.icon" /></el-icon>
         </div>
-      </el-tooltip>
-    </div>
-    <!-- 口径说明：后端返回 scope=ACTIVE_ONLY 才显示，用于确认在册口径已生效 -->
-    <div v-if="dash.scope === 'ACTIVE_ONLY'" class="scope-note">
-      <el-icon><InfoFilled /></el-icon>
-      统计口径：以上人数均为<strong>在册人口</strong>（正常 / 迁入），已迁出、死亡的人员不计入；档案保留，可在人口档案关闭「只看在册」后查看。
+        <div class="stat-info">
+          <div class="stat-value">{{ card.value }}</div>
+          <div class="stat-label">{{ card.label }}</div>
+        </div>
+      </div>
     </div>
 
     <!-- 图表区 -->
@@ -104,7 +97,6 @@
 import { ref, computed, onMounted } from 'vue';
 import { statisticsApi } from '@/api';
 import VpChart from '@/components/VpChart.vue';
-import { ACTIVE_SCOPE_TIP, FAMILY_TAG_SCOPE_TIP } from '@/utils/personStatus';
 import type { EChartsOption } from 'echarts';
 
 const dash = ref<any>({});
@@ -115,16 +107,16 @@ const imports = ref<any[]>([]);
 const statCards = computed(() => {
   const d = dash.value;
   return [
-    { label: '总人口', value: d.totalPopulation ?? 0, icon: 'User', color: '#3978F6', bg: '#EAF1FE', tip: ACTIVE_SCOPE_TIP },
+    { label: '总人口', value: d.totalPopulation ?? 0, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
     { label: '家庭总数', value: d.familyCount ?? 0, icon: 'House', color: '#0E7C6B', bg: '#E4F4F0' },
     { label: '网格总数', value: d.gridCount ?? 0, icon: 'Grid', color: '#5B5BD6', bg: '#ECECFA' },
-    { label: '党员人数', value: d.partyCount ?? 0, icon: 'Flag', color: '#E5484D', bg: '#FDECEC', tip: ACTIVE_SCOPE_TIP },
-    { label: '退役军人', value: d.veteranCount ?? 0, icon: 'Medal', color: '#5B5BD6', bg: '#ECECFA', tip: ACTIVE_SCOPE_TIP },
-    { label: '优抚对象', value: d.preferentialCount ?? 0, icon: 'Star', color: '#0E7C6B', bg: '#E4F4F0', tip: ACTIVE_SCOPE_TIP },
-    { label: '低保家庭', value: d.lowIncomeFamilyCount ?? 0, icon: 'HomeFilled', color: '#F76B15', bg: '#FEF0E6', tip: FAMILY_TAG_SCOPE_TIP },
-    { label: '低保对象', value: d.lowIncomePersonCount ?? 0, icon: 'UserFilled', color: '#F76B15', bg: '#FEF0E6', tip: ACTIVE_SCOPE_TIP },
-    { label: '特困供养', value: d.extremePovertyCount ?? 0, icon: 'Grape', color: '#C2410C', bg: '#FEF0E6', tip: ACTIVE_SCOPE_TIP },
-    { label: '残疾人', value: d.disabledCount ?? 0, icon: 'FirstAidKit', color: '#0E7C6B', bg: '#E4F4F0', tip: ACTIVE_SCOPE_TIP },
+    { label: '党员人数', value: d.partyCount ?? 0, icon: 'Flag', color: '#E5484D', bg: '#FDECEC' },
+    { label: '退役军人', value: d.veteranCount ?? 0, icon: 'Medal', color: '#5B5BD6', bg: '#ECECFA' },
+    { label: '优抚对象', value: d.preferentialCount ?? 0, icon: 'Star', color: '#0E7C6B', bg: '#E4F4F0' },
+    { label: '低保家庭', value: d.lowIncomeFamilyCount ?? 0, icon: 'HomeFilled', color: '#F76B15', bg: '#FEF0E6' },
+    { label: '低保对象', value: d.lowIncomePersonCount ?? 0, icon: 'UserFilled', color: '#F76B15', bg: '#FEF0E6' },
+    { label: '特困供养', value: d.extremePovertyCount ?? 0, icon: 'Grape', color: '#C2410C', bg: '#FEF0E6' },
+    { label: '残疾人', value: d.disabledCount ?? 0, icon: 'FirstAidKit', color: '#0E7C6B', bg: '#E4F4F0' },
   ];
 });
 
@@ -246,19 +238,6 @@ onMounted(async () => {
   justify-content: center;
   flex-shrink: 0;
 }
-.scope-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  background: var(--color-bg-card);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-button);
-  padding: 8px 12px;
-  margin-top: -8px;
-}
-.scope-note strong { color: var(--color-primary); font-weight: 600; }
 .stat-value {
   font-size: var(--font-size-xl);
   font-weight: 700;

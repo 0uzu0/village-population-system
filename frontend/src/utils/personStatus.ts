@@ -40,7 +40,3 @@ export function isActiveStatus(s?: string): boolean {
 
 /** 状态变更下拉选项（含「全部」用于筛选） */
 export const STATUS_OPTIONS = PERSON_STATUSES.map((v) => ({ label: STATUS_LABELS[v], value: v }));
-
-/** 在册口径提示文案：工作台统计卡片悬停说明，与后端统计口径一致 */
-export const ACTIVE_SCOPE_TIP = '仅统计在册人员（正常/迁入），已迁出、死亡的不计入';
-export const FAMILY_TAG_SCOPE_TIP = '按家庭认定，家庭在册即计入，与户主个人状态无关';
