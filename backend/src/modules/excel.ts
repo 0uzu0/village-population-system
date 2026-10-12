@@ -226,18 +226,74 @@ router.get('/key-group/types', requirePermission('excel:import'), async (_req: R
   }
 });
 
-/** 读取并解析 Excel 行（严格按列顺序取值，只读第一个工作表，跳过表头） */
-async function readRowsByColumns(filePath: string, columns: string[]): Promise<Record<string, any>[]> {
+/**
+ * 读取并解析 Excel 行（只读第一个工作表，跳过表头）。
+ *
+ * 列定位策略：**优先按表头文字匹配**，表头对不上时才退回按列位置取值。
+ *
+ * 为什么要按表头匹配：模板改版后（旧模板文件里没有新加的列），
+ * 纯按列位置解析会整体错位——残疾等级被当成银行账号、供养方式被当成残疾类别，
+ * 而且**全程不报错**，表现为「导入成功但详情页没有数据」，极难排查。
+ *
+ * @param requiredColumns 必须在表中存在的列（其余列缺失时按空值处理）
+ * @throws 表头与模板完全不符时抛错，避免静默导入错误数据
+ */
+async function readRowsByColumns(
+  filePath: string,
+  columns: string[],
+  requiredColumns?: string[],
+): Promise<Record<string, any>[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
   const ws = wb.worksheets[0];
   const rows: Record<string, any>[] = [];
+
+  // 读表头，建立「表头文字 → 列号」映射（容忍空格与全角空格）
+  const headerMap = new Map<string, number>();
+  const headerRow = ws.getRow(1);
+  headerRow.eachCell((cell, colNumber) => {
+    const text = cell.value == null ? '' : String(cell.value).replace(/[\s　]/g, '');
+    if (text && !headerMap.has(text)) headerMap.set(text, colNumber);
+  });
+
+  // 表头识别度校验：至少要能对上模板的一半列，否则说明文件根本不是这个模板
+  const matched = columns.filter((c) => headerMap.has(c.replace(/[\s　]/g, ''))).length;
+  const useHeader = matched > 0 && matched >= Math.ceil(columns.length / 2);
+
+  if (!useHeader && requiredColumns?.length) {
+    throw new AppError(
+      `模板不匹配：表头应为「${columns.join('、')}」，请从系统重新下载最新模板后填写`,
+      400,
+      'TEMPLATE_MISMATCH'
+    );
+  }
+
+  /**
+   * 按表头定位时，必填列必须在表中真实存在，否则拒绝导入。
+   *
+   * 只校验「半数以上」不够：模板改版后旧文件仍可能过半匹配，
+   * 此时缺失的列会按**模板位置**取值——把相邻列（如银行账号）
+   * 误当成残疾类别写进档案，比直接报错危险得多。
+   */
+  if (useHeader && requiredColumns?.length) {
+    const missing = requiredColumns.filter((c) => !headerMap.has(c.replace(/[\s　]/g, '')));
+    if (missing.length) {
+      throw new AppError(
+        `模板缺少必需的列：${missing.join('、')}。该模板可能是旧版本，请重新下载后再导入`,
+        400,
+        'TEMPLATE_MISSING_COLUMNS'
+      );
+    }
+  }
+
   ws.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // 跳过表头
     const obj: Record<string, any> = {};
     columns.forEach((c, i) => {
-      const cell = row.getCell(i + 1);
-      const raw = cell.value;
+      const key = c.replace(/[\s　]/g, '');
+      // 按表头取列号；表头没有该列时取模板中的预期位置（值多半为空）
+      const colNumber = useHeader ? (headerMap.get(key) ?? i + 1) : i + 1;
+      const raw = row.getCell(colNumber).value;
       // 日期单元格直接取 YYYY-MM-DD，避免变成序列号
       const v = raw instanceof Date
         ? formatDate(raw)
@@ -250,7 +306,7 @@ async function readRowsByColumns(filePath: string, columns: string[]): Promise<R
 }
 
 async function readRows(filePath: string): Promise<Record<string, any>[]> {
-  return readRowsByColumns(filePath, IMPORT_COLUMNS);
+  return readRowsByColumns(filePath, IMPORT_COLUMNS, ['姓名', '身份证号', '性别']);
 }
 
 /** 校验并准备导入行，返回 { valid, error }；身份证缺失/非法时返回 { pending } 转待核查表 */
@@ -651,7 +707,7 @@ router.post('/import-key-group', requirePermission('excel:import'), upload.singl
   let rows: Record<string, any>[];
   let taskId: number;
   try {
-    rows = await readRowsByColumns(req.file.path, KEYGROUP_COLUMNS);
+    rows = await readRowsByColumns(req.file.path, KEYGROUP_COLUMNS, ['姓名', '人员类别']);
     const taskResult = await execute(
       `INSERT INTO excel_import_task (file_id, batch_no, task_type, status, total_rows, success_count, fail_count, created_by)
        VALUES (NULL, ?, 'KEY_GROUP', 'RUNNING', ?, 0, 0, ?)`,
@@ -896,7 +952,15 @@ router.post('/import-special', requirePermission('excel:import'), upload.single(
   let rows: Record<string, any>[];
   let taskId: number;
   try {
-    rows = await readRowsByColumns(req.file.path, spec.columns);
+    // 必填列：模板列序与预期不符（用了旧模板等）时直接报错，
+    // 而不是静默错位把银行账号当成残疾类别写进档案。
+    // 只取「身份类」列作必填——残疾证号/监护人/备注等本身允许为空，
+    // 若一并设为必填，正常留空这些列的表格也会被误拒。
+    const identityCols = spec.disabilityFields
+      ? Object.keys(spec.disabilityFields).filter((c) => c === '残疾类别' || c === '残疾等级')
+      : [];
+    const required = ['姓名', '身份证号', ...identityCols];
+    rows = await readRowsByColumns(req.file.path, spec.columns, required);
     const taskResult = await execute(
       `INSERT INTO excel_import_task (file_id, batch_no, task_type, status, total_rows, success_count, fail_count, created_by)
        VALUES (NULL, ?, ?, 'RUNNING', ?, 0, 0, ?)`,
