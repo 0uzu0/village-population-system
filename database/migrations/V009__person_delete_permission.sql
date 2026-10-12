@@ -8,14 +8,16 @@
 -- 已持有 person:edit 的普通用户不会自动获得删除能力（需在用户管理中显式分配），
 -- 这正是本次收紧的目的。
 
--- 1) 新增权限（id 取现有最大 id 之后，避免与种子数据冲突）
-INSERT INTO `sys_permission` (`id`,`code`,`name`,`type`,`sort`)
-VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM `sys_permission`),
-        'person:delete','删除人员','ACTION',100)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
+-- 1) 新增权限。
+--    不显式给 id：sys_permission.id 是 AUTO_INCREMENT，且 MySQL 不允许
+--    INSERT ... VALUES ((SELECT ... FROM 目标表)) —— 即便带 ON DUPLICATE KEY
+--    也会报 ER_UPDATE_TABLE_USED（1093）。依赖唯一索引 uk_perm_code 保证幂等。
+INSERT INTO `sys_permission` (`code`, `name`, `type`, `sort`) VALUES
+  ('person:delete', '删除人员', 'ACTION', 100)
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `type` = VALUES(`type`);
 
--- 2) 仅授予系统管理员（幂等：已存在的关联不重复插入）
-INSERT IGNORE INTO `sys_role_permission` (`role_id`,`permission_id`)
+-- 2) 仅授予系统管理员（幂等：INSERT IGNORE + uk_rp 唯一索引防重复）
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id
 FROM `sys_role` r, `sys_permission` p
 WHERE r.code = 'SYSTEM_ADMIN' AND p.code = 'person:delete';
