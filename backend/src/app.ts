@@ -18,6 +18,8 @@ import statisticsModule from './modules/statistics';
 import excelModule from './modules/excel';
 import pendingModule from './modules/pending';
 import auditModule from './modules/audit';
+import ledgerModule from './modules/ledger';
+import fileModule from './modules/file';
 
 export function createApp(): Express {
   const app = express();
@@ -46,6 +48,8 @@ export function createApp(): Express {
   app.use('/api/excel', excelModule);
   app.use('/api/pending', pendingModule);
   app.use('/api/audit-logs', auditModule);
+  app.use('/api/ledgers', ledgerModule);
+  app.use('/api/files', fileModule);
 
   // 未匹配路由与错误处理
   app.use(notFoundHandler);

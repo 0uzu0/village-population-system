@@ -15,6 +15,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/pending': '待核查人员',
   '/dashboard': '工作台',
   '/tags': '人口标签',
+  '/ledgers': '专项台账',
+  '/ledgers/statistics': '台账统计',
 };
 
 /** 跳转人员详情：附带来源页完整地址（含查询条件），便于返回时还原现场 */

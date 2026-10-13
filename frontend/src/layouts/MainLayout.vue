@@ -106,6 +106,7 @@ const menus: MenuItem[] = [
   { path: '/grids', title: '网格管理', icon: 'Grid', perm: 'grid:view' },
   { path: '/tags', title: '人口标签', icon: 'CollectionTag', perm: 'tag:view' },
   { path: '/key-groups', title: '重点人群', icon: 'Aim', perm: 'keygroup:view' },
+  { path: '/ledgers', title: '专项台账', icon: 'Tickets', perm: 'ledger:view' },
   { path: '/excel', title: 'Excel 导入导出', icon: 'Document', perm: 'excel:import' },
   { path: '/pending', title: '待核查人员', icon: 'WarningFilled', perm: 'excel:import' },
   { path: '/users', title: '用户与权限', icon: 'Setting', perm: 'user:view' },
@@ -117,6 +118,7 @@ const visibleMenus = computed(() => menus.filter((m) => !m.perm || auth.hasPermi
 const activeMenu = computed(() => {
   const path = route.path;
   if (path.startsWith('/persons')) return '/persons';
+  if (path.startsWith('/ledgers')) return '/ledgers';
   return path;
 });
 

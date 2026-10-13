@@ -123,3 +123,20 @@ export const auditApi = {
   list: (params: any) => get<PageResult>('/audit-logs', params),
   dicts: (type: string) => get(`/audit-logs/dicts/${type}`),
 };
+
+// ===== 专项条口台账 =====
+export const ledgerApi = {
+  meta: () => get('/ledgers/meta'),
+  list: (params: any) => get<PageResult>('/ledgers/records', params),
+  detail: (id: number) => get(`/ledgers/records/${id}`),
+  create: (data: any) => post('/ledgers/records', data),
+  update: (id: number, data: any) => put(`/ledgers/records/${id}`, data),
+  remove: (id: number) => del(`/ledgers/records/${id}`),
+  stats: (params: any) => get('/ledgers/stats', params),
+};
+
+// ===== 通用附件 =====
+export const fileApi = {
+  upload: (formData: FormData) => post('/files/upload', formData),
+  remove: (id: number) => del(`/files/${id}`),
+};
