@@ -3,7 +3,7 @@
     <div class="vp-page-header">
       <div>
         <h2 class="vp-page-title">台账统计分析</h2>
-        <div class="vp-page-subtitle">按条口 / 工作类型 / 月份 / 网格汇总人工、机械与发票费用</div>
+        <div class="vp-page-subtitle">按条口 / 工作类型 / 月份汇总人工与发票费用</div>
       </div>
       <el-button @click="goBack"><el-icon><ArrowLeft /></el-icon>返回台账</el-button>
     </div>
@@ -45,10 +45,6 @@
           <div class="card-value labor">{{ money(summary.laborCost) }}</div>
         </div>
         <div class="card">
-          <div class="card-label">机械费</div>
-          <div class="card-value mach">{{ money(summary.machineryCost) }}</div>
-        </div>
-        <div class="card">
           <div class="card-label">发票费</div>
           <div class="card-value invoice">{{ money(summary.invoiceCost) }}</div>
         </div>
@@ -72,10 +68,6 @@
           <div class="chart-title">按月费用趋势</div>
           <VpChart :option="monthOption" height="300px" />
         </div>
-        <div class="chart-box">
-          <div class="chart-title">按网格费用</div>
-          <VpChart :option="gridOption" height="300px" />
-        </div>
       </div>
     </div>
   </div>
@@ -95,11 +87,10 @@ const workTypeOptions = ref<{ code: string; name: string }[]>([]);
 const dateRange = ref<string[]>([]);
 const filters = reactive({ category: '', workType: '' });
 
-const summary = reactive({ recordCount: 0, totalCost: 0, laborCost: 0, machineryCost: 0, invoiceCost: 0, attachmentCount: 0 });
+const summary = reactive({ recordCount: 0, totalCost: 0, laborCost: 0, invoiceCost: 0, attachmentCount: 0 });
 const byCategory = ref<any[]>([]);
 const byWorkType = ref<any[]>([]);
 const byMonth = ref<any[]>([]);
-const byGrid = ref<any[]>([]);
 
 function money(n: number) {
   return '¥' + Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,17 +136,8 @@ const monthOption = computed<EChartsOption>(() => ({
   yAxis: { type: 'value' },
   series: [
     { name: '人工费', type: 'line', data: byMonth.value.map((m) => m.laborCost), smooth: true },
-    { name: '机械费', type: 'line', data: byMonth.value.map((m) => m.machineryCost), smooth: true },
     { name: '发票费', type: 'line', data: byMonth.value.map((m) => m.invoiceCost), smooth: true },
   ],
-}));
-
-const gridOption = computed<EChartsOption>(() => ({
-  tooltip: { trigger: 'axis', valueFormatter: (v: any) => money(v) },
-  grid: baseGrid,
-  xAxis: { type: 'category', data: byGrid.value.map((g) => g.name), axisLabel: { interval: 0, rotate: 20 } },
-  yAxis: { type: 'value' },
-  series: [{ type: 'bar', data: byGrid.value.map((g) => g.totalCost), itemStyle: { color: '#52C41A' } }],
 }));
 
 async function loadStats() {
@@ -171,7 +153,6 @@ async function loadStats() {
   byCategory.value = d.byCategory;
   byWorkType.value = d.byWorkType;
   byMonth.value = d.byMonth;
-  byGrid.value = d.byGrid;
 }
 
 function goBack() {
@@ -194,7 +175,7 @@ onMounted(async () => {
 }
 .cards {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -216,7 +197,6 @@ onMounted(async () => {
 }
 .card-value.total { color: #3978F6; }
 .card-value.labor { color: #FA8C16; }
-.card-value.mach { color: #52C41A; }
 .card-value.invoice { color: #EB2F96; }
 .chart-grid {
   display: grid;

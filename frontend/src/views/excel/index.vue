@@ -284,6 +284,22 @@ const exportFields = [
   { key: 'grid_name', label: '所属网格' },
   { key: 'family_name', label: '所属家庭' },
   { key: 'status', label: '人员状态' },
+  { key: 'bank_account', label: '银行账号' },
+  { key: 'subsidy_amount', label: '发放金额' },
+  { key: 'disability_type', label: '残疾类别' },
+  { key: 'disability_level_label', label: '残疾等级' },
+  { key: 'disability_card', label: '残疾证号' },
+  { key: 'guardian_name', label: '监护人' },
+  { key: 'guardian_phone', label: '监护人手机' },
+  { key: 'family_condition', label: '家庭情况描述' },
+  { key: 'health_assessment', label: '身体评估结果' },
+  { key: 'is_party', label: '党员' },
+  { key: 'is_disabled', label: '残疾人' },
+  { key: 'is_extreme_poverty', label: '五保/特困' },
+  { key: 'is_low_income', label: '低保' },
+  { key: 'is_veteran', label: '退役军人' },
+  { key: 'is_preferential', label: '优抚对象' },
+  { key: 'tags', label: '全部标签' },
 ];
 const exportForm = reactive({ fields: exportFields.map((f) => f.key) });
 

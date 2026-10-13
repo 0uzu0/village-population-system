@@ -9,10 +9,15 @@ import {
   categoryName,
   workTypeName,
 } from '../src/utils/ledger';
+import { recordSchema } from '../src/modules/ledger';
 
 const ledgerSrc = fs.readFileSync(path.resolve(__dirname, '../src/modules/ledger.ts'), 'utf8');
 const migrationSrc = fs.readFileSync(
   path.resolve(__dirname, '../src/db/migrations/V010__ledger_and_files.sql'),
+  'utf8'
+);
+const migrationV011Src = fs.readFileSync(
+  path.resolve(__dirname, '../src/db/migrations/V011__ledger_drop_machinery_grid.sql'),
   'utf8'
 );
 
@@ -22,6 +27,19 @@ describe('台账配置 LEDGER_CATEGORIES', () => {
     expect(water).toBeTruthy();
     const codes = water!.workTypes.map((w) => w.code);
     expect(codes).toEqual(['RIVER_MOWING', 'SMALL_PROJECT', 'PUMP_REPAIR']);
+  });
+
+  it('民政/卫健条口在交互页面可体现', () => {
+    const civil = LEDGER_CATEGORIES.find((c) => c.code === 'CIVIL');
+    const health = LEDGER_CATEGORIES.find((c) => c.code === 'HEALTH');
+    expect(civil?.name).toBe('民政');
+    expect(health?.name).toBe('卫健');
+    expect(civil!.workTypes.length).toBeGreaterThan(0);
+    expect(health!.workTypes.length).toBeGreaterThan(0);
+    // 校验函数应认可新增条口及其工作类型
+    expect(isValidCategory('CIVIL')).toBe(true);
+    expect(isValidWorkType(civil!.workTypes[0].code)).toBe(true);
+    expect(categoryName('CIVIL')).toBe('民政');
   });
 
   it('编码校验与名称映射', () => {
@@ -38,11 +56,12 @@ describe('台账配置 LEDGER_CATEGORIES', () => {
   });
 });
 
-describe('台账列表/详情 SQL 字段完整性', () => {
-  it('列表 SELECT 显式取出三费列与附件数', () => {
+describe('台账列表/详情 SQL 字段完整性（无机械费/网格）', () => {
+  it('列表 SELECT 取出人工费/发票费与附件数，且不含机械费/网格', () => {
     expect(ledgerSrc).toContain('labor_cost');
-    expect(ledgerSrc).toContain('machinery_cost');
     expect(ledgerSrc).toContain('invoice_cost');
+    expect(ledgerSrc).not.toContain('machinery_cost');
+    expect(ledgerSrc).not.toContain('grid_id');
     // 附件数：子查询别名 attachment_count
     expect(ledgerSrc).toContain('AS attachment_count');
   });
@@ -61,28 +80,56 @@ describe('台账列表/详情 SQL 字段完整性', () => {
   });
 });
 
-describe('台账统计 SQL 聚合完整性', () => {
-  it('summary 汇总人工/机械/发票/合计', () => {
+describe('台账统计 SQL 聚合完整性（无机械费/网格）', () => {
+  it('summary 仅汇总人工费/发票费/合计', () => {
     expect(ledgerSrc).toContain('COALESCE(SUM(labor_cost),0)');
-    expect(ledgerSrc).toContain('COALESCE(SUM(machinery_cost),0)');
     expect(ledgerSrc).toContain('COALESCE(SUM(invoice_cost),0)');
-    expect(ledgerSrc).toContain('COALESCE(SUM(labor_cost + machinery_cost + invoice_cost),0)');
+    expect(ledgerSrc).toContain('COALESCE(SUM(labor_cost + invoice_cost),0)');
+    expect(ledgerSrc).not.toContain('machinery_cost');
   });
 
-  it('统计含按条口/工作类型/月份/网格四个维度', () => {
+  it('统计含按条口/工作类型/月份三个维度（无网格维度）', () => {
     expect(ledgerSrc).toContain('GROUP BY category');
     expect(ledgerSrc).toContain('GROUP BY work_type');
     expect(ledgerSrc).toContain("DATE_FORMAT(record_date,'%Y-%m')");
-    expect(ledgerSrc).toContain('GROUP BY l.grid_id');
+    expect(ledgerSrc).not.toContain('GROUP BY l.grid_id');
   });
 });
 
-describe('V010 迁移脚本完整性', () => {
-  it('创建 ledger_record 并含三费列', () => {
+describe('recordSchema 容忍编辑态空值（修复 Invalid input）', () => {
+  it('可选字符串字段为 null（编辑时后端返回 null）也不报错', () => {
+    const payload = {
+      category: 'WATER', workType: 'RIVER_MOWING', recordDate: '2026-01-01',
+      location: null, title: '河道打草', detail: null,
+      laborCost: 100, invoiceCost: 0, invoiceNo: null, responsible: null, remark: null,
+      attachmentIds: [1, 2],
+    };
+    expect(() => recordSchema.parse(payload)).not.toThrow();
+    const v = recordSchema.parse(payload);
+    expect(v.location).toBeNull();
+  });
+
+  it('空字符串可选字段同样通过', () => {
+    const payload = {
+      category: 'WATER', workType: 'RIVER_MOWING', recordDate: '2026-01-01',
+      location: '', title: 'x', laborCost: 0, invoiceCost: 0, attachmentIds: [],
+    };
+    expect(() => recordSchema.parse(payload)).not.toThrow();
+  });
+});
+
+describe('V010 + V011 迁移脚本完整性', () => {
+  it('V010 创建 ledger_record 含三费列与网格列', () => {
     expect(migrationSrc).toContain('CREATE TABLE IF NOT EXISTS `ledger_record`');
     expect(migrationSrc).toContain('`labor_cost`');
     expect(migrationSrc).toContain('`machinery_cost`');
     expect(migrationSrc).toContain('`invoice_cost`');
+    expect(migrationSrc).toContain('`grid_id`');
+  });
+
+  it('V011 去掉机械费与所属网格列', () => {
+    expect(migrationV011Src).toContain('DROP COLUMN `machinery_cost`');
+    expect(migrationV011Src).toContain('DROP COLUMN `grid_id`');
   });
 
   it('file_info 增加 biz_type / biz_id 及索引', () => {

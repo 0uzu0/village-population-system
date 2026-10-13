@@ -30,8 +30,27 @@ export const LEDGER_CATEGORIES: LedgerCategory[] = [
       { code: 'PUMP_REPAIR', name: '泵站维修' },
     ],
   },
-  // 未来新增条口（如民政、卫健）在此追加一项即可，无需改表结构：
-  // { code: 'CIVIL', name: '民政', workTypes: [ { code: 'VISIT', name: '走访慰问' } ] },
+  {
+    code: 'CIVIL',
+    name: '民政',
+    workTypes: [
+      { code: 'VISIT', name: '走访慰问' },
+      { code: 'RELIEF', name: '救助金发放' },
+      { code: 'SUBSIDY', name: '补贴申领' },
+      { code: 'WELFARE', name: '特困人员供养' },
+    ],
+  },
+  {
+    code: 'HEALTH',
+    name: '卫健',
+    workTypes: [
+      { code: 'VACCINE', name: '疫苗接种' },
+      { code: 'HEALTH_CHECK', name: '健康随访' },
+      { code: 'EPIDEMIC', name: '防疫宣传' },
+      { code: 'FAMILY_PLANNING', name: '计生服务' },
+    ],
+  },
+  // 新增条口在此追加一项即可（与专项导入同一套路），前端下拉、统计图表会自动体现。
 ];
 
 const CATEGORY_MAP = new Map<string, LedgerCategory>(LEDGER_CATEGORIES.map((c) => [c.code, c]));

@@ -3,7 +3,7 @@
     <div class="vp-page-header">
       <div>
         <h2 class="vp-page-title">专项条口台账</h2>
-        <div class="vp-page-subtitle">各条口工作记录与人工 / 机械 / 发票费用管理，支持上传合同 PDF 与发票图片</div>
+        <div class="vp-page-subtitle">各条口工作记录与人工 / 发票费用管理，支持上传合同 PDF 与发票图片</div>
       </div>
       <div class="header-actions">
         <el-button @click="goStatistics">
@@ -45,12 +45,8 @@
         <el-table-column prop="workTypeName" label="工作类型" width="130" />
         <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip />
         <el-table-column prop="location" label="地点" width="140" show-overflow-tooltip />
-        <el-table-column prop="gridName" label="网格" width="120" />
         <el-table-column label="人工费" width="110" align="right">
           <template #default="{ row }">{{ money(row.laborCost) }}</template>
-        </el-table-column>
-        <el-table-column label="机械费" width="110" align="right">
-          <template #default="{ row }">{{ money(row.machineryCost) }}</template>
         </el-table-column>
         <el-table-column label="发票费" width="110" align="right">
           <template #default="{ row }">{{ money(row.invoiceCost) }}</template>
@@ -110,13 +106,6 @@
               <el-date-picker v-model="form.recordDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="网格" prop="gridId">
-              <el-select v-model="form.gridId" placeholder="可选" clearable filterable style="width: 100%">
-                <el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
         </el-row>
         <el-form-item label="事项标题" prop="title">
           <el-input v-model="form.title" placeholder="如：新河河道打草" />
@@ -134,17 +123,12 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="人工费" prop="laborCost">
               <el-input-number v-model="form.laborCost" :min="0" :precision="2" :step="100" controls-position="right" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
-            <el-form-item label="机械费" prop="machineryCost">
-              <el-input-number v-model="form.machineryCost" :min="0" :precision="2" :step="100" controls-position="right" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="发票费" prop="invoiceCost">
               <el-input-number v-model="form.invoiceCost" :min="0" :precision="2" :step="100" controls-position="right" style="width: 100%" />
             </el-form-item>
@@ -179,12 +163,10 @@
         <el-descriptions-item label="条口">{{ detail.categoryName }}</el-descriptions-item>
         <el-descriptions-item label="工作类型">{{ detail.workTypeName }}</el-descriptions-item>
         <el-descriptions-item label="工作日期">{{ detail.recordDate }}</el-descriptions-item>
-        <el-descriptions-item label="网格">{{ detail.gridName || '—' }}</el-descriptions-item>
         <el-descriptions-item label="事项标题" :span="2">{{ detail.title }}</el-descriptions-item>
         <el-descriptions-item label="地点/河段">{{ detail.location || '—' }}</el-descriptions-item>
         <el-descriptions-item label="负责人">{{ detail.responsible || '—' }}</el-descriptions-item>
         <el-descriptions-item label="人工费">{{ money(detail.laborCost) }}</el-descriptions-item>
-        <el-descriptions-item label="机械费">{{ money(detail.machineryCost) }}</el-descriptions-item>
         <el-descriptions-item label="发票费">{{ money(detail.invoiceCost) }}</el-descriptions-item>
         <el-descriptions-item label="合计"><b>{{ money(detail.totalCost) }}</b></el-descriptions-item>
         <el-descriptions-item label="发票号">{{ detail.invoiceNo || '—' }}</el-descriptions-item>
@@ -211,7 +193,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Search, Plus, DataAnalysis, Document, Picture } from '@element-plus/icons-vue';
-import { ledgerApi, gridApi } from '@/api';
+import { ledgerApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import request from '@/api/request';
 import AttachmentUploader, { type Attachment } from '@/components/AttachmentUploader.vue';
@@ -222,7 +204,6 @@ const auth = useAuthStore();
 interface Category { code: string; name: string; workTypes: { code: string; name: string }[]; }
 const categories = ref<Category[]>([]);
 const workTypeOptions = ref<{ code: string; name: string }[]>([]);
-const grids = ref<{ id: number; name: string }[]>([]);
 
 const rows = ref<any[]>([]);
 const total = ref(0);
@@ -280,8 +261,8 @@ const formRef = ref();
 const formWorkTypes = ref<{ code: string; name: string }[]>([]);
 
 const emptyForm = () => ({
-  category: '', workType: '', recordDate: '', location: '', gridId: null as number | null,
-  title: '', detail: '', laborCost: 0, machineryCost: 0, invoiceCost: 0,
+  category: '', workType: '', recordDate: '', location: '',
+  title: '', detail: '', laborCost: 0, invoiceCost: 0,
   invoiceNo: '', responsible: '', remark: '', attachments: [] as Attachment[],
 });
 const form = reactive(emptyForm());
@@ -311,7 +292,7 @@ async function openEdit(row: any) {
   const d = res.data;
   Object.assign(form, {
     category: d.category, workType: d.workType, recordDate: d.recordDate, location: d.location,
-    gridId: d.gridId, title: d.title, detail: d.detail, laborCost: d.laborCost, machineryCost: d.machineryCost,
+    title: d.title, detail: d.detail, laborCost: d.laborCost,
     invoiceCost: d.invoiceCost, invoiceNo: d.invoiceNo, responsible: d.responsible, remark: d.remark,
     attachments: d.attachments || [],
   });
@@ -372,8 +353,6 @@ function goStatistics() {
 onMounted(async () => {
   const meta: any = await ledgerApi.meta();
   categories.value = meta.data;
-  const g: any = await gridApi.list({ pageSize: 500 });
-  grids.value = g.data.list;
   loadData();
 });
 </script>

@@ -1296,6 +1296,28 @@ const EXPORT_FIELDS: { key: string; label: string }[] = [
   { key: 'guardian_phone', label: '监护人手机' },
   { key: 'family_condition', label: '家庭情况描述' },
   { key: 'health_assessment', label: '身体评估结果' },
+  // 重点人群标志列（由 person_tag 关联得出，详见导出行映射）
+  { key: 'is_party', label: '党员' },
+  { key: 'is_disabled', label: '残疾人' },
+  { key: 'is_extreme_poverty', label: '五保/特困' },
+  { key: 'is_low_income', label: '低保' },
+  { key: 'is_veteran', label: '退役军人' },
+  { key: 'is_preferential', label: '优抚对象' },
+  { key: 'tags', label: '全部标签' },
+];
+
+/**
+ * 重点人群标志列定义：每个标志由若干 tag_definition.code 命中（任一即视为「是」）。
+ * 编码与 grid.ts 的 FOCUS_TAGS 口径保持一致（党员含正式/预备）。
+ * 残疾人额外兼顾 person_disability 表（有人建了残疾档案但未打标签也算残疾人）。
+ */
+const EXPORT_TAG_FLAGS: { key: string; label: string; codes: string[]; alsoDisabilityTable?: boolean }[] = [
+  { key: 'is_party', label: '党员', codes: ['PARTY_MEMBER', 'PARTY_PROBATIONARY'] },
+  { key: 'is_disabled', label: '残疾人', codes: ['DISABLED_PERSON'], alsoDisabilityTable: true },
+  { key: 'is_extreme_poverty', label: '五保/特困', codes: ['EXTREME_POVERTY_PERSON'] },
+  { key: 'is_low_income', label: '低保', codes: ['LOW_INCOME_PERSON'] },
+  { key: 'is_veteran', label: '退役军人', codes: ['VETERAN'] },
+  { key: 'is_preferential', label: '优抚对象', codes: ['PREFERENTIAL_OBJECT'] },
 ];
 
 /** 创建导出任务（同步生成文件，记录任务状态与审计） */
@@ -1371,6 +1393,10 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   );
   const taskId = taskResult.insertId;
 
+  // 标签编码 → 名称 映射，用于「全部标签」列把编码还原成中文
+  const tagRows = await query<any>("SELECT code, name FROM tag_definition WHERE object_type = 'PERSON'");
+  const tagNameMap = new Map<string, string>(tagRows.map((r: any) => [r.code, r.name]));
+
   try {
     // keyset（游标）分页：以 id 为游标逐批前进。
     // 相比 LIMIT/OFFSET，越往后翻页越不会退化——OFFSET 需要扫描并丢弃前面全部行，
@@ -1381,13 +1407,17 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
       const rows = await query<any>(
         `SELECT p.*, g.name AS grid_name, f.family_no AS family_name,
                 pd.disability_type, pd.disability_level, pd.disability_card,
-                pd.guardian_name, pd.guardian_phone
+                pd.guardian_name, pd.guardian_phone,
+                (SELECT GROUP_CONCAT(td.code)
+                   FROM person_tag pt JOIN tag_definition td ON td.id = pt.tag_id
+                  WHERE pt.person_id = p.id AND pt.status = 'ACTIVE') AS tag_codes
          ${fromSql} LEFT JOIN grid g ON g.id=p.grid_id LEFT JOIN family f ON f.id=p.family_id
          WHERE ${whereSql} AND p.id > ? ORDER BY p.id LIMIT ?`,
         [...params, lastId, BATCH]
       );
       if (!rows.length) break;
       for (const r of rows) {
+        const tagCodes = r.tag_codes ? String(r.tag_codes).split(',') : [];
         const rowData: any[] = [];
         for (const k of fields) {
           if (k === 'gender') rowData.push(r.gender === 'MALE' ? '男' : '女');
@@ -1397,7 +1427,15 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
           else if (k === 'status') rowData.push(r.status || '');
           // 残疾等级导出中文全称（一级（极重度）），台账直接可读
           else if (k === 'disability_level_label') rowData.push(disabilityLevelLabel(r.disability_level));
-          else rowData.push(r[k] ?? '');
+          else if (k.startsWith('is_')) {
+            // 重点人群标志列：命中任一关联标签编码即为「是」
+            const def = EXPORT_TAG_FLAGS.find((d) => d.key === k);
+            let yes = def ? def.codes.some((c) => tagCodes.includes(c)) : false;
+            if (def?.alsoDisabilityTable && r.disability_type) yes = true;
+            rowData.push(yes ? '是' : '否');
+          } else if (k === 'tags') {
+            rowData.push(tagCodes.map((c: string) => tagNameMap.get(c) || c).join('、'));
+          } else rowData.push(r[k] ?? '');
         }
         ws.addRow(rowData);
         total++;

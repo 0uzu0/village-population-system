@@ -34,12 +34,11 @@ router.get('/meta', requirePermission('ledger:view'), async (_req: Request, res:
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(20),
-  category: z.string().optional().or(z.literal('')),
-  workType: z.string().optional().or(z.literal('')),
-  keyword: z.string().optional().or(z.literal('')),
-  start: z.string().optional().or(z.literal('')),
-  end: z.string().optional().or(z.literal('')),
-  gridId: z.coerce.number().int().optional(),
+  category: z.string().nullable().optional(),
+  workType: z.string().nullable().optional(),
+  keyword: z.string().nullable().optional(),
+  start: z.string().nullable().optional(),
+  end: z.string().nullable().optional(),
 });
 
 function buildListFilter(q: any): { where: string; params: any[] } {
@@ -54,7 +53,6 @@ function buildListFilter(q: any): { where: string; params: any[] } {
   }
   if (q.start) { where.push('l.record_date >= ?'); params.push(q.start); }
   if (q.end) { where.push('l.record_date <= ?'); params.push(q.end); }
-  if (q.gridId) { where.push('l.grid_id = ?'); params.push(q.gridId); }
   return { where: where.join(' AND '), params };
 }
 
@@ -66,10 +64,9 @@ router.get('/records', requirePermission('ledger:view'), async (req: Request, re
   const total = Number(totalRow?.cnt || 0);
 
   const rows = await query<any>(
-    `SELECT l.*, g.name AS grid_name,
+    `SELECT l.*,
             (SELECT COUNT(*) FROM file_info f WHERE f.biz_type = '${BIZ_LEDGER}' AND f.biz_id = l.id) AS attachment_count
      FROM ledger_record l
-     LEFT JOIN grid g ON g.id = l.grid_id
      WHERE ${where}
      ORDER BY l.record_date DESC, l.id DESC
      LIMIT ? OFFSET ?`,
@@ -84,14 +81,11 @@ router.get('/records', requirePermission('ledger:view'), async (req: Request, re
     workTypeName: workTypeName(r.work_type),
     recordDate: r.record_date,
     location: r.location,
-    gridId: r.grid_id,
-    gridName: r.grid_name,
     title: r.title,
     detail: r.detail,
     laborCost: Number(r.labor_cost),
-    machineryCost: Number(r.machinery_cost),
     invoiceCost: Number(r.invoice_cost),
-    totalCost: Number(r.labor_cost) + Number(r.machinery_cost) + Number(r.invoice_cost),
+    totalCost: Number(r.labor_cost) + Number(r.invoice_cost),
     invoiceNo: r.invoice_no,
     responsible: r.responsible,
     remark: r.remark,
@@ -109,7 +103,7 @@ router.get('/records', requirePermission('ledger:view'), async (req: Request, re
 // ---------------------------------------------------------------------------
 router.get('/records/:id', requirePermission('ledger:view'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
-  const r = await queryOne<any>('SELECT l.*, g.name AS grid_name FROM ledger_record l LEFT JOIN grid g ON g.id = l.grid_id WHERE l.id = ?', [id]);
+  const r = await queryOne<any>('SELECT l.* FROM ledger_record l WHERE l.id = ?', [id]);
   if (!r) throw new AppError('台账记录不存在', 404, 'NOT_FOUND');
 
   const attachments = await query<any>(
@@ -126,14 +120,11 @@ router.get('/records/:id', requirePermission('ledger:view'), async (req: Request
     workTypeName: workTypeName(r.work_type),
     recordDate: r.record_date,
     location: r.location,
-    gridId: r.grid_id,
-    gridName: r.grid_name,
     title: r.title,
     detail: r.detail,
     laborCost: Number(r.labor_cost),
-    machineryCost: Number(r.machinery_cost),
     invoiceCost: Number(r.invoice_cost),
-    totalCost: Number(r.labor_cost) + Number(r.machinery_cost) + Number(r.invoice_cost),
+    totalCost: Number(r.labor_cost) + Number(r.invoice_cost),
     invoiceNo: r.invoice_no,
     responsible: r.responsible,
     remark: r.remark,
@@ -153,20 +144,18 @@ router.get('/records/:id', requirePermission('ledger:view'), async (req: Request
 // ---------------------------------------------------------------------------
 // 创建 / 更新：校验 + 附件关联
 // ---------------------------------------------------------------------------
-const recordSchema = z.object({
+export const recordSchema = z.object({
   category: z.string().min(1).max(32),
   workType: z.string().min(1).max(32),
   recordDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD'),
-  location: z.string().max(255).optional().or(z.literal('')),
-  gridId: z.coerce.number().int().positive().optional().nullable(),
+  location: z.string().max(255).nullable().optional(),
   title: z.string().min(1).max(255),
-  detail: z.string().max(2000).optional().or(z.literal('')),
+  detail: z.string().max(2000).nullable().optional(),
   laborCost: z.coerce.number().min(0).default(0),
-  machineryCost: z.coerce.number().min(0).default(0),
   invoiceCost: z.coerce.number().min(0).default(0),
-  invoiceNo: z.string().max(64).optional().or(z.literal('')),
-  responsible: z.string().max(64).optional().or(z.literal('')),
-  remark: z.string().max(500).optional().or(z.literal('')),
+  invoiceNo: z.string().max(64).nullable().optional(),
+  responsible: z.string().max(64).nullable().optional(),
+  remark: z.string().max(500).nullable().optional(),
   attachmentIds: z.array(z.coerce.number().int().positive()).default([]),
 });
 
@@ -191,12 +180,12 @@ router.post('/records', requirePermission('ledger:manage'), async (req: Request,
   const id = await withTransaction(async (conn) => {
     const result = await conn.execute(
       `INSERT INTO ledger_record
-        (category, work_type, record_date, location, grid_id, title, detail,
-         labor_cost, machinery_cost, invoice_cost, invoice_no, responsible, remark, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        (category, work_type, record_date, location, title, detail,
+         labor_cost, invoice_cost, invoice_no, responsible, remark, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        body.category, body.workType, body.recordDate, body.location || null, body.gridId ?? null,
-        body.title, body.detail || null, body.laborCost, body.machineryCost, body.invoiceCost,
+        body.category, body.workType, body.recordDate, body.location || null,
+        body.title, body.detail || null, body.laborCost, body.invoiceCost,
         body.invoiceNo || null, body.responsible || null, body.remark || null, req.user!.id,
       ]
     );
@@ -224,12 +213,12 @@ router.put('/records/:id', requirePermission('ledger:manage'), async (req: Reque
   await withTransaction(async (conn) => {
     await conn.execute(
       `UPDATE ledger_record SET
-         category=?, work_type=?, record_date=?, location=?, grid_id=?, title=?, detail=?,
-         labor_cost=?, machinery_cost=?, invoice_cost=?, invoice_no=?, responsible=?, remark=?
+         category=?, work_type=?, record_date=?, location=?, title=?, detail=?,
+         labor_cost=?, invoice_cost=?, invoice_no=?, responsible=?, remark=?
        WHERE id=?`,
       [
-        body.category, body.workType, body.recordDate, body.location || null, body.gridId ?? null,
-        body.title, body.detail || null, body.laborCost, body.machineryCost, body.invoiceCost,
+        body.category, body.workType, body.recordDate, body.location || null,
+        body.title, body.detail || null, body.laborCost, body.invoiceCost,
         body.invoiceNo || null, body.responsible || null, body.remark || null, id,
       ]
     );
@@ -277,11 +266,10 @@ router.delete('/records/:id', requirePermission('ledger:manage'), async (req: Re
 // 统计：指标卡 + 按条口 / 工作类型 / 月份 / 网格
 // ---------------------------------------------------------------------------
 const statsSchema = z.object({
-  start: z.string().optional().or(z.literal('')),
-  end: z.string().optional().or(z.literal('')),
-  category: z.string().optional().or(z.literal('')),
-  workType: z.string().optional().or(z.literal('')),
-  gridId: z.coerce.number().int().optional(),
+  start: z.string().nullable().optional(),
+  end: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  workType: z.string().nullable().optional(),
 });
 
 router.get('/stats', requirePermission('ledger:view'), async (req: Request, res: Response) => {
@@ -292,9 +280,8 @@ router.get('/stats', requirePermission('ledger:view'), async (req: Request, res:
     `SELECT
         COUNT(*) AS record_count,
         COALESCE(SUM(labor_cost),0) AS labor,
-        COALESCE(SUM(machinery_cost),0) AS machinery,
         COALESCE(SUM(invoice_cost),0) AS invoice,
-        COALESCE(SUM(labor_cost + machinery_cost + invoice_cost),0) AS total
+        COALESCE(SUM(labor_cost + invoice_cost),0) AS total
      FROM ledger_record l WHERE ${where}`,
     params
   );
@@ -308,32 +295,24 @@ router.get('/stats', requirePermission('ledger:view'), async (req: Request, res:
 
   const byCategory = await query<any>(
     `SELECT category, COUNT(*) AS cnt,
-            COALESCE(SUM(labor_cost),0) AS labor, COALESCE(SUM(machinery_cost),0) AS machinery,
-            COALESCE(SUM(invoice_cost),0) AS invoice, COALESCE(SUM(labor_cost+machinery_cost+invoice_cost),0) AS total
+            COALESCE(SUM(labor_cost),0) AS labor,
+            COALESCE(SUM(invoice_cost),0) AS invoice, COALESCE(SUM(labor_cost+invoice_cost),0) AS total
      FROM ledger_record l WHERE ${where} GROUP BY category ORDER BY total DESC`,
     params
   );
 
   const byWorkType = await query<any>(
     `SELECT work_type, COUNT(*) AS cnt,
-            COALESCE(SUM(labor_cost+machinery_cost+invoice_cost),0) AS total
+            COALESCE(SUM(labor_cost+invoice_cost),0) AS total
      FROM ledger_record l WHERE ${where} GROUP BY work_type ORDER BY total DESC`,
     params
   );
 
   const byMonth = await query<any>(
     `SELECT DATE_FORMAT(record_date,'%Y-%m') AS month, COUNT(*) AS cnt,
-            COALESCE(SUM(labor_cost),0) AS labor, COALESCE(SUM(machinery_cost),0) AS machinery,
-            COALESCE(SUM(invoice_cost),0) AS invoice, COALESCE(SUM(labor_cost+machinery_cost+invoice_cost),0) AS total
+            COALESCE(SUM(labor_cost),0) AS labor,
+            COALESCE(SUM(invoice_cost),0) AS invoice, COALESCE(SUM(labor_cost+invoice_cost),0) AS total
      FROM ledger_record l WHERE ${where} GROUP BY month ORDER BY month`,
-    params
-  );
-
-  const byGrid = await query<any>(
-    `SELECT l.grid_id, g.name AS grid_name, COUNT(*) AS cnt,
-            COALESCE(SUM(labor_cost+machinery_cost+invoice_cost),0) AS total
-     FROM ledger_record l LEFT JOIN grid g ON g.id = l.grid_id
-     WHERE ${where} GROUP BY l.grid_id, g.name ORDER BY total DESC`,
     params
   );
 
@@ -341,25 +320,21 @@ router.get('/stats', requirePermission('ledger:view'), async (req: Request, res:
     summary: {
       recordCount: Number(sumRow?.record_count || 0),
       laborCost: Number(sumRow?.labor || 0),
-      machineryCost: Number(sumRow?.machinery || 0),
       invoiceCost: Number(sumRow?.invoice || 0),
       totalCost: Number(sumRow?.total || 0),
       attachmentCount: Number(attachRow?.cnt || 0),
     },
     byCategory: byCategory.map((r: any) => ({
       code: r.category, name: categoryName(r.category),
-      count: Number(r.cnt), laborCost: Number(r.labor), machineryCost: Number(r.machinery),
+      count: Number(r.cnt), laborCost: Number(r.labor),
       invoiceCost: Number(r.invoice), totalCost: Number(r.total),
     })),
     byWorkType: byWorkType.map((r: any) => ({
       code: r.work_type, name: workTypeName(r.work_type), count: Number(r.cnt), totalCost: Number(r.total),
     })),
     byMonth: byMonth.map((r: any) => ({
-      month: r.month, count: Number(r.cnt), laborCost: Number(r.labor), machineryCost: Number(r.machinery),
+      month: r.month, count: Number(r.cnt), laborCost: Number(r.labor),
       invoiceCost: Number(r.invoice), totalCost: Number(r.total),
-    })),
-    byGrid: byGrid.map((r: any) => ({
-      gridId: r.grid_id, name: r.grid_name || '未分配网格', count: Number(r.cnt), totalCost: Number(r.total),
     })),
   });
 });
