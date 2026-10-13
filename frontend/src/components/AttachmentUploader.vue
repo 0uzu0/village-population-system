@@ -57,16 +57,12 @@ function sync() {
   emit('update:modelValue', [...files.value]);
 }
 
+// 大小不限制（后端与 nginx 均已放开），仅校验类型白名单
 function beforeUpload(file: File) {
   const okTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
   const okExt = /\.(pdf|jpe?g|png|webp)$/i.test(file.name);
-  const max = 20 * 1024 * 1024;
   if (!okExt && !okTypes.includes(file.type)) {
     ElMessage.error('仅支持 PDF / JPG / JPEG / PNG / WEBP 文件');
-    return false;
-  }
-  if (file.size > max) {
-    ElMessage.error('单个文件不能超过 20MB');
     return false;
   }
   return true;

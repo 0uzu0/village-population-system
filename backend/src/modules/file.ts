@@ -25,8 +25,6 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
   '.png': 'image/png',
   '.webp': 'image/webp',
 };
-const MAX_SIZE = 20 * 1024 * 1024; // 20MB：合同扫描件可能较大
-
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
   filename: (_req, file, cb) => {
@@ -35,9 +33,10 @@ const storage = multer.diskStorage({
   },
 });
 
+// 不限制文件大小（由 nginx client_max_body_size 与磁盘空间约束）；
+// 仅保留扩展名白名单这道安全闸门，挡住非 PDF / 图片的上传。
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_SIZE },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if ((ALLOWED_EXT as readonly string[]).includes(ext)) cb(null, true);

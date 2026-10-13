@@ -5,10 +5,10 @@ import path from 'path';
 const fileSrc = fs.readFileSync(path.resolve(__dirname, '../src/modules/file.ts'), 'utf8');
 
 /**
- * 通用附件模块：类型白名单、content-type 映射、inline 预览、nosniff、大小上限。
+ * 通用附件模块：类型白名单、content-type 映射、inline 预览、nosniff、大小不限制。
  * 防止有人把白名单放宽或把预览改回下载（合同/发票需在浏览器内直接看）。
  */
-describe('附件上传白名单与大小上限', () => {
+describe('附件上传白名单与大小（不限制）', () => {
   it('仅允许 PDF / JPG / JPEG / PNG / WEBP', () => {
     for (const ext of ["'.pdf'", "'.jpg'", "'.jpeg'", "'.png'", "'.webp'"]) {
       expect(fileSrc).toContain(ext);
@@ -22,8 +22,11 @@ describe('附件上传白名单与大小上限', () => {
     expect(fileSrc).toContain("'.webp': 'image/webp'");
   });
 
-  it('单文件上限 20MB', () => {
-    expect(fileSrc).toContain('20 * 1024 * 1024');
+  // 用户明确要求附件大小不设上限：后端不设 fileSize 限制，nginx 侧 client_max_body_size 0。
+  // 这条用例锁定「不要悄悄把大小限制加回来」，同时保证类型白名单这道闸门仍在。
+  it('不限制文件大小（不再出现 fileSize / 20MB 上限）', () => {
+    expect(fileSrc).not.toContain('fileSize');
+    expect(fileSrc).not.toContain('20 * 1024 * 1024');
   });
 });
 

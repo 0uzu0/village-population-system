@@ -3,7 +3,7 @@
     <div class="vp-page-header">
       <div>
         <h2 class="vp-page-title">台账统计分析</h2>
-        <div class="vp-page-subtitle">按条口 / 工作类型 / 月份汇总人工与发票费用</div>
+        <div class="vp-page-subtitle">按条口 / 工作类型汇总人工与发票费用</div>
       </div>
       <el-button @click="goBack"><el-icon><ArrowLeft /></el-icon>返回台账</el-button>
     </div>
@@ -64,10 +64,6 @@
           <div class="chart-title">按工作类型费用</div>
           <VpChart :option="workTypeOption" height="300px" />
         </div>
-        <div class="chart-box">
-          <div class="chart-title">按月费用趋势</div>
-          <VpChart :option="monthOption" height="300px" />
-        </div>
       </div>
     </div>
   </div>
@@ -90,7 +86,6 @@ const filters = reactive({ category: '', workType: '' });
 const summary = reactive({ recordCount: 0, totalCost: 0, laborCost: 0, invoiceCost: 0, attachmentCount: 0 });
 const byCategory = ref<any[]>([]);
 const byWorkType = ref<any[]>([]);
-const byMonth = ref<any[]>([]);
 
 function money(n: number) {
   return '¥' + Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -128,18 +123,6 @@ const workTypeOption = computed<EChartsOption>(() => ({
   series: [{ type: 'bar', data: byWorkType.value.map((w) => w.totalCost), itemStyle: { color: '#3978F6' } }],
 }));
 
-const monthOption = computed<EChartsOption>(() => ({
-  tooltip: { trigger: 'axis', valueFormatter: (v: any) => money(v) },
-  legend: { bottom: 0 },
-  grid: baseGrid,
-  xAxis: { type: 'category', data: byMonth.value.map((m) => m.month) },
-  yAxis: { type: 'value' },
-  series: [
-    { name: '人工费', type: 'line', data: byMonth.value.map((m) => m.laborCost), smooth: true },
-    { name: '发票费', type: 'line', data: byMonth.value.map((m) => m.invoiceCost), smooth: true },
-  ],
-}));
-
 async function loadStats() {
   const params: any = {
     category: filters.category || undefined,
@@ -152,7 +135,6 @@ async function loadStats() {
   Object.assign(summary, d.summary);
   byCategory.value = d.byCategory;
   byWorkType.value = d.byWorkType;
-  byMonth.value = d.byMonth;
 }
 
 function goBack() {
