@@ -237,9 +237,13 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
   const id = Number(req.params.id);
   const row = await queryOne<any>(
     // disability_person_id 用于判断有无残疾档案；pd.remark 与 person.remark 同名，
-    // 必须显式取别名，否则 p.* 的 remark 会覆盖它（连接查询中同名列后者优先）
+    // 必须显式取别名，否则 p.* 的 remark 会覆盖它（连接查询中同名列后者优先）。
+    // 残疾类别/等级/证号/监护人等列必须逐一显式 SELECT——此前只取了 pd.remark，
+    // 其余列全为 undefined，导致「已建档」但详情页残疾类别/等级一片空白。
     `SELECT p.*, g.name AS grid_name, f.family_no AS family_name,
-            pd.person_id AS disability_person_id, pd.remark AS disability_remark
+            pd.person_id AS disability_person_id,
+            pd.disability_type, pd.disability_level, pd.disability_card,
+            pd.guardian_name, pd.guardian_phone, pd.remark AS disability_remark
      FROM person p
      LEFT JOIN grid g ON g.id = p.grid_id
      LEFT JOIN family f ON f.id = p.family_id

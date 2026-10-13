@@ -153,10 +153,9 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     conditions.push(`特困供养方式：${q.extremePovertyMode === 'CENTRALIZED' ? '集中供养' : '分散供养'}`);
   }
 
-  // ---- 残疾等级 / 类别 / 监护人：需 LEFT JOIN 残疾档案表 ----
-  let needDisabilityJoin = false;
+  // ---- 残疾等级 / 类别 / 监护人 ----
+  // JOIN 已无条件存在（见下方 fromSql），这里只按需拼接筛选条件。
   if (q.minDisabilityLevel || q.maxDisabilityLevel || q.disabilityType || q.guardian) {
-    needDisabilityJoin = true;
     // 筛残疾条件即要求存在残疾档案，否则非残疾人会被算进来
     where.push('pd.person_id IS NOT NULL');
 
@@ -232,17 +231,12 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   }
 
   const whereSql = where.join(' AND ');
-  // 残疾相关筛选依赖 person_disability 表，其余查询不该为此多付一次 JOIN 成本。
-  // 注意：SELECT 里的 pd.* 列必须与 JOIN 同步出现——JOIN 不在时引用 pd.* 会报
-  // Unknown column，导致不传残疾条件的默认查询直接 500。
-  const disabilityJoin = needDisabilityJoin
-    ? 'LEFT JOIN person_disability pd ON pd.person_id = p.id'
-    : '';
-  const fromSql = `FROM person p ${disabilityJoin}`;
-  const disabilityCols = needDisabilityJoin
-    ? `, pd.disability_type, pd.disability_level, pd.disability_card,
-            pd.guardian_name, pd.guardian_phone`
-    : '';
+  // 列表表格始终展示「残疾等级」「监护人」两列，因此必须无条件 LEFT JOIN 并 SELECT
+  // 残疾档案列——否则不筛残疾条件时这两列会永远空白（与 person 详情接口缺列同源的事故）。
+  // person_disability 与 person 一对一（uk_pd_person），LEFT JOIN 不会放大行数。
+  const fromSql = 'FROM person p LEFT JOIN person_disability pd ON pd.person_id = p.id';
+  const disabilityCols = `, pd.person_id AS disability_person_id, pd.disability_type, pd.disability_level,
+            pd.disability_card, pd.guardian_name, pd.guardian_phone`;
 
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt ${fromSql} WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
@@ -294,7 +288,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     subsidyAmount: r.subsidy_amount != null ? Number(r.subsidy_amount) : null,
     familyCondition: r.family_condition,
     healthAssessment: r.health_assessment,
-    disability: r.disability_type || r.disability_level || r.guardian_name ? {
+    disability: r.disability_person_id ? {
       type: r.disability_type,
       level: r.disability_level,
       levelLabel: disabilityLevelLabel(r.disability_level),
