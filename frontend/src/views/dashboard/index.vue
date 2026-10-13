@@ -27,10 +27,6 @@
         <div class="card-title">各网格人口分布</div>
         <VpChart :option="gridOption" height="280px" />
       </div>
-      <div class="vp-card">
-        <div class="card-title">人口标签分布（Top 15）</div>
-        <VpChart :option="tagOption" height="280px" />
-      </div>
     </div>
 
     <!-- 近期动态 -->
@@ -49,46 +45,6 @@
         </el-table>
         <el-empty v-if="!changes.length" description="暂无变更记录" :image-size="60" />
       </div>
-      <div class="vp-card">
-        <div class="card-head">
-          <div class="card-title">最近导入任务</div>
-          <div class="head-actions">
-            <el-button link size="small" :loading="importLoading" @click="loadImports">
-              <el-icon><Refresh /></el-icon>刷新
-            </el-button>
-            <el-button link type="primary" size="small" @click="$router.push('/excel')">去导入</el-button>
-          </div>
-        </div>
-
-        <div v-loading="importLoading" class="import-list">
-          <div v-for="row in imports" :key="row.id" class="import-item">
-            <div class="ii-top">
-              <span class="ii-batch">{{ row.batch_no }}</span>
-              <el-tag size="small" :type="importTag(row.status)" effect="light">{{ importLabel(row.status) }}</el-tag>
-              <span v-if="isImportStale(row)" class="ii-stale">已中断</span>
-            </div>
-            <div class="ii-bar">
-              <div class="ii-track">
-                <div class="ii-ok" :style="{ width: pct(row, 'success') + '%' }" />
-                <div class="ii-pending" :style="{ width: pct(row, 'pending') + '%' }" />
-                <div class="ii-fail" :style="{ width: pct(row, 'fail') + '%' }" />
-              </div>
-            </div>
-            <div class="ii-meta">
-              <span class="ii-total">共 {{ row.total_rows }} 行</span>
-              <span class="dot-ok">成功 {{ row.success_count }}</span>
-              <span v-if="row.pending_count" class="dot-pending">待核查 {{ row.pending_count }}</span>
-              <span v-if="row.fail_count" class="dot-fail">失败 {{ row.fail_count }}</span>
-              <span class="ii-time">{{ row.created_at }}</span>
-            </div>
-            <div v-if="row.pending_count" class="ii-tip">
-              有 {{ row.pending_count }} 条身份证缺失/非法
-              <el-button link type="warning" size="small" @click="$router.push('/pending')">去核查</el-button>
-            </div>
-          </div>
-          <el-empty v-if="!imports.length && !importLoading" description="暂无导入记录，上传 Excel 后这里会显示任务进度" :image-size="60" />
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -100,9 +56,8 @@ import VpChart from '@/components/VpChart.vue';
 import type { EChartsOption } from 'echarts';
 
 const dash = ref<any>({});
-const dist = ref<any>({ age: [], gender: [], grids: [], tags: [] });
+const dist = ref<any>({ age: [], gender: [], grids: [] });
 const changes = ref<any[]>([]);
-const imports = ref<any[]>([]);
 
 const statCards = computed(() => {
   const d = dash.value;
@@ -148,14 +103,6 @@ const gridOption = computed<EChartsOption>(() => ({
   series: [{ type: 'bar', data: dist.value.grids.map((g: any) => g.cnt), barWidth: 28, itemStyle: { color: '#5B5BD6', borderRadius: [6, 6, 0, 0] } }],
 }));
 
-const tagOption = computed<EChartsOption>(() => ({
-  tooltip: { trigger: 'axis' },
-  grid: { left: 90, right: 20, top: 10, bottom: 24 },
-  xAxis: { type: 'value' },
-  yAxis: { type: 'category', data: dist.value.tags.map((t: any) => t.name).reverse() },
-  series: [{ type: 'bar', data: dist.value.tags.map((t: any) => t.cnt).reverse(), barWidth: 14, itemStyle: { color: '#0E7C6B', borderRadius: [0, 6, 6, 0] } }],
-}));
-
 function typeLabel(t: string) {
   const map: Record<string, string> = { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' };
   return map[t] || t;
@@ -164,38 +111,6 @@ function typeTag(t: string) {
   const map: Record<string, any> = { CREATE: 'success', UPDATE: 'primary', STATUS_CHANGE: 'warning', TAG: 'info' };
   return map[t] || 'info';
 }
-function importLabel(s: string) {
-  const map: Record<string, string> = { PENDING: '待处理', RUNNING: '处理中', SUCCESS: '成功', FAILED: '失败', PARTIAL: '部分成功' };
-  return map[s] || s;
-}
-function importTag(s: string) {
-  const map: Record<string, any> = { SUCCESS: 'success', FAILED: 'danger', PARTIAL: 'warning', RUNNING: 'primary', PENDING: 'info' };
-  return map[s] || 'info';
-}
-/** 导入是同步执行，长时间停在「处理中」说明进程中断了（后端会自动收敛为失败） */
-function isImportStale(row: any) {
-  if (row.status !== 'RUNNING' || !row.created_at) return false;
-  const t = new Date(String(row.created_at).replace(/-/g, '/')).getTime();
-  return Number.isFinite(t) && Date.now() - t > 10 * 60 * 1000;
-}
-
-const importLoading = ref(false);
-
-/** 进度条各段占比（相对总行数），避免出现 NaN */
-function pct(row: any, kind: 'success' | 'pending' | 'fail') {
-  const total = Number(row.total_rows) || 1;
-  const v = kind === 'success' ? row.success_count : kind === 'pending' ? row.pending_count : row.fail_count;
-  return Math.min(100, Math.round((Number(v || 0) / total) * 100));
-}
-
-async function loadImports() {
-  importLoading.value = true;
-  try {
-    const im = await statisticsApi.imports();
-    imports.value = im.data || [];
-  } finally { importLoading.value = false; }
-}
-
 onMounted(async () => {
   const [d, di, c] = await Promise.all([
     statisticsApi.dashboard(),
@@ -205,7 +120,6 @@ onMounted(async () => {
   dash.value = d.data;
   dist.value = di.data;
   changes.value = c.data || [];
-  loadImports();
 });
 </script>
 
@@ -251,7 +165,7 @@ onMounted(async () => {
 }
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 .card-title {
@@ -262,35 +176,9 @@ onMounted(async () => {
 }
 .bottom-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
 }
-.card-head { display: flex; align-items: center; justify-content: space-between; }
-.card-head .card-title { margin-bottom: 12px; }
-.head-actions { display: flex; align-items: center; gap: 4px; }
-
-/* 最近导入任务：卡片式进度展示 */
-.import-list { min-height: 120px; display: flex; flex-direction: column; gap: 10px; }
-.import-item { border: 1px solid var(--color-border); border-radius: var(--radius-button); padding: 10px 12px; transition: border-color var(--transition-fast); }
-.import-item:hover { border-color: var(--color-primary); }
-.ii-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ii-stale { font-size: var(--font-size-xs); color: #B42318; }
-.ii-batch { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ii-bar { margin: 8px 0 6px; }
-.ii-track { display: flex; height: 6px; background: var(--color-border-light); border-radius: 3px; overflow: hidden; }
-.ii-ok { background: #0E7C6B; }
-.ii-pending { background: #F76B15; }
-.ii-fail { background: #E5484D; }
-.ii-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
-.ii-total { color: var(--color-text-regular); font-weight: 600; }
-.dot-ok::before, .dot-pending::before, .dot-fail::before {
-  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: 1px;
-}
-.dot-ok::before { background: #0E7C6B; }
-.dot-pending::before { background: #F76B15; }
-.dot-fail::before { background: #E5484D; }
-.ii-time { margin-left: auto; color: var(--color-text-secondary); }
-.ii-tip { margin-top: 6px; font-size: var(--font-size-xs); color: #C2410C; background: #FEF0E6; border-radius: var(--radius-button); padding: 4px 8px; display: flex; align-items: center; gap: 6px; }
 
 @media (max-width: 1100px) {
   .stat-grid {
