@@ -189,8 +189,8 @@
                   <div class="kgs-item"><span class="num">{{ spResult.total }}</span><span class="lbl">表格行数</span></div>
                   <div class="kgs-item"><span class="num">{{ spResult.matched }}</span><span class="lbl">匹配到人员</span></div>
                   <div class="kgs-item is-ok"><span class="num">{{ spResult.updated }}</span><span class="lbl">更新档案</span></div>
-                  <div class="kgs-item" v-if="spResult.type === 'disability'">
-                    <span class="num">{{ spResult.disabilityUpserts }}</span><span class="lbl">残疾档案</span>
+                  <div class="kgs-item" v-if="spResult.disabilityUpserts > 0">
+<span class="num">{{ spResult.disabilityUpserts }}</span><span class="lbl">残疾档案</span>
                   </div>
                   <div class="kgs-item is-ok"><span class="num">{{ spResult.tagged }}</span><span class="lbl">新增标签</span></div>
                   <div class="kgs-item"><span class="num">{{ spResult.skipped }}</span><span class="lbl">已存在跳过</span></div>
@@ -364,9 +364,12 @@ async function doImportSpecial(options: any) {
     const res: any = await excelApi.importSpecial(fd);
     spResult.value = res.data;
     const d = res.data;
+    // 把「更新人数」与「残疾档案数」分开说明：
+    // 用户填了残疾两列却只看到「更新 N 人」会误以为残疾信息没导入
+    const dd = d.disabilityUpserts ? `，残疾档案 ${d.disabilityUpserts} 份` : '';
     ElMessage.success({
-      message: `${label}：更新 ${d.updated} 人，新增标签 ${d.tagged} 条${d.fail ? `，失败 ${d.fail} 条` : ''}`,
-      duration: 4000,
+      message: `${label}：更新 ${d.updated} 人${dd}，新增标签 ${d.tagged} 条${d.fail ? `，失败 ${d.fail} 条（可下载错误行查看原因）` : ''}`,
+      duration: 5000,
     });
     loadTasks();
     loadKgTasks();

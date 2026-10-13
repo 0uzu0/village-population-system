@@ -1032,7 +1032,19 @@ router.post('/import-special', requirePermission('excel:import'), upload.single(
       let person: any = null;
       if (idText) {
         const check = validateIdCard(idText);
-        if (!check.valid) { errors.push({ rowNo, message: `身份证号：${check.message}`, raw }); continue; }
+        if (!check.valid) {
+          // 特别提示 14 位：户籍表常见脱敏导出（末 4 位被抹掉），
+          // 用户看到「格式错误」往往不知道真实原因是脱敏
+          const isMasked = idText.length === 14;
+          errors.push({
+            rowNo,
+            message: isMasked
+              ? `身份证号「${idText}」是 14 位脱敏号，缺少末 4 位（校验码与部分数字），无法匹配人员。请补全 18 位完整号码`
+              : `身份证号：${check.message}`,
+            raw,
+          });
+          continue;
+        }
         person = byIdCard.get(check.normalized!) || null;
         if (!person) {
           errors.push({ rowNo, message: `系统内未找到身份证号 ${check.normalized} 的人员，请先导入人口档案`, raw });
