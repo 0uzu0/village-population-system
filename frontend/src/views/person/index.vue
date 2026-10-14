@@ -45,18 +45,6 @@
         <el-button @click="resetQuery">重置</el-button>
       </div>
 
-      <!-- 常用标签快捷筛选 -->
-      <div class="quick-tags">
-        <span class="quick-label">常用标签：</span>
-        <span
-          v-for="t in quickTags"
-          :key="t.id"
-          class="quick-chip"
-          :class="{ active: query.tagIds.includes(t.id) }"
-          @click="toggleQuickTag(t.id)"
-        >{{ t.name }}</span>
-      </div>
-
       <!-- 批量操作 -->
       <div class="vp-toolbar">
         <div class="batch-left">
@@ -361,8 +349,6 @@ function openBatchStatus() {
   statusVisible.value = true;
 }
 
-const quickTagCodes = ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON', 'ELDERLY', 'MINOR'];
-const quickTags = computed(() => commonTags.value.filter((t) => quickTagCodes.includes(t.code)));
 const personTags = computed(() => commonTags.value.filter((t: any) => t.object_type === 'PERSON' && t.enabled === 1));
 
 /* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
@@ -513,13 +499,6 @@ function resetQuery() {
   Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], sortBy: '', sortOrder: '' });
   activeOnly.value = true;
   load();
-}
-
-function toggleQuickTag(id: number) {
-  const idx = query.tagIds.indexOf(id);
-  if (idx >= 0) query.tagIds.splice(idx, 1);
-  else query.tagIds.push(id);
-  doSearch();
 }
 
 function onSelectionChange(rows: any[]) {
@@ -724,36 +703,6 @@ onMounted(async () => {
 .actions {
   display: flex;
   gap: 8px;
-}
-.quick-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.quick-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-}
-.quick-chip {
-  padding: 4px 12px;
-  border-radius: var(--radius-tag);
-  background: var(--color-bg-subtle);
-  color: var(--color-text-regular);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all var(--transition-fast);
-}
-.quick-chip:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-.quick-chip.active {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
 }
 .batch-left {
   display: flex;
