@@ -53,7 +53,7 @@
             </div>
           </div>
           <div class="grid-foot">
-            <span>负责人：{{ g.manager || '—' }}</span>
+            <span class="foot-info">负责人：{{ g.manager || '—' }}</span>
             <div class="foot-actions">
               <el-button link type="primary" size="small" @click="viewPersons({ gridId: g.id })">人员</el-button>
               <el-button v-if="auth.hasPermission('grid:manage')" link type="primary" size="small" @click="openEdit(g)">编辑</el-button>
@@ -87,9 +87,12 @@
             </div>
           </div>
           <div class="grid-foot">
-            <span>村庄</span>
+            <span class="foot-info" :title="`负责人：${contacts[v.name]?.manager || '—'}，手机号：${contacts[v.name]?.phone || '—'}`">
+              负责人：{{ contacts[v.name]?.manager || '—' }}，手机号：{{ contacts[v.name]?.phone || '—' }}
+            </span>
             <div class="foot-actions">
               <el-button link type="primary" size="small" @click="viewPersons({ village: v.name })">人员</el-button>
+              <el-button link type="primary" size="small" @click="openVillageEdit(v)">编辑</el-button>
             </div>
           </div>
         </div>
@@ -115,6 +118,26 @@
         <el-button type="primary" :loading="saving" @click="saveForm">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 村庄负责人/手机号：前端本地维护，不写入后端；弹窗规格与「编辑网格」保持一致 -->
+    <el-dialog v-model="villageFormVisible" :title="`编辑村庄`" width="480px">
+      <el-form :model="villageForm" label-width="90px">
+        <el-form-item label="村庄名称">
+          <el-input :model-value="villageForm.name" disabled />
+        </el-form-item>
+        <el-form-item label="负责人">
+          <el-input v-model="villageForm.manager" maxlength="32" placeholder="村负责人姓名" />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input v-model="villageForm.phone" maxlength="20" placeholder="联系电话" />
+        </el-form-item>
+      </el-form>
+      <div class="village-tip">该信息仅保存在当前浏览器，不写入服务器；换电脑或清缓存后需重新填写。</div>
+      <template #footer>
+        <el-button @click="villageFormVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveVillageContact">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -137,6 +160,15 @@ const query = reactive({ page: 1, pageSize: 12, keyword: '' });
 const dimension = ref<'grid' | 'village'>('grid');
 const formVisible = ref(false);
 const form = reactive<any>({ id: null, gridNo: '', name: '', manager: '', staff: '', description: '' });
+
+/**
+ * 村庄负责人/手机号：村庄由 person.village 派生，后端无对应字段。
+ * 按用户要求，仅在「按小村庄」卡片上就地维护，存 localStorage，不写入后端。
+ */
+const VILLAGE_CONTACT_KEY = 'grid:villageContacts';
+const contacts = ref<Record<string, { manager?: string; phone?: string }>>({});
+const villageFormVisible = ref(false);
+const villageForm = reactive({ name: '', manager: '', phone: '' });
 
 /** 重点人群指标（字段与后端 grid.ts / FOCUS_TAGS 对应） */
 const focusMetrics = [
@@ -210,7 +242,28 @@ async function saveForm() {
   } finally { saving.value = false; }
 }
 
-onMounted(load);
+/** 读取本地保存的村庄负责人/手机号 */
+function restoreVillageContacts() {
+  try { contacts.value = JSON.parse(localStorage.getItem(VILLAGE_CONTACT_KEY) || '{}') || {}; }
+  catch { contacts.value = {}; }
+}
+function openVillageEdit(v: any) {
+  const c = contacts.value[v.name] || {};
+  Object.assign(villageForm, { name: v.name, manager: c.manager || '', phone: c.phone || '' });
+  villageFormVisible.value = true;
+}
+function saveVillageContact() {
+  const name = villageForm.name;
+  const manager = villageForm.manager.trim();
+  const phone = villageForm.phone.trim();
+  if (!manager && !phone) delete contacts.value[name];
+  else contacts.value[name] = { manager, phone };
+  try { localStorage.setItem(VILLAGE_CONTACT_KEY, JSON.stringify(contacts.value)); } catch { /* 隐私模式下写入失败时忽略 */ }
+  villageFormVisible.value = false;
+  ElMessage.success('已保存');
+}
+
+onMounted(() => { restoreVillageContacts(); load(); });
 </script>
 
 <style scoped>
@@ -231,7 +284,10 @@ onMounted(load);
 .focus-item { display: flex; align-items: baseline; gap: 4px; background: var(--color-bg-subtle); border-radius: var(--radius-button); padding: 6px 8px; }
 .fi-num { font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); }
 .fi-lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
-.grid-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.grid-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.village-tip { font-size: var(--font-size-xs); color: var(--color-text-secondary); line-height: 1.5; }
+/* 卡片底部信息与操作：网格 / 村庄两个维度共用同一套布局 */
+.foot-info { flex: 1 1 auto; min-width: 0; line-height: 1.4; }
 .foot-actions { display: flex; align-items: center; gap: 2px; }
 .dim-hint { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-left: auto; }
 .grid-icon.is-village { background: var(--color-cyan-light); color: var(--color-cyan); }
