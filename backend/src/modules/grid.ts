@@ -82,6 +82,7 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
  * 村庄（小村庄）维度统计。
  * 村庄名取自 person.village（导入时由户籍地址推导，如艾园村、仓门口村）。
  * 家庭数按「该村庄有成员的在册家庭」统计（family 表无 village 列，故由成员反查）。
+ * 负责人 / 手机号来自 village_contact（V012），村庄维度下可编辑。
  */
 router.get('/villages', requirePermission('grid:view'), async (req: Request, res: Response) => {
   const q = z.object({ keyword: z.string().optional() }).parse(req.query);
@@ -101,6 +102,8 @@ router.get('/villages', requirePermission('grid:view'), async (req: Request, res
 
   const rows = await query<any>(
     `SELECT p.village AS name,
+       vc.manager,
+       vc.phone,
        COUNT(*) AS person_count,
        (SELECT COUNT(DISTINCT fm.family_id) FROM family_member fm
           JOIN person pf ON pf.id = fm.person_id
@@ -111,12 +114,63 @@ router.get('/villages', requirePermission('grid:view'), async (req: Request, res
                          WHERE pg.village = p.village AND pg.grid_id IS NOT NULL)) AS grid_names,
        ${focusTagSelects('p_.village = p.village')}
      FROM person p
+     LEFT JOIN village_contact vc ON vc.village_name = p.village
      WHERE ${whereSql}
-     GROUP BY p.village
+     GROUP BY p.village, vc.manager, vc.phone
      ORDER BY person_count DESC, p.village ASC`
   );
 
   return ok(res, { list: rows, total: rows.length }, `共 ${rows.length} 个村庄`);
+});
+
+/** 村庄联系人字段（可空字符串用 nullable().optional()：编辑态后端可能回 null） */
+export const villageContactSchema = z.object({
+  villageName: z.string().min(1, '村庄名必填').max(128),
+  manager: z.string().max(64).nullable().optional(),
+  phone: z.string().max(20).nullable().optional(),
+});
+
+/**
+ * 保存村庄负责人 / 手机号（落库到 village_contact，V012）。
+ * - 村庄必须仍存在于人员档案中（且在当前用户的数据范围内），避免写出无主记录；
+ * - 负责人与手机号同时为空时删除该行，回到「未维护」状态（无残留空记录）。
+ */
+router.put('/villages/contact', requirePermission('grid:manage'), async (req: Request, res: Response) => {
+  const body = villageContactSchema.parse(req.body);
+  const village = body.villageName.trim();
+  const manager = (body.manager || '').trim();
+  const phone = (body.phone || '').trim();
+
+  const conds: string[] = ['p.village = ?'];
+  const params: any[] = [village];
+  const gridFilter = buildGridFilter(req, 'p.grid_id');
+  if (gridFilter.where) {
+    conds.push(gridFilter.where.replace(/^ AND /, ''));
+    params.push(...gridFilter.params);
+  }
+  const exists = await queryOne<any>(`SELECT 1 AS ok FROM person p WHERE ${conds.join(' AND ')} LIMIT 1`, params);
+  if (!exists) throw new AppError('村庄不存在或不在你的数据范围内', 404, 'VILLAGE_NOT_FOUND');
+
+  if (!manager && !phone) {
+    await execute('DELETE FROM village_contact WHERE village_name = ?', [village]);
+  } else {
+    await execute(
+      `INSERT INTO village_contact (village_name, manager, phone, created_by, updated_by)
+       VALUES (?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE manager = VALUES(manager), phone = VALUES(phone), updated_by = VALUES(updated_by)`,
+      [village, manager || null, phone || null, req.user!.id, req.user!.id]
+    );
+  }
+
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'village:save_contact',
+    request: { village, manager, phone },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { villageName: village, manager: manager || null, phone: phone || null }, '已保存');
 });
 
 /** 删除网格（物理删除；若网格下仍有人口/家庭则拒绝，需先转移或删除） */

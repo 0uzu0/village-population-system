@@ -87,12 +87,12 @@
             </div>
           </div>
           <div class="grid-foot">
-            <span class="foot-info" :title="`负责人：${contacts[v.name]?.manager || '—'}，手机号：${contacts[v.name]?.phone || '—'}`">
-              负责人：{{ contacts[v.name]?.manager || '—' }}，手机号：{{ contacts[v.name]?.phone || '—' }}
+            <span class="foot-info" :title="`负责人：${v.manager || '—'}，手机号：${v.phone || '—'}`">
+              负责人：{{ v.manager || '—' }}，手机号：{{ v.phone || '—' }}
             </span>
             <div class="foot-actions">
               <el-button link type="primary" size="small" @click="viewPersons({ village: v.name })">人员</el-button>
-              <el-button link type="primary" size="small" @click="openVillageEdit(v)">编辑</el-button>
+              <el-button v-if="auth.hasPermission('grid:manage')" link type="primary" size="small" @click="openVillageEdit(v)">编辑</el-button>
             </div>
           </div>
         </div>
@@ -119,8 +119,8 @@
       </template>
     </el-dialog>
 
-    <!-- 村庄负责人/手机号：前端本地维护，不写入后端；弹窗规格与「编辑网格」保持一致 -->
-    <el-dialog v-model="villageFormVisible" :title="`编辑村庄`" width="480px">
+    <!-- 村庄负责人/手机号：落库到后端 village_contact（所有用户共享）；弹窗规格与「编辑网格」保持一致 -->
+    <el-dialog v-model="villageFormVisible" title="编辑村庄" width="480px">
       <el-form :model="villageForm" label-width="90px">
         <el-form-item label="村庄名称">
           <el-input :model-value="villageForm.name" disabled />
@@ -132,10 +132,10 @@
           <el-input v-model="villageForm.phone" maxlength="20" placeholder="联系电话" />
         </el-form-item>
       </el-form>
-      <div class="village-tip">该信息仅保存在当前浏览器，不写入服务器；换电脑或清缓存后需重新填写。</div>
+      <div class="village-tip">保存后写入服务器，所有用户可见；两项都留空则清除该村庄的负责人信息。</div>
       <template #footer>
         <el-button @click="villageFormVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveVillageContact">保存</el-button>
+        <el-button type="primary" :loading="villageSaving" @click="saveVillageContact">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -162,12 +162,11 @@ const formVisible = ref(false);
 const form = reactive<any>({ id: null, gridNo: '', name: '', manager: '', staff: '', description: '' });
 
 /**
- * 村庄负责人/手机号：村庄由 person.village 派生，后端无对应字段。
- * 按用户要求，仅在「按小村庄」卡片上就地维护，存 localStorage，不写入后端。
+ * 村庄负责人/手机号：村庄由 person.village 派生，负责人/手机号落在后端 village_contact 表（V012），
+ * 通过 PUT /grids/villages/contact 维护，写入服务器、所有用户共享。
  */
-const VILLAGE_CONTACT_KEY = 'grid:villageContacts';
-const contacts = ref<Record<string, { manager?: string; phone?: string }>>({});
 const villageFormVisible = ref(false);
+const villageSaving = ref(false);
 const villageForm = reactive({ name: '', manager: '', phone: '' });
 
 /** 重点人群指标（字段与后端 grid.ts / FOCUS_TAGS 对应） */
@@ -242,28 +241,29 @@ async function saveForm() {
   } finally { saving.value = false; }
 }
 
-/** 读取本地保存的村庄负责人/手机号 */
-function restoreVillageContacts() {
-  try { contacts.value = JSON.parse(localStorage.getItem(VILLAGE_CONTACT_KEY) || '{}') || {}; }
-  catch { contacts.value = {}; }
-}
 function openVillageEdit(v: any) {
-  const c = contacts.value[v.name] || {};
-  Object.assign(villageForm, { name: v.name, manager: c.manager || '', phone: c.phone || '' });
+  Object.assign(villageForm, { name: v.name, manager: v.manager || '', phone: v.phone || '' });
   villageFormVisible.value = true;
 }
-function saveVillageContact() {
-  const name = villageForm.name;
-  const manager = villageForm.manager.trim();
-  const phone = villageForm.phone.trim();
-  if (!manager && !phone) delete contacts.value[name];
-  else contacts.value[name] = { manager, phone };
-  try { localStorage.setItem(VILLAGE_CONTACT_KEY, JSON.stringify(contacts.value)); } catch { /* 隐私模式下写入失败时忽略 */ }
-  villageFormVisible.value = false;
-  ElMessage.success('已保存');
+
+/** 保存村庄联系人（写后端）；两项都空时后端会清除该条记录 */
+async function saveVillageContact() {
+  villageSaving.value = true;
+  try {
+    await gridApi.saveVillageContact({
+      villageName: villageForm.name,
+      manager: villageForm.manager.trim(),
+      phone: villageForm.phone.trim(),
+    });
+    villageFormVisible.value = false;
+    ElMessage.success('已保存');
+    loadVillages();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '保存失败');
+  } finally { villageSaving.value = false; }
 }
 
-onMounted(() => { restoreVillageContacts(); load(); });
+onMounted(load);
 </script>
 
 <style scoped>

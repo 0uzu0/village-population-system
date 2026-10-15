@@ -44,6 +44,9 @@ export const familyApi = {
 export const gridApi = {
   list: (params: any) => get<PageResult>('/grids', params),
   villages: (params?: any) => get('/grids/villages', params),
+  /** 保存村庄负责人/手机号（落库，需 grid:manage） */
+  saveVillageContact: (data: { villageName: string; manager?: string; phone?: string }) =>
+    put('/grids/villages/contact', data),
   detail: (id: number) => get(`/grids/${id}`),
   create: (data: any) => post('/grids', data),
   update: (id: number, data: any) => put(`/grids/${id}`, data),
