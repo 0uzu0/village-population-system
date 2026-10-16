@@ -105,6 +105,33 @@
         <el-empty v-else description="暂无标签" :image-size="60" />
       </div>
 
+      <!-- 现场照片：移动端「拍照留痕」上传后挂在这个人身上（biz_type=PERSON, biz_id=人员id） -->
+      <div class="vp-card">
+        <div class="card-title">
+          现场照片
+          <span v-if="photos.length" class="date-hint">共 {{ photos.length }} 张</span>
+        </div>
+        <div v-if="photos.length" class="photos">
+          <div v-for="p in photos" :key="p.id" class="photo">
+            <!-- 图片接口要 Bearer 头，不能把直链给 img（必然 401），
+                 这里用的是页面加载时取回的 blob URL -->
+            <img
+              v-if="photoUrls[p.id]"
+              :src="photoUrls[p.id]"
+              :alt="p.fileName || '现场照片'"
+              @click="previewPhoto(p)"
+            />
+            <div v-else class="photo-loading">加载中…</div>
+            <div class="photo-meta">
+              <span class="photo-name" :title="p.fileName">{{ p.fileName || '现场照片' }}</span>
+              <span class="photo-time">{{ photoTimeLabel(p) }}</span>
+              <el-button link type="danger" size="small" @click="removePhoto(p)">删除</el-button>
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="暂无现场照片（移动端「拍照留痕」上传后在此显示）" :image-size="60" />
+      </div>
+
       <!-- 变更历史 -->
       <div class="vp-card">
         <div class="card-title">档案变更历史</div>
@@ -135,9 +162,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { personApi } from '@/api';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { personApi, fileApi } from '@/api';
+import request from '@/api/request';
 import { parseFrom } from '@/utils/nav';
 import { useAuthStore } from '@/stores/auth';
 import { statusLabel, statusTagType } from '@/utils/personStatus';
@@ -150,6 +179,10 @@ const auth = useAuthStore();
 const loading = ref(false);
 const person = ref<any>(null);
 const statusVisible = ref(false);
+
+/** 现场照片与其 blob URL。照片是取证材料，必须能看到原件，所以要真取回字节而不是给个链接 */
+const photos = ref<any[]>([]);
+const photoUrls = ref<Record<number, string>>({});
 
 /** 来源页：从人口档案/重点人群等页面进来，返回时原样退回（含筛选条件） */
 const back = computed(() => parseFrom(route));
@@ -178,6 +211,62 @@ const extremePovertyMode = computed(() => {
 
 function typeLabel(t: string) { return { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' }[t] || t; }
 
+/**
+ * 照片时间。优先显示**拍摄时间**（capturedAt，移动端上报），
+ * 没有才退回上传时间（PC 传的合同/发票没有拍摄时间这个概念）——
+ * 离线补传时两者能差好几天，标清楚是哪一个，看的人才知道该信哪个。
+ */
+function photoTimeLabel(p: any): string {
+  const t = p.capturedAt || p.createdAt;
+  if (!t) return '时间未知';
+  return (p.capturedAt ? '拍摄 ' : '上传 ') + String(t).replace('T', ' ').slice(0, 16);
+}
+
+async function loadPhotos() {
+  const id = Number(route.params.id);
+  try {
+    const res: any = await fileApi.listByBiz('PERSON', id);
+    const list: any[] = res.data?.list || [];
+    photos.value = list;
+    // 一个村民的留痕照片通常只有几张，顺序取即可：
+    // 并发几十个 blob 请求会把村委那台小服务器打满，收益却只是快一点点
+    for (const p of list) {
+      try {
+        const resp: any = await request.get(`/files/${p.id}`, { responseType: 'blob' });
+        photoUrls.value[p.id] = URL.createObjectURL(resp.data as Blob);
+      } catch {
+        // 单张取不到不影响其余照片，也不该把整页变成错误
+      }
+    }
+  } catch {
+    photos.value = [];
+  }
+}
+
+function previewPhoto(p: any) {
+  const url = photoUrls.value[p.id];
+  if (!url) return;
+  window.open(url, '_blank');
+}
+
+async function removePhoto(p: any) {
+  try {
+    await ElMessageBox.confirm(`确定删除这张现场照片？\n${p.fileName || ''}`, '删除确认', { type: 'warning' });
+  } catch {
+    return; // 用户取消
+  }
+  try {
+    await fileApi.remove(p.id);
+  } catch (e: any) {
+    // 后端只允许「本人上传」或管理员删除，权限说明直接透传比「删除失败」有用
+    ElMessage.error(e?.response?.data?.message || '删除失败');
+    return;
+  }
+  if (photoUrls.value[p.id]) URL.revokeObjectURL(photoUrls.value[p.id]);
+  delete photoUrls.value[p.id];
+  photos.value = photos.value.filter((x) => x.id !== p.id);
+}
+
 async function reload() {
   const id = Number(route.params.id);
   const res = await personApi.detail(id);
@@ -188,9 +277,16 @@ onMounted(async () => {
   loading.value = true;
   try {
     await reload();
+    // 照片单独取：它依赖 file:view 权限，取不到也不该让档案页整体报错
+    await loadPhotos();
   } finally {
     loading.value = false;
   }
+});
+
+// blob URL 不会自己释放，离开页面必须逐个 revoke，否则反复进出详情页会一直占着内存
+onUnmounted(() => {
+  Object.values(photoUrls.value).forEach((u) => URL.revokeObjectURL(u));
 });
 </script>
 
@@ -251,5 +347,53 @@ onMounted(async () => {
 .tag-basis {
   font-size: var(--font-size-xs);
   color: var(--color-text-placeholder);
+}
+/* 现场照片：小格子平铺，点图看大图。缩略图固定 120px 高，长宽比不同的照片也不会把网格撑乱 */
+.photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.photo {
+  width: 160px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.photo img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  cursor: zoom-in;
+  background: var(--color-bg-subtle);
+}
+.photo-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 120px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-placeholder);
+  background: var(--color-bg-subtle);
+}
+.photo-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+.photo-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-time {
+  color: var(--color-text-placeholder);
+  white-space: nowrap;
 }
 </style>

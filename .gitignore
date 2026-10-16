@@ -33,6 +33,14 @@ backups/
 *.sql.gz
 *.dump
 
+# === 用户上传的附件（含现场照片、合同扫描件，严禁提交） ===
+# 后端 UPLOAD_DIR 默认落在 ./uploads（本地开发），
+# 生产环境下绑载到 deploy/data/uploads（见 deploy/docker-compose.yml 的 UPLOAD_DIR_HOST）。
+# 这些是村民的现场照片与合同扫描件，一旦 commit 进来，删掉文件也还在历史里；
+# 而且跑一次后端测试就会在 backend/uploads 下落文件。
+uploads/
+deploy/data/
+
 # === 操作系统 / 编辑器 ===
 .DS_Store
 Thumbs.db

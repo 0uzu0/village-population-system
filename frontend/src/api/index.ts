@@ -142,5 +142,12 @@ export const ledgerApi = {
 // ===== 通用附件 =====
 export const fileApi = {
   upload: (formData: FormData) => post('/files/upload', formData),
+  /**
+   * 按归属对象查附件（`bizType=PERSON&bizId=12`）。
+   * 人员详情的「现场照片」区靠它把移动端上传的留痕照片读回来——
+   * 照片是按 bizType/bizId 挂到人身上的，不按人查就只能翻整个附件表。
+   */
+  listByBiz: (bizType: 'PERSON' | 'LEDGER', bizId: number, pageSize = 100) =>
+    get<PageResult>('/files', { bizType, bizId, pageSize }),
   remove: (id: number) => del(`/files/${id}`),
 };

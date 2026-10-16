@@ -41,7 +41,14 @@ services:
       ADMIN_INIT_NAME: ${ADMIN_INIT_NAME:-系统管理员}
       UPLOAD_DIR: /app/uploads
     volumes:
-      - uploads_data:/app/uploads
+      # 「绑到宿主机目录」而不是 docker named volume —— 附件（现场照片、合同扫描件）
+      # 是这套系统里**唯一不能靠重新部署恢复的东西**：数据库有迁移和备份，
+      # 代码有镜像，而照片丢了就是丢了。
+      # named volume 的文件藏在 /var/lib/docker/volumes/... 里，root 权限、哈希目录名，
+      # 想用文件管理器看一眼或 rsync 到 NAS 都得先想半天路径；
+      # 绑到宿主机目录后，备份就是 cp/tar/rsync 一个普通文件夹，也能直接在网页端看不到时
+      # 手动翻目录确认照片在不在。默认落在 deploy/data/uploads，可用 UPLOAD_DIR_HOST 改。
+      - ${UPLOAD_DIR_HOST:-./data/uploads}:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -106,7 +113,8 @@ services:
 
 volumes:
   mysql_data:      # 数据库持久化卷
-  uploads_data:    # 上传/导出文件持久化卷
+  # 附件不再用 named volume：已改为绑到宿主机目录（见 backend.volumes 的说明）。
+  # 老部署如果已有 uploads_data 卷，按 README「从 named volume 迁到宿主机目录」一节搬一次。
 
 networks:
   web:             # 对外网络（仅 frontend 暴露端口）
