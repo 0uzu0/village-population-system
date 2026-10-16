@@ -53,8 +53,10 @@ cd android
 ./gradlew assembleRelease -PapiBaseUrl=http://192.168.1.100:8080/ -PversionName=1.0.0
 ```
 
-自动打包见 `.github/workflows/android.yml`：push 到 `main`（改动涉及 `android/**`）出 debug 包，
-打 `v*` 标签出 release 包并发布到 GitHub Release。设计说明见
+自动打包见 `.github/workflows/android.yml`：push 到 `main`（改动涉及 `android/**`）会同时产出
+`app-debug` 与 `app-release` 两个安装包（只有 PR 不出 release，省 CI）；打 `v*` 标签还会把
+release 包挂到 GitHub Release。正式签名需要把 4 个 `ANDROID_KEYSTORE_*` / `ANDROID_KEY_*`
+密钥全部配齐，缺任意一项会自动降级为 debug 签名（能装、不能上架）。设计说明见
 [docs/移动端设计说明.html](docs/移动端设计说明.html)。
 
 ## 快速开始（本地开发）

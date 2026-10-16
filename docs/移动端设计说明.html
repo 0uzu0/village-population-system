@@ -1125,13 +1125,13 @@
         <tbody>
           <tr>
             <td>push 到 <code>main</code>（且改动涉及 <code>android/**</code>）</td>
-            <td><code>掌上村务-debug-&lt;sha7&gt;.apk</code></td>
-            <td>每次提交都出一个能装机的包，供测试机安装</td>
+            <td><code>掌上村务-debug-&lt;sha7&gt;.apk</code> + <code>掌上村务-0.0.&lt;run&gt;.apk</code>（release）</td>
+            <td>每次提交都出两个包：debug 供测试机安装，release 供实际分发</td>
           </tr>
           <tr>
             <td>Pull Request 到 <code>main</code></td>
             <td>单元测试报告 + debug APK</td>
-            <td>合并前拦住回归；测试报告失败时也上传，便于定位</td>
+            <td>合并前拦住回归；测试报告失败时也上传，便于定位。<b>不出 release</b>，省 CI</td>
           </tr>
           <tr>
             <td>打 <code>v*</code> 标签</td>
@@ -1140,7 +1140,7 @@
           </tr>
           <tr>
             <td>手动触发（workflow_dispatch）</td>
-            <td>release APK，可指定服务器地址</td>
+            <td>release APK（可用 <code>build_release</code> 关掉），可指定服务器地址</td>
             <td>需要临时给某个村出一个指向特定地址的包时用</td>
           </tr>
         </tbody>
@@ -1162,10 +1162,18 @@
       <div class="card">
         <h4>签名缺失时回退 debug 签名</h4>
         <p style="font-size:14px; margin-bottom:0">
-          仓库里不放签名文件。若配置了 4 个签名相关的仓库密钥，release 包用正式签名；
-          否则自动回退到 debug 签名，并在日志里明确提示。
+          仓库里不放签名文件。<b>4 个签名密钥全部配齐</b>时 release 包用正式签名；
+          缺任意一项就回退到 debug 签名，并在日志与 Job Summary 里明确提示。
           <b>目的是保证流水线永远给出一个「能装上、能跑」的 APK</b>，
           而不是一个谁也装不了的 unsigned 包。
+        </p>
+        <p style="font-size:14px; margin-bottom:0">
+          ⚠️ 只配了 <code>ANDROID_KEYSTORE_BASE64</code> 是最常见的坑：那时 Gradle 会
+          因为口令为空直接报错，结果是<b>一个 release 包都出不来</b>。所以密钥按「全配或全不配」处理。
+        </p>
+        <p style="font-size:14px; margin-bottom:0">
+          ⚠️ debug 签名的 release 包与正式签名包<b>签名不同</b>，同名应用覆盖安装会失败，
+          换正式包前需要先卸载。
         </p>
       </div>
 
@@ -1188,7 +1196,7 @@
       </div>
     </div>
 
-    <h3>需要的仓库密钥（可选）</h3>
+    <h3>需要的仓库密钥（四个必须齐全，否则回退 debug 签名）</h3>
     <pre><code>ANDROID_KEYSTORE_BASE64     keystore 文件的 base64（base64 -w0 release.jks &gt; keystore.txt）
 ANDROID_KEYSTORE_PASSWORD   keystore 口令
 ANDROID_KEY_ALIAS           密钥别名

@@ -52,23 +52,31 @@ const CHECKS = [
     params: [],
   },
   {
-    name: '网格重点人群聚合（条件聚合，本次优化点）',
-    sql: `EXPLAIN SELECT g.id,
-            COUNT(DISTINCT CASE WHEN td.code IN ('PARTY_MEMBER','PARTY_PROBATIONARY') THEN p.id END) AS party_count
-          FROM grid g
-          LEFT JOIN person p ON p.grid_id = g.id AND p.status IN ('NORMAL','MOVED_IN')
-          LEFT JOIN person_tag pt ON pt.person_id = p.id AND pt.status = 'ACTIVE'
-          LEFT JOIN tag_definition td ON td.id = pt.tag_id
-          WHERE g.id IN (1,2,3)
-          GROUP BY g.id`,
+    name: '重点人群聚合（网格/村庄共用：按「分组列 × 人群」两列聚合）',
+    sql: `EXPLAIN SELECT p.grid_id AS grp,
+            CASE WHEN td.code IN ('PARTY_MEMBER','PARTY_PROBATIONARY') THEN 'party_count' END AS count_key,
+            COUNT(DISTINCT p.id) AS cnt
+          FROM person p
+          JOIN person_tag pt ON pt.person_id = p.id AND pt.status = 'ACTIVE'
+          JOIN tag_definition td ON td.id = pt.tag_id
+          WHERE p.grid_id IN (1,2,3) AND p.status IN ('NORMAL','MOVED_IN')
+            AND td.code IN ('PARTY_MEMBER','PARTY_PROBATIONARY')
+          GROUP BY p.grid_id, count_key`,
     params: [],
   },
   {
-    name: '村庄维度统计',
-    sql: `EXPLAIN SELECT p.village, COUNT(DISTINCT p.id) AS person_count
+    name: '村庄维度统计 · 人口数（不与标签相连，走 village+status 索引）',
+    sql: `EXPLAIN SELECT p.village, COUNT(*) AS person_count
           FROM person p
-          LEFT JOIN person_tag pt ON pt.person_id = p.id AND pt.status = 'ACTIVE'
-          LEFT JOIN tag_definition td ON td.id = pt.tag_id
+          WHERE p.village IS NOT NULL AND p.village <> '' AND p.status IN ('NORMAL','MOVED_IN')
+          GROUP BY p.village`,
+    params: [],
+  },
+  {
+    name: '村庄维度统计 · 家庭数（一遍平铺 GROUP BY，替代每村一次的相关子查询）',
+    sql: `EXPLAIN SELECT p.village, COUNT(DISTINCT fm.family_id) AS family_count
+          FROM person p
+          JOIN family_member fm ON fm.person_id = p.id
           WHERE p.village IS NOT NULL AND p.village <> '' AND p.status IN ('NORMAL','MOVED_IN')
           GROUP BY p.village`,
     params: [],

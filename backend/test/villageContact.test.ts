@@ -41,12 +41,26 @@ describe('V012 村庄联系人迁移', () => {
 });
 
 describe('村庄列表接口带出负责人/手机号', () => {
-  it('/villages 无条件 LEFT JOIN village_contact 并 SELECT 两列', () => {
-    // 无条件 JOIN：否则前端要展示的列会静默空白（本项目已踩过两次）
-    expect(gridSrc).toContain('LEFT JOIN village_contact vc ON vc.village_name = p.village');
-    expect(gridSrc).toMatch(/vc\.manager,/);
-    expect(gridSrc).toMatch(/vc\.phone,/);
-    expect(gridSrc).toContain('GROUP BY p.village, vc.manager, vc.phone');
+  const handler = gridSrc.slice(
+    gridSrc.indexOf("router.get('/villages'"),
+    gridSrc.indexOf("router.put('/villages/contact'")
+  );
+
+  it('/villages 的负责人/手机号取自 village_contact，且无条件带出', () => {
+    expect(handler.length).toBeGreaterThan(0);
+    // 整表取回后按村庄名映射，不做任何过滤：否则前端要展示的列会静默空白（本项目已踩过两次）
+    expect(handler).toContain('SELECT village_name, manager, phone FROM village_contact');
+    expect(handler).toContain('const contact = contactMap.get(r.name)');
+    expect(handler).toContain('manager: contact?.manager ?? null');
+    expect(handler).toContain('phone: contact?.phone ?? null');
+  });
+
+  it('/villages 不再把标签连接并进主查询（那是「按小村庄查询很慢」的根因）', () => {
+    // 人口数必须是与标签无关的普通 COUNT(*)：一旦重新 JOIN person_tag，
+    // 行数会被标签放大，只能在同一个 GROUP BY 里堆 COUNT(DISTINCT)，慢查询就回来了
+    expect(handler).toContain('COUNT(*) AS person_count');
+    expect(handler).not.toContain('COUNT(DISTINCT p.id) AS person_count');
+    expect(handler).not.toContain('GROUP BY p.village, vc.manager, vc.phone');
   });
 });
 

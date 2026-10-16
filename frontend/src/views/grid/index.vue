@@ -12,7 +12,8 @@
       </el-button>
     </div>
 
-    <div class="vp-container">
+    <!-- 加载遮罩：村庄维度的统计要按村聚合，慢一点时原来毫无反馈，容易让人以为页面卡死 -->
+    <div v-loading="loading" class="vp-container">
       <div class="vp-search-bar">
         <el-radio-group v-model="dimension" @change="onDimensionChange">
           <el-radio-button value="grid">按网格</el-radio-button>
