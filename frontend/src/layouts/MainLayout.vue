@@ -18,6 +18,13 @@
           <template #title>{{ item.title }}</template>
         </el-menu-item>
       </el-menu>
+
+      <!--
+        当前构建标识。部署后如果发现「新功能没上线」，先看这里：
+        版本/时间和刚构建的那版对不上，就说明跑的还是旧包（镜像没更新或缓存了旧 HTML），
+        而不是功能没做。
+      -->
+      <div v-if="!collapsed" class="build-stamp" :title="`当前页面构建于 ${buildLabel}`">{{ buildLabel }}</div>
     </aside>
 
     <!-- 主区域 -->
@@ -91,6 +98,14 @@ const collapsed = ref(false);
 const pwdVisible = ref(false);
 const pwdLoading = ref(false);
 const pwdForm = ref({ oldPassword: '', newPassword: '' });
+
+/**
+ * 构建版本（编译期常量，见 vite.config.ts 的 define）。
+ * 先赋给局部变量再用到模板里：直接写 __APP_BUILD__ 会被模板编译器
+ * 当成 `_ctx.__APP_BUILD__`，而 define 的文本替换会让它变成 `_ctx."v1.0.0 · ..."`
+ * 这种语法错误。
+ */
+const buildLabel = __APP_BUILD__;
 
 interface MenuItem {
   path: string;
@@ -204,6 +219,16 @@ async function submitPassword() {
 .menu {
   border-right: none;
   flex: 1;
+}
+/* 侧栏底部的构建标识：不抢视觉，但更新后要能一眼找到 */
+.build-stamp {
+  padding: 0 8px 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .menu :deep(.el-menu-item) {
   border-radius: var(--radius-button);

@@ -3,8 +3,28 @@ import vue from '@vitejs/plugin-vue';
 import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import { fileURLToPath, URL } from 'node:url';
+import { readFileSync } from 'node:fs';
+
+/**
+ * 构建标识，注入到 `__APP_BUILD__`，显示在侧边栏底部。
+ *
+ * 为什么要有这个：前端是「index.html + 哈希文件名资源」的静态包，
+ * 部署更新后如果看到的还是旧功能，最先要回答的问题就是
+ * **「我现在跑的到底是哪一版」**——是镜像没更新、还是浏览器/代理缓存了旧包。
+ * 版本号 + 构建时间摆在那里，一眼就能对上或对不上。
+ *
+ * 强制用 Asia/Shanghai 格式化：镜像构建在 UTC 的容器里跑，
+ * 直接用本地时间会出现「构建于今天早上 7 点」这种跟人对不上的时间。
+ */
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
+const buildLabel = `v${pkg.version} · ${new Date()
+  .toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' })
+  .slice(0, 16)}`;
 
 export default defineConfig({
+  define: {
+    __APP_BUILD__: JSON.stringify(buildLabel),
+  },
   plugins: [
     vue(),
     /**

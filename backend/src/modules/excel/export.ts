@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { query, execute } from '../../config/db';
+import { query, queryOne, execute } from '../../config/db';
 import { requirePermission, buildGridFilter } from '../../middleware/rbac';
-import { ok } from '../../utils/response';
+import { ok, AppError } from '../../utils/response';
 import { buildAgeFilter } from '../../utils/tagQuery';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../../utils/disability';
 import { formatDateOrEmpty } from '../../utils/date';
@@ -305,6 +305,33 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     await execute("UPDATE export_task SET status = 'FAILED', finished_at = NOW() WHERE id = ?", [taskId]);
     throw err;
   }
+});
+
+/**
+ * 导出任务列表（最近 50 条）。
+ * 「数据导入导出」页的导出记录表格用它填充，operator_name 走 sys_user 关联。
+ */
+router.get('/export-tasks', requirePermission('excel:export'), async (_req: Request, res: Response) => {
+  const rows = await query<any>(
+    `SELECT et.*, u.real_name AS operator_name FROM export_task et
+       LEFT JOIN sys_user u ON u.id = et.created_by
+      ORDER BY et.created_at DESC LIMIT 50`
+  );
+  return ok(res, rows);
+});
+
+/**
+ * 下载导出结果。
+ * 文件落盘路径记在 file_info.storage_path，此处按 export_task.file_id 反查，
+ * 不做路径拼接（避免把任务 id 当文件名，也避免用户可控的路径）。
+ */
+router.get('/export-tasks/:id/download', requirePermission('excel:export'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const task = await queryOne<any>('SELECT * FROM export_task WHERE id = ?', [id]);
+  if (!task || !task.file_id) throw new AppError('导出文件不存在', 404, 'NOT_FOUND');
+  const file = await queryOne<any>('SELECT * FROM file_info WHERE id = ?', [task.file_id]);
+  if (!file || !fs.existsSync(file.storage_path)) throw new AppError('导出文件已丢失', 404, 'NOT_FOUND');
+  res.download(file.storage_path, file.file_name);
 });
 
 export default router;
