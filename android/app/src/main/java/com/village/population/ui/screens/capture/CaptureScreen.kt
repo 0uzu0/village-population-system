@@ -65,6 +65,7 @@ import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
+import com.village.population.ui.theme.AppShapes
 import com.village.population.util.DateText
 import com.village.population.util.isNetworkProblem
 import com.village.population.util.toUserMessage
@@ -300,7 +301,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(
                         onClick = { pickerOpen = true },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                     ) {
                         Icon(Icons.Filled.Person, contentDescription = null)
@@ -358,7 +359,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = ::beginCapture,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.weight(1f).height(48.dp),
                     ) {
                         Icon(Icons.Filled.PhotoCamera, contentDescription = null)
@@ -366,7 +367,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     }
                     OutlinedButton(
                         onClick = { pickImage.launch("image/*") },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.weight(1f).height(48.dp),
                     ) {
                         Icon(Icons.Filled.Image, contentDescription = null)
@@ -424,13 +425,13 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = ::discard,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(AppShapes.control),
                             modifier = Modifier.height(48.dp),
                         ) { Text("删除重拍") }
                         Button(
                             onClick = ::startUpload,
                             enabled = !uploading && person != null,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(AppShapes.control),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
@@ -477,7 +478,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                             container.syncManager.requestSync()
                             message = CapMessage("已请求同步，请稍后查看「我的 → 待同步记录」", CapLevel.OK)
                         },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("立即同步") }
                 }
@@ -532,7 +533,7 @@ private fun PendingPhotoViewer(
     }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(shape = RoundedCornerShape(AppShapes.card), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(12.dp)) {
                 AsyncImage(
                     model = request,
@@ -628,7 +629,7 @@ private fun PersonPickerDialog(
     LaunchedEffect(Unit) { search() }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(shape = RoundedCornerShape(AppShapes.card), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(16.dp)) {
                 Text("选择关联人员", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(10.dp))
@@ -638,7 +639,7 @@ private fun PersonPickerDialog(
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     placeholder = { Text("搜姓名 / 身份证号 / 手机号") },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(AppShapes.control),
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
                         TextButton(onClick = { search() }) { Text("搜索") }

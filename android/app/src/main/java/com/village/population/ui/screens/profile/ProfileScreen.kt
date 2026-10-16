@@ -52,6 +52,7 @@ import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.FormField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
+import com.village.population.ui.theme.AppShapes
 import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.first
@@ -125,7 +126,9 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
             // 摊成三张卡片会让页面显得比实际长了三倍
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(AppShapes.card),
+                shadowElevation = AppShapes.cardElevation,
+                tonalElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
@@ -173,7 +176,7 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
 
             OutlinedButton(
                 onClick = { showLogoutDialog = true },
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) { Text("退出登录") }
 

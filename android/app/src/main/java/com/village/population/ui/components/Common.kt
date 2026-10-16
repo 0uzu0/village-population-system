@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
 
 /**
@@ -154,7 +155,7 @@ fun OfflineBanner(text: String, modifier: Modifier = Modifier) {
     Surface(
         color = t.amberBg,
         contentColor = t.amber,
-        shape = RoundedCornerShape(9.dp),
+        shape = RoundedCornerShape(AppShapes.card),
         border = BorderStroke(1.dp, t.amberLine),
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -178,15 +179,17 @@ fun OfflineBanner(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** 指标块的色调档位，对应设计稿 `.stat` / `.stat` 绿底 / `.stat.q` */
+/** 指标块的色调档位，对应设计稿 `.stat` / `.stat.q`。
+ *
+ *  只有两档：首要数字（品牌浅底）与参照数字（安静灰）。
+ *  原第三档 Green 是家庭户数专用——改版时按设计稿删掉：一屏四张卡里
+ *  出现第三种底色，会把平级的四个数字读出主次，而家庭户数与户籍/常住
+ *  本质都是参照数，不该比总人口更「跳」。 */
 enum class StatTone {
     /** 品牌极浅底 + 品牌字（在册人口这类首要数字） */
     Primary,
 
-    /** 绿底 + 绿字（家庭户数） */
-    Green,
-
-    /** 中性极浅底 + 二级墨色字（户籍/常住这类参照数字，不能跟首要数字抢眼） */
+    /** 中性极浅底 + 二级墨色字（家庭户数/户籍/常住这类参照数字，不能跟首要数字抢眼） */
     Quiet,
 }
 
@@ -203,21 +206,23 @@ fun StatCard(
     val t = AppTheme.tokens
     val bg = when (tone) {
         StatTone.Primary -> t.brandFaint
-        StatTone.Green -> t.greenBg
         StatTone.Quiet -> t.quiet
     }
     val fg = when (tone) {
         StatTone.Primary -> t.brand
-        StatTone.Green -> t.green
         StatTone.Quiet -> t.ink2
     }
     Surface(
         color = bg,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(AppShapes.card),
+        // 只加阴影、不加 tonalElevation：tonal 会给卡片叠一层品牌色染色，
+        // 与设计稿里「白卡就是白卡」的取值对不上；阴影才是层次的来源
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
         modifier = if (onClick != null) modifier.clickableNoRipple(true, onClick) else modifier,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 11.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -261,10 +266,12 @@ fun SectionCard(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(AppShapes.card),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
@@ -305,7 +312,7 @@ fun InfoRow(label: String, value: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** 普通文本输入，形状对齐设计稿 `.fld`（白底 + 1px 描边 + 10px 圆角） */
+/** 普通文本输入，形状对齐设计稿 `.fld`（白底 + 1px 描边 + 中等圆角） */
 @Composable
 fun FormField(
     label: String,
@@ -326,7 +333,7 @@ fun FormField(
         singleLine = singleLine,
         enabled = enabled,
         isError = false,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(AppShapes.control),
         supportingText = supportingText?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = modifier.fillMaxWidth(),
@@ -351,6 +358,7 @@ fun SearchField(
         onValueChange = onValueChange,
         placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        shape = RoundedCornerShape(AppShapes.control),
         trailingIcon = {
             if (value.isNotEmpty()) {
                 IconButton(onClick = { onValueChange(""); onSearch?.invoke() }) {
@@ -359,7 +367,6 @@ fun SearchField(
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(10.dp),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
         modifier = modifier.fillMaxWidth(),
@@ -422,7 +429,7 @@ fun GrowRow(
 ) {
     Surface(
         color = if (showCard) MaterialTheme.colorScheme.surface else Color.Transparent,
-        shape = RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(AppShapes.card),
         modifier = modifier.fillMaxWidth().clickableNoRipple(true, onClick),
     ) {
         Row(
@@ -505,7 +512,9 @@ fun QCard(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(AppShapes.card),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(Modifier.height(IntrinsicSize.Min)) {
@@ -549,7 +558,7 @@ fun PickerField(
             enabled = enabled,
             label = { Text(label) },
             placeholder = { Text(placeholder) },
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(AppShapes.control),
             trailingIcon = {
                 Row {
                     if (allowClear && value.isNotBlank()) {
@@ -571,7 +580,7 @@ fun PickerField(
             else options.filter { it.label.contains(keyword, ignoreCase = true) }
         }
         Dialog(onDismissRequest = { open = false; keyword = "" }) {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+            Surface(shape = RoundedCornerShape(AppShapes.card), color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.padding(16.dp)) {
                     Text(label, style = MaterialTheme.typography.titleMedium)
                     if (searchable && options.size > 8) {
@@ -582,7 +591,7 @@ fun PickerField(
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                             placeholder = { Text("搜索") },
                             singleLine = true,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(AppShapes.control),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

@@ -156,18 +156,26 @@ private fun schemeFrom(t: AppTokens, dark: Boolean): ColorScheme {
 }
 
 /**
- * 字号整体比 Material 默认大一号。
- * 使用者是村干部和网格员，相当一部分人戴老花镜——把「看起来精致」让位给「看得清」，
- * 是本应用在排版上唯一的一条硬规则。
- * 设计稿标注的字号是「手机屏幕上的视觉参考」，这里只借用它的**层级关系**，
- * 绝对字号按下表往上抬一档。
+ * 字号阶梯（2026-10-17 改版校订）。
+ *
+ * 旧规则是「17sp/22sp 锁死不动，为老花镜村干部不因好看调小」。改版评审时删除该
+ * 硬规则，改为按「阅读舒适度」校订层级——原阶梯的问题不是不够大，而是**层级
+ * 没拉开**：标题 22 与正文 17 只差 5sp，卡片标题与正文只差 3sp，屏幕上分不清
+ * 谁是谁；而真正该小的辅助信息（说明、时间戳）又和正文一样大，一屏全是重点。
+ *
+ * 校订方向：层级拉开、正文守住可读下限（17sp 不动）、辅助信息允许更小
+ * （13 → 12），指标数字按设计稿抬到 23sp。整体比 Material 默认仍然大一号——
+ * 「看得清」这条底线没有放弃，只是不再用它当「不许动」的理由。
  */
 private val AppTypography = androidx.compose.material3.Typography(
-    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, lineHeight = 30.sp),
-    titleMedium = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium, lineHeight = 26.sp),
+    /** 页面主标题、指标数字（23sp：设计稿指标格取值，比旧 22 再抬一档） */
+    titleLarge = TextStyle(fontSize = 23.sp, fontWeight = FontWeight.SemiBold, lineHeight = 31.sp),
+    /** 卡片标题、人员姓名、问候语（18 → 20sp，与正文拉开到 3sp 以上） */
+    titleMedium = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold, lineHeight = 28.sp),
     bodyLarge = TextStyle(fontSize = 17.sp, lineHeight = 25.sp),
     bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
-    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 19.sp),
+    /** 辅助说明、时间戳（13 → 12sp：给正文让位，不再一屏全是重点） */
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
     labelLarge = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
 )
 

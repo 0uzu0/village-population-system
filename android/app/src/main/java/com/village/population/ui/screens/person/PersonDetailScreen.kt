@@ -65,6 +65,7 @@ import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppTheme
+import com.village.population.ui.theme.AppShapes
 import com.village.population.util.DateText
 import com.village.population.util.PersonText
 import com.village.population.util.dial
@@ -235,7 +236,9 @@ fun PersonDetailScreen(
                 // 身份卡（设计稿首页那张卡）：头像 + 姓名 + 状态 + 一行摘要
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(AppShapes.card),
+                    shadowElevation = AppShapes.cardElevation,
+                    tonalElevation = 0.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
@@ -453,7 +456,9 @@ private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
     }
     Surface(
         color = tokens.quiet,
-        shape = RoundedCornerShape(9.dp),
+        shape = RoundedCornerShape(AppShapes.card),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
         modifier = Modifier
             .width(84.dp)
             .height(84.dp)
@@ -517,7 +522,7 @@ private fun PhotoViewerDialog(
         value = runCatching { files.imageFile(photo.id) }.getOrNull()
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(shape = RoundedCornerShape(AppShapes.card), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(12.dp)) {
                 val loaded = file
                 if (loaded != null) {

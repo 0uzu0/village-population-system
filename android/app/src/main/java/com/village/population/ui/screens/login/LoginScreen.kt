@@ -49,6 +49,7 @@ import com.village.population.data.repository.AuthRepository
 import com.village.population.ui.components.FormField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
+import com.village.population.ui.theme.AppShapes
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -187,7 +188,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 onValueChange = vm::onUsername,
                 label = { Text("账号") },
                 singleLine = true,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -195,7 +196,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 onValueChange = vm::onPassword,
                 label = { Text("密码") },
                 singleLine = true,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -213,7 +214,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
             // 需要改的时候必须一眼找得到，所以放成显式的一行而不是藏进菜单
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickableNoRipple(true) { vm.toggleServerConfig() },
@@ -253,7 +254,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
             Button(
                 onClick = { vm.login(onLoggedIn) },
                 enabled = !state.loading,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text(if (state.loading) "登录中…" else "登 录", style = MaterialTheme.typography.labelLarge)
@@ -275,7 +276,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = vm::saveBaseUrl,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.weight(1f),
                     ) { Text("保存地址") }
                     TextButton(onClick = vm::resetBaseUrl, modifier = Modifier.weight(1f)) { Text("恢复默认") }

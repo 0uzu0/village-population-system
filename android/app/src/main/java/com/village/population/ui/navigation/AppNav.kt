@@ -204,6 +204,10 @@ fun AppRoot() {
                                     TabIcon(tab.route, badge = if (tab.route == Routes.PENDING) pendingOps else 0)
                                 },
                                 label = { Text(tab.label) },
+                                // 选中态胶囊：M3 的 indicator 默认就是全圆角胶囊形，
+                                // 这里只需给色（brandLight 浅蓝底）。设计稿选定胶囊而不是
+                                // 只换图标色——户外强光下「形状变化」比「色相变化」可靠。
+                                // 胶囊形状随 M3 默认提供，不要在这里自定义形状「改进」它。
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = tokens.brand,
                                     selectedTextColor = tokens.brand,

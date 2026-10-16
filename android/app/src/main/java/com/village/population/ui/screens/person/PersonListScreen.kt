@@ -3,6 +3,8 @@ package com.village.population.ui.screens.person
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
@@ -57,6 +61,7 @@ import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SearchField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
+import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
@@ -227,6 +232,9 @@ fun PersonListScreen(
                 text = { Text("新增") },
                 containerColor = tokens.brand,
                 contentColor = androidx.compose.ui.graphics.Color.White,
+                // 阴影与卡片同一档（4dp）。默认 6dp 比卡片还重，
+                // 悬浮件比内容层还「糊」不符合层次关系
+                shadowElevation = AppShapes.cardElevation,
             )
         },
     ) { padding ->
@@ -358,7 +366,7 @@ private fun VillageChooserDialog(
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(AppShapes.card),
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.padding(16.dp)) {
@@ -370,7 +378,7 @@ private fun VillageChooserDialog(
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     placeholder = { Text("搜索村名") },
                     singleLine = true,
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(AppShapes.control),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -417,6 +425,10 @@ private fun VillageChooserDialog(
  * 这里用完整号码、不做脱敏：这一屏就是拿着手机对着人核身份的，
  * 抹掉前 6 位与中间位之后反而没法逐位核对。号码太长时按行尾省略，
  * 点进详情能看到完整的。
+ *
+ * 卡片化（设计稿 v3 定稿）：20dp 圆角 + 4dp 阴影 + 16dp 留白，
+ * 与首页指标卡、分区卡同一套 [AppShapes]；头像圆牌把视觉重心收到左侧，
+ * 扫读时先落点再落到文字。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -424,49 +436,72 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
     val tokens = AppTheme.tokens
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(AppShapes.card),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
+        // 1px 浅描边兜底：个别低端机 Layer 合成会裁掉阴影，描边保证层次不消失
+        border = BorderStroke(1.dp, tokens.line),
         modifier = Modifier.fillMaxWidth().clickableNoRipple(true, onClick),
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .background(tokens.brandLight, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
-                    person.name,
+                    person.name.take(1),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = tokens.ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(Modifier.width(7.dp))
-                DotLabel(
-                    "${if (person.gender == "FEMALE") "女" else "男"} · " +
-                        "${person.age ?: DateText.ageOf(person.birthDate) ?: "?"} 岁",
-                    tokens.ink2,
+                    color = tokens.brandStrong,
                 )
             }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                listOfNotNull(
-                    person.idCard?.takeIf { it.isNotBlank() },
-                    person.village?.takeIf { it.isNotBlank() },
-                ).joinToString(" · ").ifBlank { "—" },
-                style = MaterialTheme.typography.bodySmall,
-                color = tokens.ink3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (person.tags.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    person.tags.take(4).forEach { tag ->
-                        DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
-                    }
-                    if (person.tags.size > 4) {
-                        DotLabel("+${person.tags.size - 4}", tokens.ink3)
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        person.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tokens.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    DotLabel(
+                        "${if (person.gender == "FEMALE") "女" else "男"} · " +
+                            "${person.age ?: DateText.ageOf(person.birthDate) ?: "?"} 岁",
+                        tokens.ink2,
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    listOfNotNull(
+                        person.idCard?.takeIf { it.isNotBlank() },
+                        person.village?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ").ifBlank { "—" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (person.tags.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        person.tags.take(4).forEach { tag ->
+                            DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
+                        }
+                        if (person.tags.size > 4) {
+                            DotLabel("+${person.tags.size - 4}", tokens.ink3)
+                        }
                     }
                 }
             }

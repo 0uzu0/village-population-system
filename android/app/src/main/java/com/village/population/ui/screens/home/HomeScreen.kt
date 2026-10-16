@@ -1,6 +1,7 @@
 package com.village.population.ui.screens.home
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Icon
@@ -28,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +57,7 @@ import com.village.population.ui.components.StatTone
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.navigation.Routes
+import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
@@ -141,31 +146,33 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            // 问候行：头像圆牌 + 问候 + 今天日期 + 口径说明。
-            // 设计稿的首页第一屏就是「谁、什么时候、看的是什么口径」，三样齐了才敢往外报数
+            // 头部（设计稿 v3「浅色简洁头卡」）：不加底色，跟随页面灰底。
+            // 品牌蓝不做大面积色块，只收在头像这一颗锚点里——大面积品牌色显沉，
+            // 报数界面更需要干净的浅色阅读区
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
-                            .size(38.dp)
-                            .background(tokens.brandLight, CircleShape),
+                            .size(44.dp)
+                            .background(tokens.brand, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             (user?.displayName ?: "村").take(1),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = tokens.brandStrong,
+                            color = Color.White,
                         )
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             "你好，${user?.displayName ?: "网格员"}",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = tokens.ink,
                         )
+                        Spacer(Modifier.height(2.dp))
                         Text(
                             DateText.today(),
                             style = MaterialTheme.typography.bodySmall,
@@ -173,14 +180,34 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                // 口径说明常驻在首屏顶部：这套数字要拿去开会、填报表，
-                // 什么算进来、什么不算，必须跟数字一起出现，不能藏在帮助页里
-                Text(
-                    "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；各人群之间存在交叉，不可相加。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.ink3,
-                )
+                Spacer(Modifier.height(12.dp))
+                // 口径说明独立成卡（设计稿 v3）：原先是紧贴头部的灰色小字，
+                // 开会报数的人最需要的一句话反而是全屏最不显眼的元素。
+                // 淡蓝底 + 深蓝字 + info 图标，紧跟头部但已不属于头卡
+                Surface(
+                    color = tokens.brandFaint,
+                    shape = RoundedCornerShape(AppShapes.card),
+                    border = BorderStroke(1.dp, tokens.line2),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = tokens.brandStrong,
+                            modifier = Modifier.size(15.dp).padding(top = 2.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；各人群之间存在交叉，不可相加。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.brandStrong,
+                        )
+                    }
+                }
             }
 
             if (state.fromCache) {
@@ -220,7 +247,9 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                                 Modifier.weight(1f), StatTone.Primary,
                                 onClick = { onNavigate(Routes.PERSONS) },
                             )
-                            StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), StatTone.Green)
+                            // 家庭户数与户籍/常住同为参照数字，统一安静灰底（设计稿 v3）：
+                            // 四张卡三种底色会把平级数字读出主次
+                            StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -339,7 +368,7 @@ private fun QuickActionTile(
     val tokens = AppTheme.tokens
     Surface(
         color = tokens.brandFaint,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(AppShapes.control),
         modifier = modifier.clickableNoRipple(true, onClick),
     ) {
         Row(
