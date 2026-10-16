@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { formatDate, formatDateOrEmpty, today } from '../src/utils/date';
+import { formatDate, formatDateOrEmpty, today, dateTimeCN } from '../src/utils/date';
 import { calcAge } from '../src/utils/age';
 
 const SRC_DIR = path.resolve(__dirname, '../src');
@@ -89,6 +89,73 @@ describe('formatDate', () => {
       const src = fs.readFileSync(path.join(SRC_DIR, f), 'utf8');
       expect(src.includes('toISOString().slice'), `${f} 又出现了 toISOString().slice，会导致日期少一天`).toBe(false);
     }
+  });
+});
+
+/**
+ * DATETIME 对外口径。
+ *
+ * mysql2 的 `dateStrings` 只对 DATE 生效，DATETIME 仍会被解析成 Date；
+ * 一旦把它塞进 `res.json()`，JSON 序列化出的就是 UTC 的 ISO 串
+ * `2026-10-16T05:00:00.000Z`。客户端只要有一次「图省事」直接切前 16 位，
+ * 13:00 拍的现场照片就会显示成 05:00 —— 整整少 8 小时，
+ * 而且同一个文件的**名字**里写的又是 13:00，两处对不上。
+ *
+ * 所以由服务端统一换成无歧义的北京时间文本，客户端只做展示、不做换算。
+ */
+describe('dateTimeCN：DATETIME 按北京时间输出朴素文本', () => {
+  it('UTC 05:00 对应北京时间 13:00', () => {
+    // 这正是「显示成 8 小时前」的那个场景
+    expect(dateTimeCN(new Date('2026-10-16T05:00:00Z'))).toBe('2026-10-16 13:00:00');
+  });
+
+  it('跨零点按北京时间换日', () => {
+    expect(dateTimeCN(new Date('2026-10-16T17:30:45Z'))).toBe('2026-10-17 01:30:45');
+  });
+
+  it('补零到位，长度固定（前端按串宽排版不会错位）', () => {
+    expect(dateTimeCN(new Date('2026-01-02T00:00:00Z'))).toBe('2026-01-02 08:00:00');
+    expect(dateTimeCN(new Date('2026-01-02T00:00:00Z'))).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('ISO 字符串（含 Z / 偏移）正确换算', () => {
+    expect(dateTimeCN('2026-10-16T05:00:00.000Z')).toBe('2026-10-16 13:00:00');
+    expect(dateTimeCN('2026-10-16T13:00:00+08:00')).toBe('2026-10-16 13:00:00');
+    expect(dateTimeCN('2026-10-16T05:00:00Z')).toBe('2026-10-16 13:00:00');
+  });
+
+  it('已是朴素写法则原样沿用（DATE_FORMAT 的结果不再二道换算）', () => {
+    expect(dateTimeCN('2026-10-16 13:00:00')).toBe('2026-10-16 13:00:00');
+    expect(dateTimeCN('2026-10-16 13:00')).toBe('2026-10-16 13:00:00');
+  });
+
+  it('DATE 字符串不会被误当成 DATETIME 凭空补出时刻', () => {
+    // '2026-10-16' 不带时刻，匹配不上朴素分支的正则，应返回 null 而不是补 00:00:00
+    expect(dateTimeCN('2026-10-16')).toBeNull();
+  });
+
+  it('模糊写法不猜时区：宁可返回 null，也不给出可能是错的值', () => {
+    // 「/」分隔、无形无迹的写法按本机时区猜，结果随容器环境变
+    expect(dateTimeCN('2026/10/16 13:00')).toBeNull();
+    expect(dateTimeCN('昨天下午三点')).toBeNull();
+  });
+
+  it('空值与非法值返回 null', () => {
+    for (const v of [null, undefined, '', '   ', new Date('invalid')]) {
+      expect(dateTimeCN(v)).toBeNull();
+    }
+  });
+
+  /**
+   * 静态断言：附件接口不得再把 Date 原样塞进响应。
+   * 这条是「13:00 变 05:00」的根因防线——凡是 DATETIME 出接口，
+   * 都要先过 dateTimeCN。
+   */
+  it('file.ts 对外的时间字段一律经过 dateTimeCN', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/file.ts'), 'utf8');
+    expect(src).toContain('dateTimeCN(');
+    expect(src).not.toMatch(/capturedAt:\s*capturedAt/);
+    expect(src).not.toMatch(/createdAt:\s*r\.created_at/);
   });
 });
 

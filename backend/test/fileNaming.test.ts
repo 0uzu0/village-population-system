@@ -5,9 +5,10 @@ import {
   BIZ_TYPES,
   attachmentPermissions,
   buildFileNames,
+  folderOf,
   normalizeCapturedAt,
   sanitizeDisplayName,
-  sanitizeStorageName,
+  sanitizeFolderName,
   stampOf,
 } from '../src/modules/file';
 
@@ -17,30 +18,45 @@ const fileSrc = fs.readFileSync(path.resolve(__dirname, '../src/modules/file.ts'
  * 现场照片的命名与归属。
  *
  * 这一组用例守的是两件在真实环境里会出事的事：
- *  1. **文件名的时间戳必须是「拍照时间」而不是「上传时间」**。
+ *  1. **文件名必须是「拍照时间」而不是「上传时间」**。
  *     村里经常是走完一圈回到村委才有信号，离线补传时上传时间会全挤在同一分钟，
  *     按上传时间命名等于把「哪天去谁家拍的」这条线索抹掉。
  *  2. **照片必须挂得住人**。挂着 bizType/bizId 才谈得上「这个人有哪些现场照片」，
- *     而一旦命名里带上了人员编号，直接在服务器上翻目录也能对上人。
+ *     而目录名就是人名，在服务器上翻目录、在备份里拷走这个人，都不需要查数据库。
  */
 
 // ---------------------------------------------------------------------------
 // 时间戳：一律按北京时间
 // ---------------------------------------------------------------------------
 
-describe('stampOf：北京时间 yyyyMMdd-HHmmss', () => {
+describe('stampOf：北京时间 yyyy-MM-dd-HHmmss', () => {
   it('UTC 11:30 对应北京时间 19:30', () => {
-    expect(stampOf(new Date('2026-10-16T11:30:12Z'))).toBe('20261016-193012');
+    expect(stampOf(new Date('2026-10-16T11:30:12Z'))).toBe('2026-10-16-19-30-12');
   });
 
   it('跨零点按北京时间换日（UTC 17:00 已是次日 01:00）', () => {
-    expect(stampOf(new Date('2026-10-16T17:00:00Z'))).toBe('20261017-010000');
+    expect(stampOf(new Date('2026-10-16T17:00:00Z'))).toBe('2026-10-17-01-00-00');
   });
 
   it('不依赖容器时区与本机 ICU：手工加 8 小时，输出固定宽度', () => {
-    // 三位月份/日期/时分秒都必须补零，否则文件名长度不一、排序会乱
-    expect(stampOf(new Date('2026-01-02T00:00:00Z'))).toMatch(/^\d{8}-\d{6}$/);
-    expect(stampOf(new Date('2026-01-02T00:00:00Z'))).toBe('20260102-080000');
+    // 月份/日期/时分秒都必须补零，否则文件名长度不一、排序会乱
+    expect(stampOf(new Date('2026-01-02T00:00:00Z'))).toBe('2026-01-02-08-00-00');
+    expect(stampOf(new Date('2026-01-02T00:00:00Z'))).toMatch(/^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/);
+  });
+
+  /**
+   * 时刻用 `-` 而不是 `:`。`:` 在 Windows / NTFS 上是非法字符——
+   * 村委的办公机是 Windows，解开备份或直接从磁盘拷照片时会拿不到文件。
+   * 「日期-详细时间」是用户点名要的形状，兼容性由分隔符这条用例守住。
+   */
+  it('不含冒号（Windows / NTFS 非法字符）', () => {
+    expect(stampOf(new Date('2026-10-16T11:30:12Z'))).not.toContain(':');
+  });
+
+  it('精确到秒：同一分钟内连拍的多张不撞名', () => {
+    const a = stampOf(new Date('2026-10-16T11:30:12Z'));
+    const b = stampOf(new Date('2026-10-16T11:30:45Z'));
+    expect(a).not.toBe(b);
   });
 });
 
@@ -50,22 +66,23 @@ describe('normalizeCapturedAt：容忍手机上报的三种写法', () => {
   it('13 位毫秒', () => {
     const parsed = normalizeCapturedAt(at1930);
     expect(parsed).not.toBeNull();
-    expect(stampOf(parsed!)).toBe('20261016-193012');
+    expect(stampOf(parsed!)).toBe('2026-10-16-19-30-12');
   });
 
   it('10 位秒（不能当成毫秒用，否则会落到 1970 而被判越界）', () => {
     const parsed = normalizeCapturedAt(Math.floor(at1930 / 1000));
     expect(parsed).not.toBeNull();
-    expect(stampOf(parsed!)).toBe('20261016-193012');
+    expect(stampOf(parsed!)).toBe('2026-10-16-19-30-12');
   });
 
   it('纯数字字符串同样按位数区分秒/毫秒', () => {
-    expect(stampOf(normalizeCapturedAt(String(at1930))!)).toBe('20261016-193012');
-    expect(stampOf(normalizeCapturedAt(String(Math.floor(at1930 / 1000)))!)).toBe('20261016-193012');
+    // multipart 表单字段拿到的永远是字符串，这条是真实路径
+    expect(stampOf(normalizeCapturedAt(String(at1930))!)).toBe('2026-10-16-19-30-12');
+    expect(stampOf(normalizeCapturedAt(String(Math.floor(at1930 / 1000)))!)).toBe('2026-10-16-19-30-12');
   });
 
   it('带时区的 ISO 字符串', () => {
-    expect(stampOf(normalizeCapturedAt('2026-10-16T19:30:12+08:00')!)).toBe('20261016-193012');
+    expect(stampOf(normalizeCapturedAt('2026-10-16T19:30:12+08:00')!)).toBe('2026-10-16-19-30-12');
   });
 
   it('空值一律视为「没给」，不是错误', () => {
@@ -106,57 +123,119 @@ describe('sanitizeDisplayName：保留中文，只挡危险字符', () => {
   });
 });
 
-describe('sanitizeStorageName：落盘名只留 ASCII', () => {
-  it('中文与特殊字符统一换成连字符，防路径穿越', () => {
-    expect(sanitizeStorageName('../../etc/passwd')).toBe('etc-passwd');
-    // 「张三」整段被替换成连字符后，开头的 ./- 前缀会被剥掉，只剩扩展名主体
-    expect(sanitizeStorageName('张三.jpg')).toBe('jpg');
-    // 连续分隔符折叠，且不允许以点/连字符开头（否则会是隐藏文件）
-    expect(sanitizeStorageName('.__a--b..c.jpg')).toMatch(/^[A-Za-z0-9_]/);
-    expect(sanitizeStorageName('..\\..\\x.jpg')).not.toContain('..');
+describe('sanitizeFolderName：目录名就是人名，挡下路径穿越与系统非法字符', () => {
+  it('保留中文——「人名文件夹」这件事本身就是要求', () => {
+    expect(sanitizeFolderName('张三')).toBe('张三');
+    expect(sanitizeFolderName('买买提·艾力')).toBe('买买提·艾力');
   });
 
-  it('长度上限 100，兜底名非空', () => {
-    expect(sanitizeStorageName('a'.repeat(300))).toHaveLength(100);
-    expect(sanitizeStorageName('中文')).not.toBe('');
+  it('去掉路径分隔符：人名来自数据库，一旦混进 ../ 就能把文件写到上传目录之外', () => {
+    expect(sanitizeFolderName('../../etc')).toBe('etc');
+    expect(sanitizeFolderName('a\\b/c')).toBe('abc');
+    expect(sanitizeFolderName('张三')).not.toContain('/');
+  });
+
+  it('去掉 Windows 非法字符（村委的办公机要能解开备份）', () => {
+    expect(sanitizeFolderName('张.三')).toBe('张三'); // 顺带把 .. 打散
+    expect(sanitizeFolderName('李:四*')).toBe('李四');
+    expect(sanitizeFolderName('王|五<>"?')).toBe('王五');
+  });
+
+  it('控制字符会破坏日志与终端输出，一并清掉', () => {
+    expect(sanitizeFolderName('张三\u0000\u001f')).toBe('张三');
+  });
+
+  it('长度上限 40，被洗空时走兜底名而不是返回空串', () => {
+    expect(sanitizeFolderName('x'.repeat(200))).toHaveLength(40);
+    expect(sanitizeFolderName('///')).toBe('unknown');
+    expect(sanitizeFolderName('   ')).toBe('unknown');
   });
 });
 
-describe('buildFileNames：两个名字都以拍照时间开头', () => {
-  const at = new Date('2026-10-16T11:30:12Z'); // 北京时间 19:30:12
-
-  it('人员照片：展示名带姓名与人员编号，落盘名带 P<id>', () => {
-    const names = buildFileNames(
-      { at, ext: '.jpg', bizType: 'PERSON', bizId: 123, personName: '张三', personNo: 'P000123' },
-      'a1b2'
-    );
-    expect(names.displayName).toBe('20261016-193012-张三-P000123.jpg');
-    expect(names.storageName).toBe('20261016-193012-P123-a1b2.jpg');
+describe('folderOf：目录按「这张照片属于谁」分', () => {
+  it('人员照片放进人名目录', () => {
+    const f = folderOf({ at: new Date(), ext: '.jpg', bizType: 'PERSON', bizId: 1, personName: '张三' });
+    expect(f).toBe('张三');
   });
 
-  it('拿不到姓名/编号时退化成「人员<id>」，不会生成空的一段', () => {
-    const names = buildFileNames(
-      { at, ext: '.jpg', bizType: 'PERSON', bizId: 7, personName: null, personNo: null },
-      'zzzz'
-    );
-    expect(names.displayName).toBe('20261016-193012-人员7.jpg');
-    expect(names.storageName).toBe('20261016-193012-P7-zzzz.jpg');
+  it('拿不到姓名时退化成 person-<id>，仍能对上人', () => {
+    const f = folderOf({ at: new Date(), ext: '.jpg', bizType: 'PERSON', bizId: 7, personName: null });
+    expect(f).toBe('person-7');
+  });
+
+  it('台账与未关联附件各有自己的一层，不会混进人名目录', () => {
+    expect(folderOf({ at: new Date(), ext: '.pdf', bizType: 'LEDGER', bizId: 9 })).toBe('台账9');
+    expect(folderOf({ at: new Date(), ext: '.png', bizType: null, bizId: null })).toBe('未关联');
+  });
+
+  it('不含路径分隔符：单层目录，不需要按村庄再分一层', () => {
+    for (const name of ['张三', '../../etc', '李.四']) {
+      expect(folderOf({ at: new Date(), ext: '.jpg', bizType: 'PERSON', bizId: 1, personName: name })).not.toContain('/');
+    }
+  });
+});
+
+describe('buildFileNames：人名目录 + 拍摄时刻文件名', () => {
+  const at = new Date('2026-10-16T11:30:12Z'); // 北京时间 19:30:12
+
+  it('人员照片：展示名带姓名与编号，落盘路径是「张三/2026-10-16-19-30-12.jpg」', () => {
+    const names = buildFileNames({
+      at,
+      ext: '.jpg',
+      bizType: 'PERSON',
+      bizId: 123,
+      personName: '张三',
+      personNo: 'P000123',
+    });
+    expect(names.displayName).toBe('2026-10-16-19-30-12-张三-P000123.jpg');
+    expect(names.relPath).toBe('张三/2026-10-16-19-30-12.jpg');
+  });
+
+  it('落盘路径的形态严格符合「人名文件夹 / 日期-详细时间」', () => {
+    const names = buildFileNames({
+      at,
+      ext: '.jpg',
+      bizType: 'PERSON',
+      bizId: 123,
+      personName: '张三',
+      personNo: 'P000123',
+    });
+    const [folder, file] = names.relPath.split('/');
+    expect(folder).toBe('张三');
+    expect(file).toMatch(/^2026-10-16-19-30-12\.jpg$/);
+  });
+
+  it('拿不到姓名/编号时展示名退化成「人员<id>」，不会生成空的一段', () => {
+    const names = buildFileNames({ at, ext: '.jpg', bizType: 'PERSON', bizId: 7, personName: null, personNo: null });
+    expect(names.displayName).toBe('2026-10-16-19-30-12-人员7.jpg');
+    expect(names.relPath).toBe('person-7/2026-10-16-19-30-12.jpg');
   });
 
   it('台账与未关联附件各有自己的段，不会互相混淆', () => {
     expect(
-      buildFileNames({ at, ext: '.pdf', bizType: 'LEDGER', bizId: 9 }, 'q1q1').displayName
-    ).toBe('20261016-193012-台账9.pdf');
+      buildFileNames({ at, ext: '.pdf', bizType: 'LEDGER', bizId: 9 }).displayName
+    ).toBe('2026-10-16-19-30-12-台账9.pdf');
     expect(
-      buildFileNames({ at, ext: '.png', bizType: null, bizId: null }, 'q1q1').displayName
-    ).toBe('20261016-193012-未关联.png');
+      buildFileNames({ at, ext: '.png', bizType: null, bizId: null }).displayName
+    ).toBe('2026-10-16-19-30-12-未关联.png');
   });
 
   it('按文件名排序 = 按拍照时间排序（服务器上直接翻目录也能看懂）', () => {
-    const early = buildFileNames({ at: new Date('2026-10-16T01:00:00Z'), ext: '.jpg', bizType: 'PERSON', bizId: 1 }, 'aaaa');
-    const late = buildFileNames({ at: new Date('2026-10-16T02:00:00Z'), ext: '.jpg', bizType: 'PERSON', bizId: 1 }, 'bbbb');
+    const early = buildFileNames({ at: new Date('2026-10-16T01:00:00Z'), ext: '.jpg', bizType: 'PERSON', bizId: 1 });
+    const late = buildFileNames({ at: new Date('2026-10-16T02:00:00Z'), ext: '.jpg', bizType: 'PERSON', bizId: 1 });
     expect(early.displayName < late.displayName).toBe(true);
-    expect(early.storageName < late.storageName).toBe(true);
+    expect(early.relPath < late.relPath).toBe(true);
+  });
+
+  /**
+   * 名字必须完全可预期——「这个名字对应哪个时刻」要能一眼读出来，
+   * 随机串会破坏这件事，所以撞名交给落盘前的 uniqueStorageName 处理，
+   * 纯函数这边绝不能出现随机成分。
+   */
+  it('输出不含随机串：同输入两次结果完全一致', () => {
+    const input = { at, ext: '.jpg', bizType: 'PERSON' as const, bizId: 1, personName: '张三' };
+    expect(buildFileNames(input)).toEqual(buildFileNames(input));
+    expect(buildFileNames(input).relPath).toBe('张三/2026-10-16-19-30-12.jpg');
   });
 });
 
@@ -206,8 +285,18 @@ describe('上传实现约束', () => {
     expect(fileSrc).toContain('LEDGER_NOT_FOUND');
   });
 
-  it('multer 先落临时名，handler 再 rename 成正式名（字段解析晚于 filename 回调）', () => {
+  it('multer 先落临时名，handler 再建目录 + rename（字段解析晚于 filename 回调）', () => {
     expect(fileSrc).toContain('fs.renameSync(file.path, finalPath)');
+    expect(fileSrc).toContain('fs.mkdirSync(path.dirname(finalPath), { recursive: true })');
+  });
+
+  /**
+   * 目录名来自数据库里的人名。sanitize 是一道防线，这里是**第二道**——
+   * 按解析后的绝对路径复核还在不在 UPLOAD_DIR 里。少了它，一次疏漏就是任意路径写文件。
+   */
+  it('落盘前把路径锚死在 UPLOAD_DIR 之内（人名是数据库内容，不可信）', () => {
+    expect(fileSrc).toContain('resolveInsideUploadDir');
+    expect(fileSrc).toContain('INVALID_STORAGE_PATH');
   });
 
   it('GET / 列表必须先于 GET /:id 注册，否则被参数路由捕获', () => {
@@ -215,6 +304,25 @@ describe('上传实现约束', () => {
     const idIdx = fileSrc.indexOf("router.get('/:id'");
     expect(listIdx).toBeGreaterThan(-1);
     expect(idIdx).toBeGreaterThan(listIdx);
+  });
+
+  /**
+   * 「13:00 拍的照片显示成 05:00」的来源：DATETIME 被 JSON 序列化成 UTC 的 ISO 串，
+   * 客户端随手一截就少 8 小时。现场照片的时间是取证信息，
+   * 因此必须由服务端统一成无歧义的北京时间文本再出去。
+   */
+  it('时间对外一律北京时间文本，不返回 ISO/UTC 串（客户端不该再做时区换算）', () => {
+    expect(fileSrc).toContain("capturedAt: dateTimeCN(capturedAt)");
+    expect(fileSrc).toContain('capturedAt: dateTimeCN(r.captured_at)');
+    expect(fileSrc).toContain('createdAt: dateTimeCN(r.created_at)');
+    // 不能再有把 Date 原样塞进响应、让它被序列化成 ISO 的写法
+    expect(fileSrc).not.toContain('capturedAt: capturedAt ? capturedAt.toISOString()');
+  });
+
+  it('删除时连空目录一起清：目录即人名，留一堆空壳只会污染备份', () => {
+    const delIdx = fileSrc.indexOf("router.delete('/:id'");
+    expect(delIdx).toBeGreaterThan(-1);
+    expect(fileSrc.slice(delIdx)).toContain('fs.rmdirSync(dir)');
   });
 });
 

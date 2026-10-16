@@ -52,3 +52,53 @@ export function formatDateOrEmpty(v: unknown): string {
 export function today(): string {
   return formatDate(new Date()) || '';
 }
+
+/** 北京时间偏移。与 config/db.ts 的 timezone '+08:00' 同一口径 */
+const CN_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * DATETIME 列格式化为北京时间文本 `YYYY-MM-DD HH:mm:ss`。
+ *
+ * ## 为什么不直接返回 Date（JSON 里就是 ISO 的 UTC 串）
+ *
+ * `dateStrings` 只对 DATE 生效，DATETIME 仍会被 mysql2 解析成 Date，`res.json()`
+ * 序列化后变成 `2026-10-16T05:00:00.000Z`。客户端只要有一次「图省事」直接切字符串
+ * （`String(t).replace('T',' ').slice(0,16)`），就会把 13:00 拍的现场照片显示成 05:00 ——
+ * 少整整 8 小时，而且文件名字段里写的又是 13:00，两处对不上。
+ * 附件的时间是取证材料的一部分，不允许出现这种偏差，所以由服务端按北京时间统一成
+ * 无歧义的朴素文本，前端与手机端都只做展示、不做时区换算。
+ *
+ * 换算用「先加 8 小时再取 UTC 字段」的手工移位，不依赖容器时区与 ICU 数据：
+ * 镜像跑在 UTC 还是 +08:00，结果都一样。
+ *
+ * 字符串分支**不做时区猜测**：带 `T` 的按 ISO 解析（含 Z / 偏移量），
+ * 空格分隔的只认 `YYYY-MM-DD HH:mm[:ss]` 这种朴素写法（已含 DATE_FORMAT 的结果），
+ * 其余一律返回 null —— 猜错的时区比没有值更糟。
+ */
+export function dateTimeCN(v: unknown): string | null {
+  if (v == null || v === '') return null;
+
+  if (typeof v === 'string') {
+    const s = v.trim();
+    // 主路径：已经是朴素写法（DATE_FORMAT 的结果、或别处生成的文本），原样沿用
+    const plain = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?::(\d{2}))?/.exec(s);
+    if (plain) return `${plain[1]} ${plain[2]}:${plain[3] ?? '00'}`;
+    // 只认明确的 ISO 8601（带 T，或带 Z / ±hh:mm 偏移）。
+    // '2026/10/16 13:00' 这类一律返回 null：按本机时区猜出来的时间比没有值更糟。
+    if (!/[Tt]|[Zz]|[+-]\d{2}:?\d{2}$/.test(s)) return null;
+    const ms = Date.parse(s);
+    return Number.isFinite(ms) ? dateTimeCN(new Date(ms)) : null;
+  }
+
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    const t = new Date(v.getTime() + CN_OFFSET_MS);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return (
+      `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}` +
+      ` ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`
+    );
+  }
+
+  return null;
+}
