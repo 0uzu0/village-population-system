@@ -238,7 +238,8 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const rows = await query<any>(
     `SELECT p.id, p.person_no, p.name, p.gender, p.birth_date, p.id_card, p.phone, p.phone_backup,
             p.grid_id, g.name AS grid_name, p.family_id, f.family_no AS family_name, p.status,
-            p.bank_account, p.subsidy_amount, p.family_condition, p.health_assessment
+            p.bank_account, p.subsidy_amount, p.family_condition, p.health_assessment,
+            p.hukou_address, p.live_address
             ${disabilityCols}
      ${fromSql}
      LEFT JOIN grid g ON g.id = p.grid_id LEFT JOIN family f ON f.id = p.family_id
@@ -275,6 +276,9 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     gridId: r.grid_id,
     gridName: r.grid_name,
     familyName: r.family_name,
+    // 重点人群列表改为展示「户籍地址 / 现居住地址」而非编号与家庭
+    hukouAddress: r.hukou_address,
+    liveAddress: r.live_address,
     status: r.status,
     tags: tagMap.get(r.id) || [],
     // 个性化台账字段（重点人群服务所需）

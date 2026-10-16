@@ -325,6 +325,61 @@ async function saveDisability(
   );
 }
 
+/**
+ * 把人员的标签同步成给定的 tagIds —— **全量覆盖**语义。
+ *
+ * 传 `[]` 表示清空标签，未传该字段（undefined）才表示「不动标签」，
+ * 因此调用方要先判断 `body.tagIds !== undefined` 再调这里。
+ *
+ * 放进人员主表写入的同一个事务：标签挂不上有可能失败（标签 id 不存在等），
+ * 分开写会留下「人建好了但标签没挂上」的残缺档案。
+ * update 路由本身不在事务里，此时传入 pool（与 saveDisability 的做法一致）。
+ *
+ * 每一处增删都写 tag_change_log，与批量打标签保持同样的留痕口径。
+ */
+async function syncPersonTags(
+  conn: { query: (sql: string, params?: any[]) => Promise<any> },
+  personId: number,
+  tagIds: number[],
+  userId: number,
+) {
+  const [curRows] = (await conn.query(
+    `SELECT tag_id FROM person_tag WHERE person_id = ? AND status = 'ACTIVE'`,
+    [personId]
+  )) as any[];
+  const current = new Set<number>((curRows || []).map((r: any) => Number(r.tag_id)));
+  const next = new Set<number>(tagIds);
+
+  // 移除：当前有、新列表里没有 → 置为 INACTIVE（保留历史，不物理删除）
+  for (const tagId of current) {
+    if (next.has(tagId)) continue;
+    await conn.query(
+      `UPDATE person_tag SET status = 'INACTIVE', expire_date = CURDATE()
+       WHERE person_id = ? AND tag_id = ? AND status = 'ACTIVE'`,
+      [personId, tagId]
+    );
+    await conn.query(
+      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES ('PERSON', ?, ?, 'REMOVE', ?)`,
+      [personId, tagId, userId]
+    );
+  }
+
+  // 新增：新列表里有、当前没有生效记录 → 插入 ACTIVE
+  for (const tagId of next) {
+    if (current.has(tagId)) continue;
+    await conn.query(
+      `INSERT INTO person_tag (person_id, tag_id, status, created_by)
+       SELECT ?, ?, 'ACTIVE', ? FROM DUAL
+       WHERE NOT EXISTS (SELECT 1 FROM person_tag WHERE person_id = ? AND tag_id = ? AND status = 'ACTIVE')`,
+      [personId, tagId, userId, personId, tagId]
+    );
+    await conn.query(
+      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES ('PERSON', ?, ?, 'ADD', ?)`,
+      [personId, tagId, userId]
+    );
+  }
+}
+
 const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
   formerName: z.string().max(64).nullable().optional(),
@@ -361,6 +416,15 @@ status: z.enum(PERSON_STATUSES).optional(),
     guardianPhone: z.string().max(20).nullable().optional(),
     remark: z.string().max(500).nullable().optional(),
   }).optional(),
+  /**
+   * 建档/编辑时一并维护的标签 id 列表。
+   *
+   * 语义是「全量覆盖」：传什么就以什么为准（传 [] 表示清空标签），
+   * 未传该字段才表示不动标签。这样前端直接把多选框的值原样提交即可，
+   * 不需要自己算增量。写入放在人员主表同一事务里，不会出现
+   * 「人建好了但标签没挂上」的中间态。
+   */
+  tagIds: z.array(z.coerce.number().int().positive()).max(50, '标签数量过多').optional(),
 });
 
 /** 新增人员 */
@@ -408,6 +472,10 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
 
     // 残疾专项档案（有内容才建记录；全空即视为非残疾人）
     if (body.disability) await saveDisability(conn, pid, body.disability);
+
+    // 标签：建档时一并挂上，与主表同事务（未传表示不打标签，传 [] 则是空集合，
+    // 二者结果一致，这里只在显式传了时才写，保持「不动标签」的语义）
+    if (body.tagIds !== undefined) await syncPersonTags(conn, pid, body.tagIds, req.user!.id);
 
     return pid;
   });
@@ -477,6 +545,11 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   // 残疾档案与人员主表一并写入：独立 upsert，不影响 sets 动态更新的判定
   if (body.disability !== undefined) {
     await saveDisability(pool, id, body.disability);
+  }
+
+  // 标签全量覆盖：未传该字段表示不动标签（避免「只想改地址却把标签清了」）
+  if (body.tagIds !== undefined) {
+    await syncPersonTags(pool, id, body.tagIds, req.user!.id);
   }
 
   if (sets.length) {

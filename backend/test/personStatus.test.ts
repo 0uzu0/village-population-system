@@ -131,21 +131,24 @@ describe('工作台统计口径（/dashboard）', () => {
     for (const code of ['PARTY_MEMBER', 'VETERAN', 'PREFERENTIAL_OBJECT', 'LOW_INCOME_PERSON', 'EXTREME_POVERTY_PERSON', 'DISABLED_PERSON']) {
       expect(focusSrc, `focusGroups 缺少 ${code} 的定义`).toContain(code);
     }
-    // 六个身份类人群都要映射到工作台卡片字段
-    for (const field of ['partyCount', 'veteranCount', 'preferentialCount', 'lowIncomePersonCount', 'extremePovertyCount', 'disabledCount']) {
+    // 五个身份类人群都要映射到工作台卡片字段。
+    // 「低保对象」(lowIncomePersonCount) 已按需求从工作台移除，故不在列表内——
+    // 但标签定义本身（LOW_INCOME_PERSON）保留，重点人群筛查与导出仍在用。
+    for (const field of ['partyCount', 'veteranCount', 'preferentialCount', 'extremePovertyCount', 'disabledCount']) {
       expect(focusSrc, `focusGroups 缺少 ${field} 的映射`).toContain(field);
     }
+    expect(focusSrc, '工作台不应再下发低保卡片字段').not.toContain('lowIncomePersonCount');
   });
 
-  it('低保家庭是 FAMILY 类型，必须从 family_tag 统计', () => {
-    // 历史 bug：LOW_INCOME_FAMILY 的 object_type 是 FAMILY，数据在 family_tag，
-    // 却从 person_tag 统计，导致「低保家庭」卡片恒为 0
-    const ftIdx = dash.indexOf('family_tag');
-    expect(ftIdx).toBeGreaterThan(-1);
-    expect(dash.slice(ftIdx, ftIdx + 400), 'family_tag 查询必须统计 LOW_INCOME_FAMILY').toContain("'LOW_INCOME_FAMILY'");
-    // 个人类标签列表里不应再包含它
-    const personTagIdx = dash.indexOf("FROM tag_definition td WHERE td.code IN");
-    expect(dash.slice(personTagIdx, dash.indexOf(')', personTagIdx)), '个人标签列表不应包含家庭标签').not.toContain('LOW_INCOME_FAMILY');
+  it('工作台已移除低保统计：不再查 family_tag，也不再下发 lowIncomeFamilyCount', () => {
+    // 需求变更：工作台删除所有低保相关统计（低保家庭 + 低保对象）。
+    // 原先这里要断言「低保家庭走 family_tag 统计」，现在反过来——
+    // dashboard 不再查 family_tag，也不再返回 lowIncomeFamilyCount 字段。
+    expect(dash, 'dashboard 不应再查询 family_tag').not.toContain('family_tag');
+    expect(dash, 'dashboard 不应再返回 lowIncomeFamilyCount').not.toContain('lowIncomeFamilyCount');
+    // 低保标签本身仍保留在 focusGroups 中（重点人群筛查要用到）
+    const focusSrc = fs.readFileSync(path.join(SRC_DIR, 'utils/focusGroups.ts'), 'utf8');
+    expect(focusSrc, 'LOW_INCOME_PERSON 标签定义应保留').toContain('LOW_INCOME_PERSON');
   });
 
   it('标签定义页关联人数只统计在册人员（与重点人群/工作台同口径）', () => {

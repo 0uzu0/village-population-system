@@ -66,7 +66,8 @@ export const FOCUS_GROUPS: FocusGroupDef[] = [
     label: '低保对象',
     tagCodes: ['LOW_INCOME_PERSON'],
     countField: 'low_income_count',
-    dashboardField: 'lowIncomePersonCount',
+    // 不再下发工作台卡片（dashboardField）：按需求删除低保相关统计展示。
+    // 但标签本身与 countField / exportFlagKey 保留——重点人群筛查与导出仍在用。
     exportFlagKey: 'is_low_income',
     exportFlagLabel: '低保',
   },

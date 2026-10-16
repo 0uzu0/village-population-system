@@ -22,7 +22,7 @@ router.use(authMiddleware);
 
 /** 工作台统计卡片 */
 router.get('/dashboard', requirePermission('dashboard:view'), async (req: Request, res: Response) => {
-  const [total, personTagCounts, familyTagCounts] = await Promise.all([
+  const [total, personTagCounts] = await Promise.all([
     queryOne<any>(
       `SELECT
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}) AS total_population,
@@ -45,17 +45,10 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
        FROM tag_definition td WHERE td.code IN (${allFocusTagCodes().map(() => '?').join(',')})`,
       allFocusTagCodes()
     ),
-    // 家庭类标签：认定对象是家庭，走 family_tag；家庭无死亡概念，户主去世家庭仍在册
-    query<any>(
-      `SELECT td.code,
-         (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
-           WHERE ft.tag_id = td.id AND ft.status='ACTIVE' AND f.status = 1) AS cnt
-       FROM tag_definition td WHERE td.code = 'LOW_INCOME_FAMILY'`
-    ),
   ]);
 
   const tagMap = new Map<string, number>();
-  for (const r of [...personTagCounts, ...familyTagCounts]) tagMap.set(r.code, Number(r.cnt));
+  for (const r of personTagCounts) tagMap.set(r.code, Number(r.cnt));
 
   // 重点人群卡片字段由 focusGroups 单一来源推导（党员含正式+预备，与其他统计口径一致）
   const focusCounts: Record<string, number> = {};
@@ -71,7 +64,6 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
     hukouCount: Number(total?.hukou_count || 0),
     residentCount: Number(total?.resident_count || 0),
     ...focusCounts,
-    lowIncomeFamilyCount: tagMap.get('LOW_INCOME_FAMILY') || 0,
   });
 });
 
