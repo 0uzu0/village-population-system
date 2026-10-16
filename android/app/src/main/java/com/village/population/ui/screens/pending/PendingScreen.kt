@@ -53,7 +53,9 @@ import com.village.population.ui.components.InfoRow
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.QCard
 import com.village.population.ui.components.SearchField
+import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
+import com.village.population.util.IdCard
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -241,7 +243,7 @@ fun PendingScreen() {
                     OutlinedButton(
                         onClick = { vm.batchIgnore(toast) },
                         enabled = state.selected.isNotEmpty() && !state.working,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(AppShapes.control),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     ) { Text("批量忽略", style = MaterialTheme.typography.bodySmall) }
                 }
@@ -322,9 +324,14 @@ private fun PendingDetailDialog(
     var liveAddress by remember(row.id) { mutableStateOf(row.liveAddress.orEmpty()) }
     var handleNote by remember(row.id) { mutableStateOf(row.handleNote.orEmpty()) }
 
+    // 身份证解析提示（见下方身份证行的 onValueChange）：
+    // null = 还没输到能判定的长度，不占地方
+    var idCardHint by remember(row.id) { mutableStateOf<String?>(null) }
+    var idCardHintError by remember(row.id) { mutableStateOf(false) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(AppShapes.card),
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(
@@ -342,9 +349,59 @@ private fun PendingDetailDialog(
                 Spacer(Modifier.height(10.dp))
 
                 EditableRow("姓名", name, { name = it })
-                EditableRow("性别", gender, { gender = it })
+                // 性别输入框显示「男 / 女」、提交值是 MALE / FEMALE（与后端口径一致）。
+                // 少了这层转换，身份证联动带出来的就是英文字符串，用户看不懂自己改了什么
+                EditableRow(
+                    "性别",
+                    value = when (gender) {
+                        "MALE" -> "男"
+                        "FEMALE" -> "女"
+                        else -> gender
+                    },
+                    onValueChange = { input ->
+                        gender = when (input.trim()) {
+                            "男" -> "MALE"
+                            "女" -> "FEMALE"
+                            else -> input.trim()
+                        }
+                    },
+                )
                 EditableRow("出生日期", birthDate, { birthDate = it }, placeholder = "yyyy-MM-dd")
-                EditableRow("身份证号", idCard, { idCard = it })
+                // 身份证输入即解析，与上门登记页（PersonEditScreen.onIdCard）
+                // 同一口径：证件是性别与出生日期的权威来源，抄录员最容易抄错
+                // 的就是这两位，由证件带出可以免掉整类错误。联动的值会随 patch
+                // 一起提交（它们相对初值有变化，天然进入「改动过的字段」）。
+                EditableRow(
+                    "身份证号",
+                    idCard,
+                    onValueChange = { input ->
+                        val cleaned = input.trim().uppercase()
+                        idCard = cleaned
+                        idCardHint = null
+                        idCardHintError = false
+                        if (cleaned.length < 15) return@onValueChange
+                        when (val result = IdCard.validate(cleaned)) {
+                            is IdCard.Result.Invalid -> {
+                                idCardHint = result.message
+                                idCardHintError = true
+                            }
+                            is IdCard.Result.Valid -> {
+                                // 校验位合法 ≠ 月日存在（如 02-30）：这种只提示、
+                                // 不动 gender/birthDate，让用户自己核对后手改
+                                idCardHint = if (result.birthDate == null) {
+                                    "号码合法，但其中的出生日期不存在，请手动核对出生日期"
+                                } else {
+                                    "已按证件号带出出生日期与性别"
+                                }
+                                result.gender?.let { gender = it }
+                                result.birthDate?.let { birthDate = it }
+                            }
+                        }
+                    },
+                    placeholder = "15 位或 18 位",
+                    hint = idCardHint,
+                    hintError = idCardHintError,
+                )
                 EditableRow("本人电话", phone, { phone = it })
                 EditableRow("备用电话", phoneBackup, { phoneBackup = it })
                 EditableRow("所属村庄", village, { village = it })
@@ -402,30 +459,46 @@ private fun EditableRow(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String? = null,
+    hint: String? = null,
+    hintError: Boolean = false,
 ) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = AppTheme.tokens.ink3,
-            modifier = Modifier.width(84.dp),
-        )
-        // 直接用 OutlinedTextField 而不是 FormField：这里的标签已经由左侧那列承担，
-        // 再给输入框传一个空 label，Material 仍会为它留出一行占位高度，行距会被顶散。
-        androidx.compose.material3.OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = placeholder?.let { { Text(it) } },
-            singleLine = true,
-            // 圆角与项目其它输入框保持一致（FormField 用的是 10.dp）
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.weight(1f),
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTheme.tokens.ink3,
+                modifier = Modifier.width(84.dp),
+            )
+            // 直接用 OutlinedTextField 而不是 FormField：这里的标签已经由左侧那列承担，
+            // 再给输入框传一个空 label，Material 仍会为它留出一行占位高度，行距会被顶散。
+            androidx.compose.material3.OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                placeholder = placeholder?.let { { Text(it) } },
+                singleLine = true,
+                // 圆角与项目其它输入框保持一致（FormField 用的是 AppShapes.control）
+                shape = RoundedCornerShape(AppShapes.control),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // 输入框下方的提示行（身份证解析结果）：错误用红、带出成功用品牌色，
+        // 颜色承担「要不要停下来看一眼」的判断
+        if (hint != null) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (hintError) AppTheme.tokens.red else AppTheme.tokens.brandStrong,
+                modifier = Modifier.padding(start = 84.dp, top = 3.dp),
+            )
+        }
     }
 }
 
@@ -486,14 +559,14 @@ private fun PendingRow(
             Button(
                 onClick = onConfirm,
                 enabled = !working,
-                shape = RoundedCornerShape(7.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = tokens.brand),
             ) { Text("确认入库", style = MaterialTheme.typography.bodySmall) }
             OutlinedButton(
                 onClick = onIgnore,
                 enabled = !working,
-                shape = RoundedCornerShape(7.dp),
+                shape = RoundedCornerShape(AppShapes.control),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             ) { Text("忽略", style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.weight(1f))
