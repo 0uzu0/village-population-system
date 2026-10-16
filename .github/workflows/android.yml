@@ -64,9 +64,9 @@ on:
   workflow_dispatch:
     inputs:
       api_base_url:
-        description: '默认服务器地址（如 http://192.168.1.100:8080/）'
+        description: '默认服务器地址（如 https://work.zerolin.fun:11127/）'
         required: false
-        default: 'http://192.168.1.100:8080/'
+        default: 'https://work.zerolin.fun:11127/'
       build_release:
         description: '同时构建 release 包（正式包）'
         type: boolean
@@ -202,7 +202,7 @@ jobs:
           ./gradlew assembleRelease --stacktrace \
             -PversionCode="$VERSION_CODE" \
             -PversionName="$VERSION_NAME" \
-            -PapiBaseUrl="${{ github.event.inputs.api_base_url || 'http://192.168.1.100:8080/' }}"
+            -PapiBaseUrl="${{ github.event.inputs.api_base_url || 'https://work.zerolin.fun:11127/' }}"
 
           # 不写死文件名：AGP 的产物名会随变体/混淆配置变化，用通配找一遍更耐改
           built=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
@@ -230,7 +230,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- 文件：\`${APP_FILE}\`（versionCode=${VERSION_CODE}）" >> "$GITHUB_STEP_SUMMARY"
           echo "- 签名：${{ steps.keystore.outputs.signed == 'true' && '正式签名' || '**debug 签名（不能上架）**' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 服务器地址：\`${{ github.event.inputs.api_base_url || 'http://192.168.1.100:8080/' }}\`（安装后可在「我的 → 服务器地址」修改）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 服务器地址：\`${{ github.event.inputs.api_base_url || 'https://work.zerolin.fun:11127/' }}\`（安装后可在「我的 → 服务器地址」修改）" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 上传 Release APK
         if: steps.release.outcome == 'success'
