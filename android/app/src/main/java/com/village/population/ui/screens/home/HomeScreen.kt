@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -325,9 +327,18 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                                 color = if (p.total > 0) tokens.amber else tokens.ink2,
                             )
                             Spacer(Modifier.weight(1f))
-                            androidx.compose.material3.TextButton(onClick = { onNavigate(Routes.PENDING) }) {
-                                Text("去处理")
-                            }
+                            // 「去处理」做成品牌实底胶囊（设计稿 btn-go）：
+                            // 这一屏唯一需要用户立刻去办的事，值得一个实色按钮，
+                            // TextButton 的视觉重量撑不起「待办」的语气
+                            Button(
+                                onClick = { onNavigate(Routes.PENDING) },
+                                shape = RoundedCornerShape(AppShapes.chip),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = tokens.brand,
+                                    contentColor = Color.White,
+                                ),
+                            ) { Text("去处理", style = MaterialTheme.typography.bodySmall) }
                         }
                         Text(
                             "来源：Excel 导入时身份证号为空或非法的记录，需要逐条补齐或忽略。",

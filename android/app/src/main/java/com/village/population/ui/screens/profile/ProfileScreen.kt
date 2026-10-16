@@ -1,5 +1,6 @@
 package com.village.population.ui.screens.profile
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,10 +18,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
@@ -40,8 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,41 +86,71 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     ) {
-        // 身份头，对应设计稿「我的」页顶部那块品牌渐变。
-        // 这一页没有页头（它是底部 Tab），这块渐变同时承担「我在哪一屏」和「我是谁」两件事
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(listOf(tokens.brand, tokens.brandStrong)))
-                .padding(start = 18.dp, end = 18.dp, top = 26.dp, bottom = 22.dp),
-        ) {
-            Box(
-                Modifier.size(44.dp).background(Color.White.copy(alpha = 0.22f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White)
-            }
-            Spacer(Modifier.height(9.dp))
-            Text(
-                user?.displayName ?: "未登录",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-            )
-            Text(
-                listOfNotNull(
-                    user?.roles?.takeIf { it.isNotEmpty() }?.joinToString("、") ?: "网格员",
-                    user?.username?.let { "账号 $it" },
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.85f),
-            )
-        }
-
         Column(
             Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
+            // 身份卡（设计稿「我的」页 v3 白卡）：无渐变、无彩色底。
+            // 品牌浅底头像 + 姓名 + 角色 + 版本号胶囊，一卡说清「我是谁、什么版本」。
+            // 旧版这里是一块品牌渐变头 + 半透明头像——与首页头卡去蓝是同一条决策：
+            // 大面积品牌色显沉，且半透明元素叠渐变最容易显脏
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(AppShapes.card),
+                shadowElevation = AppShapes.cardElevation,
+                tonalElevation = 0.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(58.dp).background(tokens.brandLight, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            (user?.displayName ?: "村").take(1),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = tokens.brandStrong,
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            user?.displayName ?: "未登录",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = tokens.ink,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            listOfNotNull(
+                                user?.roles?.takeIf { it.isNotEmpty() }?.joinToString("、") ?: "网格员",
+                                user?.username?.let { "账号 $it" },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    // 版本号胶囊（设计稿 me-ver）：安静灰底 + 细描边，
+                    // 版本号是「查询时用得着、日常不用盯」的信息，不该抢主次的眼
+                    Surface(
+                        color = tokens.quiet,
+                        shape = RoundedCornerShape(AppShapes.chip),
+                        border = BorderStroke(1.dp, tokens.line2),
+                    ) {
+                        Text(
+                            "v${BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
             // 设置项收成一张列表卡（设计稿做法）：三行都是「点进去做一件事」，
             // 摊成三张卡片会让页面显得比实际长了三倍
             Surface(
@@ -167,18 +196,24 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                         title = "修改密码",
                         subtitle = "账号：${user?.username ?: "—"}",
                     ) { showPasswordDialog = true }
+
+                    SettingDivider()
+
+                    // 退出登录收进同一张列表卡，做成 danger 行（设计稿 menu-row.danger）：
+                    // 破坏性操作放在列表末尾并用红色标记，与上面的设置行拉开距离，
+                    // 不再单独占一个按钮——满页只有一个按钮时，那个按钮会变得特别「重」
+                    SettingRow(
+                        icon = Icons.AutoMirrored.Filled.ExitToApp,
+                        title = "退出登录",
+                        subtitle = if (pendingOps > 0) "有 $pendingOps 条未同步记录，退出不会丢失" else null,
+                        danger = true,
+                    ) { showLogoutDialog = true }
                 }
             }
 
             message?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = tokens.green)
             }
-
-            OutlinedButton(
-                onClick = { showLogoutDialog = true },
-                shape = RoundedCornerShape(AppShapes.control),
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) { Text("退出登录") }
 
             Text(
                 "掌上村务 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）\n" +
@@ -371,9 +406,11 @@ private fun SettingRow(
     title: String,
     subtitle: String?,
     trailing: String? = null,
+    danger: Boolean = false,
     onClick: () -> Unit,
 ) {
     val tokens = AppTheme.tokens
+    val fg = if (danger) tokens.red else tokens.brandStrong
     Row(
         Modifier
             .fillMaxWidth()
@@ -381,10 +418,25 @@ private fun SettingRow(
             .padding(horizontal = 13.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = tokens.ink2, modifier = Modifier.size(18.dp))
+        // 图标放进 34dp 圆角瓦片（设计稿 m-ico）：裸一个小图标在行首显得散，
+        // 且与右对齐的 › 形不成视觉对。danger 行换红底红字
+        Box(
+            Modifier.size(34.dp).background(
+                if (danger) tokens.redBg else tokens.brandFaint,
+                RoundedCornerShape(AppShapes.control),
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(18.dp),
+            )
+        }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = tokens.ink)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = fg)
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,

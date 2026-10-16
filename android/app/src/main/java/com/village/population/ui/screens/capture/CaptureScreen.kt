@@ -397,7 +397,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                             .fillMaxWidth()
                             .height(260.dp)
                             .clickableNoRipple(true) { viewing = true }
-                            .background(tokens.quiet, RoundedCornerShape(10.dp)),
+                            .background(tokens.quiet, RoundedCornerShape(AppShapes.control)),
                         contentAlignment = Alignment.Center,
                     ) {
                         AsyncImage(

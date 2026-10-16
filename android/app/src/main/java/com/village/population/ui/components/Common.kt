@@ -386,7 +386,7 @@ fun AppChip(
     Surface(
         color = if (selected) t.brand else MaterialTheme.colorScheme.surface,
         contentColor = if (selected) Color.White else t.ink2,
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(AppShapes.chip),
         border = if (selected) null else BorderStroke(1.dp, t.line),
         modifier = modifier.clickableNoRipple(true, onClick),
     ) {

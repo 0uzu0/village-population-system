@@ -22,9 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -233,7 +231,11 @@ fun PersonDetailScreen(
                     Text(msg, style = MaterialTheme.typography.bodyMedium, color = tokens.green)
                 }
 
-                // 身份卡（设计稿首页那张卡）：头像 + 姓名 + 状态 + 一行摘要
+                // 身份卡（设计稿 detail-hero）：居中大头像 + 姓名 + 性别年龄生日 + 标签。
+                // 这一屏的核心动作是「核对这是谁」——头像居中比缩在左上角更符合
+                // 核对身份时的视线路径：先看脸、再看名字、再看信息对不对得上。
+                // 村庄/网格不再挤进副标题：下面「户籍与居住」卡里有，
+                // 堆在头像下面只会把最该先看到的「年龄生日」挤到第二行
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(AppShapes.card),
@@ -241,46 +243,48 @@ fun PersonDetailScreen(
                     tonalElevation = 0.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(13.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Box(
-                            Modifier
-                                .size(44.dp)
-                                .background(tokens.brandLight, CircleShape),
+                            Modifier.size(66.dp).background(tokens.brandLight, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                Icons.Filled.Person,
-                                contentDescription = null,
-                                tint = tokens.brandStrong,
-                                modifier = Modifier.size(22.dp),
+                            Text(
+                                person.name.take(1),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = tokens.brandStrong,
                             )
                         }
-                        Spacer(Modifier.width(11.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    person.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = tokens.ink,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                val (statusText, statusColor) = statusTag(person.status)
-                                DotLabel(statusText, statusColor)
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            person.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = tokens.ink,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        val (statusText, statusColor) = statusTag(person.status)
+                        Text(
+                            listOfNotNull(
+                                if (person.gender == "FEMALE") "女" else "男",
+                                (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
+                                person.birthDate?.takeIf { it.isNotBlank() }?.let { DateText.formatCn(it) },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            DotLabel(statusText, statusColor)
+                            person.tags.forEach { tag ->
+                                DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
                             }
-                            Text(
-                                listOfNotNull(
-                                    if (person.gender == "FEMALE") "女" else "男",
-                                    (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
-                                    person.village?.takeIf { it.isNotBlank() },
-                                    person.gridName?.takeIf { it.isNotBlank() },
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = tokens.ink3,
-                            )
                         }
                     }
                 }

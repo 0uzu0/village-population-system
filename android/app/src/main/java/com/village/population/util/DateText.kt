@@ -65,6 +65,21 @@ object DateText {
         if (millis <= 0L) "—" else DATE_ONLY.format(Date(millis))
 
     /**
+     * 把后端日期串 `yyyy-MM-dd` 显示成 `yyyy年M月D日`。
+     * 认不出的输入原样返回——详情页要的是「让人读懂」，不能因为一个
+     * 脏数据把整行渲染成异常。去掉前导零（3月 而不是 03月）：
+     * 这是给人看的行文，不是给机器解析的字段。
+     */
+    fun formatCn(date: String?): String {
+        val parts = date?.trim()?.split("-") ?: return "—"
+        if (parts.size != 3) return date?.takeIf { it.isNotBlank() } ?: "—"
+        val y = parts[0].toIntOrNull() ?: return date ?: "—"
+        val m = parts[1].toIntOrNull() ?: return date ?: "—"
+        val d = parts[2].toIntOrNull() ?: return date ?: "—"
+        return "${y}年${m}月${d}日"
+    }
+
+    /**
      * 由出生日期算年龄（周岁）。出生日期非法时返回 null。
      * @param todayY/todayM/todayD 传入当天，便于单元测试固定时间
      */
