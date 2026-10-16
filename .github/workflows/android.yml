@@ -34,6 +34,14 @@ name: android
 #
 #   生成 base64：base64 -w0 release.jks > keystore.txt
 #
+# 关于产物命名（重要）：
+#   文件名一律 ASCII。GitHub **会把 Release 附件名里的非 ASCII 字符直接删掉**
+#   （官方 API 文档原文：GitHub renames asset filenames that have special characters,
+#   non-alphanumeric characters, and leading or trailing periods）。
+#   实测：「掌上村务-1.0.0.apk」上传后变成「-1.0.0.apk」——包是好的，名字像坏的。
+#   所以产物统一叫 village-app-*.apk，中文只出现在 Release 说明文字里；
+#   构建脚本里有一道断言，名字一旦混入非 ASCII 就直接失败（见「构建 Release APK」）。
+#
 # 关于服务器地址：
 #   打包时通过 -PapiBaseUrl 注入默认地址，安装后仍可在 App 内「我的 → 服务器地址」修改。
 #   同一个 APK 会分发给多个村，所以各村的地址不必在打包时区分。
@@ -143,7 +151,7 @@ jobs:
             echo "::error::assembleDebug 没有产出 APK，请检查上面的构建日志"
             exit 1
           fi
-          cp "$built" "out/debug/掌上村务-debug-${GITHUB_SHA::7}.apk"
+          cp "$built" "out/debug/village-app-debug-${GITHUB_SHA::7}.apk"
 
       - name: 上传 Debug APK
         uses: actions/upload-artifact@v4
@@ -204,13 +212,23 @@ jobs:
             exit 1
           fi
 
+          # 文件名必须全 ASCII：GitHub 会把 Release 附件名里的非 ASCII 字符删掉
+          # （「掌上村务-1.0.0.apk」实测上传后变成「-1.0.0.apk」，功能正常但名字像坏的）。
+          # 中文只出现在 Release 说明文字里，不放文件名。
+          APP_FILE="village-app-${VERSION_NAME}.apk"
+          case "$APP_FILE" in
+            *[!0-9A-Za-z._-]*)
+              echo "::error::APK 文件名含非 ASCII 字符（$APP_FILE）：GitHub 会把附件名剥成残名，请改用 ASCII"
+              exit 1 ;;
+          esac
+
           mkdir -p out/release
-          cp "$built" "out/release/掌上村务-${VERSION_NAME}.apk"
+          cp "$built" "out/release/$APP_FILE"
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
 
           echo "### 安卓 release 包" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 文件：\`掌上村务-${VERSION_NAME}.apk\`（versionCode=${VERSION_CODE}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 文件：\`${APP_FILE}\`（versionCode=${VERSION_CODE}）" >> "$GITHUB_STEP_SUMMARY"
           echo "- 签名：${{ steps.keystore.outputs.signed == 'true' && '正式签名' || '**debug 签名（不能上架）**' }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- 服务器地址：\`${{ github.event.inputs.api_base_url || 'http://192.168.1.100:8080/' }}\`（安装后可在「我的 → 服务器地址」修改）" >> "$GITHUB_STEP_SUMMARY"
 

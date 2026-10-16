@@ -1125,7 +1125,7 @@
         <tbody>
           <tr>
             <td>push 到 <code>main</code>（且改动涉及 <code>android/**</code>）</td>
-            <td><code>掌上村务-debug-&lt;sha7&gt;.apk</code> + <code>掌上村务-0.0.&lt;run&gt;.apk</code>（release）</td>
+            <td><code>village-app-debug-&lt;sha7&gt;.apk</code> + <code>village-app-0.0.&lt;run&gt;.apk</code>（release）</td>
             <td>每次提交都出两个包：debug 供测试机安装，release 供实际分发</td>
           </tr>
           <tr>
@@ -1135,7 +1135,7 @@
           </tr>
           <tr>
             <td>打 <code>v*</code> 标签</td>
-            <td><code>掌上村务-&lt;版本&gt;.apk</code>（release）</td>
+            <td><code>village-app-&lt;版本&gt;.apk</code>（release）</td>
             <td>作为正式版本发布到 GitHub Release 页面</td>
           </tr>
           <tr>
@@ -1192,6 +1192,17 @@
         <p style="font-size:14px; margin-bottom:0">
           debug 包的应用 id 带 <code>.debug</code> 后缀、版本名带 <code>-debug</code>，
           两个包能同时装在一台手机上——现场排查问题时这一点很有用。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>产物文件名必须 ASCII</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          GitHub 会把 Release 附件名里的<b>非 ASCII 字符直接删掉</b>（官方 API 文档：
+          GitHub renames asset filenames that have special characters, non-alphanumeric
+          characters, and leading or trailing periods）。
+          实测「掌上村务-1.0.0.apk」上传后变成「<code>-1.0.0.apk</code>」——包是好的，名字像坏的。
+          所以产物统一叫 <code>village-app-*.apk</code>，中文只出现在 Release 说明文字里。
         </p>
       </div>
     </div>
