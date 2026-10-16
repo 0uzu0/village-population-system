@@ -75,9 +75,6 @@
           符合条件：<span class="count">{{ total }}</span> 人
           <span v-if="stats.grids?.length" class="result-sub">· 覆盖 {{ stats.grids.length }} 个网格</span>
         </div>
-        <el-button v-if="auth.hasPermission('keygroup:export')" :disabled="!total" @click="doExport">
-          <el-icon><Download /></el-icon>导出结果
-        </el-button>
       </div>
 
       <!-- 结果分布 -->
@@ -134,7 +131,15 @@
                 :highlight="isHitTag(t.id)"
                 style="margin-right: 4px"
               />
-              <el-tag v-if="row.tags.length > 3" size="small" type="info">+{{ row.tags.length - 3 }}</el-tag>
+              <!-- 折叠起来的标签鼠标悬停看全：一个人常挂四五个标签，
+                   只显示 +N 不给他看是哪些，等于把筛查依据藏了一半 -->
+              <el-tooltip
+                v-if="row.tags.length > 3"
+                placement="top"
+                :content="row.tags.slice(3).map((t: any) => t.name).join('、')"
+              >
+                <el-tag size="small" type="info">+{{ row.tags.length - 3 }}</el-tag>
+              </el-tooltip>
             </template>
             <span v-else class="muted">—</span>
           </template>
@@ -182,8 +187,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { keyGroupApi, tagApi, gridApi, excelApi } from '@/api';
-import { useAuthStore } from '@/stores/auth';
+// 导出功能按需求移除，因此不再引入 excelApi 与权限 store
+import { keyGroupApi, tagApi, gridApi } from '@/api';
 import { toPersonDetail } from '@/utils/nav';
 // 个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）按需求整体移除，
 // 因此这里只保留列表「残疾等级」列展示需要的 disabilityLevelShort
@@ -192,7 +197,6 @@ import { useListUrlSync } from '@/composables/useListUrlSync';
 import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
-const auth = useAuthStore();
 const loading = ref(false);
 const list = ref<any[]>([]);
 const total = ref(0);
@@ -419,21 +423,6 @@ function quickTagIds(g: any) {
   return codes
     .map((c) => personTags.value.find((t: any) => t.code === c)?.id)
     .filter((id): id is number => typeof id === 'number');
-}
-
-async function doExport() {
-  // 导出必须带上全部筛选条件与在册口径，
-  // 否则导出的会与屏幕上看到的结果不是同一批人
-  const params: any = {
-    gridId: query.gridId,
-    minAge: query.minAge,
-    maxAge: query.maxAge,
-    activeOnly: activeOnly.value,
-  };
-  if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
-  if (query.familyTagIds.length) params.familyTagIds = query.familyTagIds.join(',');
-  const res: any = await excelApi.export(params);
-  ElMessage.success(`导出完成，共 ${res.data.total} 条，请到 Excel 页面下载`);
 }
 
 onMounted(async () => {

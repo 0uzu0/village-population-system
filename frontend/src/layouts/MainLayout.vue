@@ -56,7 +56,7 @@
         </div>
       </header>
 
-      <main class="content">
+      <main ref="contentRef" class="content">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useAuthStore } from '@/stores/auth';
@@ -95,6 +95,8 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const collapsed = ref(false);
+/** 内容滚动容器。切换路由后要手动把它滚回顶部，理由见下面的 watch */
+const contentRef = ref<HTMLElement | null>(null);
 const pwdVisible = ref(false);
 const pwdLoading = ref(false);
 const pwdForm = ref({ oldPassword: '', newPassword: '' });
@@ -141,6 +143,24 @@ const activeMenu = computed(() => {
 });
 
 const currentTitle = computed(() => route.meta.title as string | undefined);
+
+/**
+ * 切换路由后把内容区滚回顶部。
+ *
+ * 为什么非要手动做：本布局的滚动容器是 `.content`（overflow-y: auto），
+ * 滚动条在它身上而**不在 window 上**。vue-router 的 `scrollBehavior`
+ * 只对 window 滚动生效，对这种内部容器完全无效——于是在列表页往下滚一段
+ * 再点进某个人的详情，新页面会「停在页面最下方」。
+ *
+ * 用 nextTick 等新页面挂载完再滚，否则可能滚了个还在旧内容的高度。
+ */
+watch(
+  () => route.path,
+  async () => {
+    await nextTick();
+    contentRef.value?.scrollTo({ top: 0 });
+  }
+);
 
 const avatarText = computed(() => (auth.user?.realName || auth.user?.username || '?').charAt(0));
 
