@@ -10,4 +10,8 @@
     <files-path
         name="offline"
         path="offline/" />
+    <!-- 拍照留痕暂存目录：CaptureScreen.newPhotoFile() 实际写 context.filesDir/captures/ -->
+    <files-path
+        name="captures_files"
+        path="captures/" />
 </paths>
