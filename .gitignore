@@ -17,6 +17,17 @@ deploy/.env
 !deploy/.env.example
 !backend/.env.example
 
+# === 安卓签名文件（严禁提交） ===
+# 工作流规定「仓库里不放签名文件」，原先只靠口头约定、没有任何规则拦住它；
+# 而本仓库是公开的，一旦签进去等于把签名钥匙公开，别人可以签出能覆盖升级的恶意包。
+# 这几条是最后一道防线：无论如何命名，都别想提交进来。
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+*.jks.base64
+
 # === 备份文件（含敏感数据，严禁提交） ===
 backups/
 *.sql.gz
