@@ -3,7 +3,7 @@ import { queryOne, execute } from '../config/db';
 import { verifyPassword, hashPassword } from '../utils/crypto';
 import { signToken, loadAuthContext } from '../middleware/auth';
 import { authMiddleware } from '../middleware/auth';
-import { ok, fail, AppError } from '../utils/response';
+import { ok, fail } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { loginRateLimit } from '../middleware/rateLimit';
 import { z } from 'zod';

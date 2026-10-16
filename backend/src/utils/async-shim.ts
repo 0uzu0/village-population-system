@@ -9,8 +9,11 @@
  * 由统一 errorHandler 返回 400/500。四参错误处理中间件保持原样不包装。
  * 用法：在创建 app 之前 import 一次本文件即可（app.ts 顶部已引入）。
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+/*
+ * 这里必须用 require：Express 未导出 Layer，只能按其内部路径加载；
+ * 且 this 是运行时才明确的 Layer 实例，只能 any。
+ */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const Layer = require('express/lib/router/layer');
 
 function wrapAsyncHandle(fn: any): any {

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { query, queryOne, execute } from '../config/db';
+import { queryOne, execute } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, fail, AppError } from '../utils/response';

@@ -2,12 +2,12 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { query, execute } from '../../config/db';
 import { requirePermission, buildGridFilter } from '../../middleware/rbac';
-import { ok, PageResult } from '../../utils/response';
+import { ok } from '../../utils/response';
 import { buildAgeFilter } from '../../utils/tagQuery';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../../utils/disability';
 import { formatDateOrEmpty } from '../../utils/date';
 import { activeSql } from '../../utils/personStatus';
-import { FOCUS_GROUPS, allFocusTagCodes } from '../../utils/focusGroups';
+import { FOCUS_GROUPS } from '../../utils/focusGroups';
 import { queryEnum } from '../../utils/schema';
 import { UPLOAD_DIR } from './shared';
 
@@ -51,7 +51,14 @@ const exportSchema = z.object({
  * 完全同口径），此处只保留「列顺序」——导出 Excel 的列序是既有约定，不随
  * focusGroups 的定义顺序变动。
  */
-const EXPORT_FLAG_ORDER = ['is_party', 'is_disabled', 'is_extreme_poverty', 'is_low_income', 'is_veteran', 'is_preferential'];
+const EXPORT_FLAG_ORDER = [
+  'is_party',
+  'is_disabled',
+  'is_extreme_poverty',
+  'is_low_income',
+  'is_veteran',
+  'is_preferential',
+];
 const EXPORT_TAG_FLAGS: { key: string; label: string; codes: string[]; alsoDisabilityTable?: boolean }[] =
   EXPORT_FLAG_ORDER.map((key) => {
     const g = FOCUS_GROUPS.find((x) => x.exportFlagKey === key);
@@ -95,7 +102,6 @@ const EXPORT_FIELDS: { key: string; label: string }[] = [
   { key: 'tags', label: '全部标签' },
 ];
 
-
 /** 创建导出任务（同步生成文件，记录任务状态与审计） */
 router.post('/export', requirePermission('excel:export'), async (req: Request, res: Response) => {
   const body = exportSchema.parse(req.body);
@@ -103,30 +109,59 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   const where: string[] = ['1=1'];
   const params: any[] = [];
   // 与人员列表保持同一搜索口径：姓名 / 身份证号 / 手机号（含备用）
-  if (body.keyword) { where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)'); params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`); }
-  if (body.gridId) { where.push('p.grid_id = ?'); params.push(body.gridId); }
-  if (body.familyId) { where.push('p.family_id = ?'); params.push(body.familyId); }
-  if (body.gender) { where.push('p.gender = ?'); params.push(body.gender); }
-  if (body.status) { where.push('p.status = ?'); params.push(body.status); }
-  else if (body.activeOnly !== false) { where.push(activeSql('p')); }
+  if (body.keyword) {
+    where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
+    params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`);
+  }
+  if (body.gridId) {
+    where.push('p.grid_id = ?');
+    params.push(body.gridId);
+  }
+  if (body.familyId) {
+    where.push('p.family_id = ?');
+    params.push(body.familyId);
+  }
+  if (body.gender) {
+    where.push('p.gender = ?');
+    params.push(body.gender);
+  }
+  if (body.status) {
+    where.push('p.status = ?');
+    params.push(body.status);
+  } else if (body.activeOnly !== false) {
+    where.push(activeSql('p'));
+  }
 
   const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }
+  if (gridFilter.where) {
+    where.push(gridFilter.where.replace(/^ AND /, ''));
+    params.push(...gridFilter.params);
+  }
 
   // 年龄与标签筛选复用 tagQuery 的构建器，与人口档案列表保持同一口径
   // （此前这里内联了一份，maxAge 用了 >=，会把刚满 maxAge+1 周岁的人多算进来）
   const ageFilter = buildAgeFilter(body.minAge, body.maxAge, 'p');
-  if (ageFilter.where) { where.push(ageFilter.where.replace(/^ AND /, '')); params.push(...ageFilter.params); }
+  if (ageFilter.where) {
+    where.push(ageFilter.where.replace(/^ AND /, ''));
+    params.push(...ageFilter.params);
+  }
 
   if (body.tagIds) {
-    const tagIds = body.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
+    const tagIds = body.tagIds
+      .split(',')
+      .map((s) => parseInt(s, 10))
+      .filter((n) => !isNaN(n));
     const tagFilter = buildPersonTagFilter({ tags: tagIds, mode: body.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
-    if (tagFilter.where) { where.push(tagFilter.where.replace(/^ AND /, '')); params.push(...tagFilter.params); }
+    if (tagFilter.where) {
+      where.push(tagFilter.where.replace(/^ AND /, ''));
+      params.push(...tagFilter.params);
+    }
   }
 
   // 个性化筛选（V008）：必须与 keygroup /query 同口径，否则筛完导出会是另一批人
   if (body.extremePovertyMode) {
-    const code = body.extremePovertyMode === 'CENTRALIZED' ? 'EXTREME_POVERTY_CENTRALIZED' : 'EXTREME_POVERTY_DISPERSED';
+    const code =
+      body.extremePovertyMode === 'CENTRALIZED' ? 'EXTREME_POVERTY_CENTRALIZED' : 'EXTREME_POVERTY_DISPERSED';
     where.push(`EXISTS (SELECT 1 FROM person_tag pt2 JOIN tag_definition td2 ON td2.id = pt2.tag_id
       WHERE pt2.person_id = p.id AND pt2.status = 'ACTIVE' AND td2.code = ?)`);
     params.push(code);
@@ -134,16 +169,30 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   if (body.minDisabilityLevel || body.maxDisabilityLevel || body.disabilityType || body.guardian) {
     where.push('pd.person_id IS NOT NULL');
     const lvl = buildDisabilityLevelFilter(body.minDisabilityLevel, body.maxDisabilityLevel);
-    if (lvl.where) { where.push(lvl.where); params.push(...lvl.params); }
-    if (body.disabilityType) { where.push('pd.disability_type = ?'); params.push(body.disabilityType); }
+    if (lvl.where) {
+      where.push(lvl.where);
+      params.push(...lvl.params);
+    }
+    if (body.disabilityType) {
+      where.push('pd.disability_type = ?');
+      params.push(body.disabilityType);
+    }
     if (body.guardian) {
-      where.push(body.guardian === 'YES'
-        ? "pd.guardian_name IS NOT NULL AND pd.guardian_name <> ''"
-        : "(pd.guardian_name IS NULL OR pd.guardian_name = '')");
+      where.push(
+        body.guardian === 'YES'
+          ? "pd.guardian_name IS NOT NULL AND pd.guardian_name <> ''"
+          : "(pd.guardian_name IS NULL OR pd.guardian_name = '')"
+      );
     }
   }
-  if (body.minSubsidy != null) { where.push('p.subsidy_amount >= ?'); params.push(body.minSubsidy); }
-  if (body.maxSubsidy != null) { where.push('p.subsidy_amount <= ?'); params.push(body.maxSubsidy); }
+  if (body.minSubsidy != null) {
+    where.push('p.subsidy_amount >= ?');
+    params.push(body.minSubsidy);
+  }
+  if (body.maxSubsidy != null) {
+    where.push('p.subsidy_amount <= ?');
+    params.push(body.maxSubsidy);
+  }
 
   const whereSql = where.join(' AND ');
   // 导出的可选字段包含残疾信息（残疾类别/等级/证号/监护人），
@@ -163,10 +212,12 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   ws.addRow(headers);
   ws.getRow(1).font = { bold: true };
 
-  const taskResult = await execute(
-    'INSERT INTO export_task (name, status, params, created_by) VALUES (?, ?, ?, ?)',
-    ['人口档案导出', 'RUNNING', JSON.stringify(body), req.user!.id]
-  );
+  const taskResult = await execute('INSERT INTO export_task (name, status, params, created_by) VALUES (?, ?, ?, ?)', [
+    '人口档案导出',
+    'RUNNING',
+    JSON.stringify(body),
+    req.user!.id,
+  ]);
   const taskId = taskResult.insertId;
 
   // 标签编码 → 名称 映射，用于「全部标签」列把编码还原成中文
@@ -226,14 +277,32 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
 
     const fileResult = await execute(
       'INSERT INTO file_info (file_name, storage_name, file_type, file_size, storage_path, content_type, created_by) VALUES (?,?,?,?,?,?,?)',
-      [fileName, fileName, 'xlsx', fs.statSync(filePath).size, filePath, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', req.user!.id]
+      [
+        fileName,
+        fileName,
+        'xlsx',
+        fs.statSync(filePath).size,
+        filePath,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        req.user!.id,
+      ]
     );
-    await execute('UPDATE export_task SET status = \'SUCCESS\', file_id = ?, finished_at = NOW() WHERE id = ?', [fileResult.insertId, taskId]);
+    await execute("UPDATE export_task SET status = 'SUCCESS', file_id = ?, finished_at = NOW() WHERE id = ?", [
+      fileResult.insertId,
+      taskId,
+    ]);
 
-    await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'excel:export', request: { total, fields }, result: 'SUCCESS', ip: req.ip });
+    await writeAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'excel:export',
+      request: { total, fields },
+      result: 'SUCCESS',
+      ip: req.ip,
+    });
     return ok(res, { taskId, total, fileName }, '导出完成');
   } catch (err) {
-    await execute('UPDATE export_task SET status = \'FAILED\', finished_at = NOW() WHERE id = ?', [taskId]);
+    await execute("UPDATE export_task SET status = 'FAILED', finished_at = NOW() WHERE id = ?", [taskId]);
     throw err;
   }
 });

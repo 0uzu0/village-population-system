@@ -17,6 +17,10 @@ name: docker-publish
 #   - 移除 sbom / provenance 证明：单架构下无需镜像索引附加清单
 #   - 移除 workflow 级 env 与短 SHA 计算步骤（Trivy 移除后不再需要）
 #   - 移除 GitHub Actions 缓存（type=gha）：偶发 not_found 导致构建失败
+#
+# 门禁（前后端一致）：lint → 单元测试 → 构建（含类型检查）
+#   - 后端 lint 里的 no-console 是硬性规则：日志必须走 src/utils/logger.ts
+#   - 前端 test 覆盖 composables 与「Element Plus 按需引入」的完整性校验
 # =============================================================
 on:
   push:
@@ -50,17 +54,22 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
-      - name: 后端安装与测试
+      # 先装依赖（两个包并行装完再跑各自的门禁，避免同一 job 里重复 npm ci）
+      - name: 后端安装与检查
         working-directory: backend
         run: |
           npm ci
+          npm run lint
           npm test
           npm run build
 
-      - name: 前端安装与构建
+      - name: 前端安装与检查
         working-directory: frontend
         run: |
           npm ci
+          npm run lint
+          npm test
+          # build 内含 vue-tsc 类型检查 + vite 构建
           npm run build
 
   # ---------------------------------------------------------

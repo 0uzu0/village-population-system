@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { formatLogLine, shouldLog, logger, newRequestId } from '../src/utils/logger';
 
 afterEach(() => vi.restoreAllMocks());
@@ -42,5 +45,26 @@ describe('结构化日志', () => {
   it('newRequestId 生成 8 位十六进制短 ID', () => {
     const id = newRequestId();
     expect(id).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('src 下不允许再出现 console.*（日志必须走 logger，否则容器日志无法按 JSON 解析）', () => {
+    const src = fileURLToPath(new URL('../src', import.meta.url));
+    const offenders: string[] = [];
+
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts')) {
+          const text = fs.readFileSync(full, 'utf-8');
+          // 去掉注释，避免「注释里提到 console.log」被误判
+          const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+          if (/\bconsole\s*\./.test(code)) offenders.push(path.relative(src, full));
+        }
+      }
+    };
+    walk(src);
+
+    expect(offenders, '这些文件仍在直接使用 console.*，请改用 src/utils/logger.ts').toEqual([]);
   });
 });

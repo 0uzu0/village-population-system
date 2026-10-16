@@ -126,7 +126,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
     req.user = ctx;
     next();
-  } catch (err) {
+  } catch {
+    // 任何解析/查询异常都统一按未认证处理，不向外泄露内部原因
     fail(res, '认证失败', 401, 'UNAUTHORIZED');
   }
 }

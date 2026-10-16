@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { query, queryOne, execute } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
-import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
+import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
 import { z } from 'zod';

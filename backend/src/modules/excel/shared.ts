@@ -15,7 +15,8 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname)}`),
+  filename: (_req, file, cb) =>
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname)}`),
 });
 export const upload = multer({
   storage,
@@ -27,12 +28,24 @@ export const upload = multer({
   },
 });
 
-
 /**
  * 导入模板字段定义（严格按列顺序解析）。
  * 第 12 列「备用手机号」为后加字段，旧的 11 列表格仍可正常导入，该列按空处理。
  */
-export const IMPORT_COLUMNS = ['姓名', '性别', '出生日期', '身份证号', '手机号', '户籍地址', '实际居住地址', '所属村庄', '网格编号', '家庭编号', '与户主关系', '备用手机号'];
+export const IMPORT_COLUMNS = [
+  '姓名',
+  '性别',
+  '出生日期',
+  '身份证号',
+  '手机号',
+  '户籍地址',
+  '实际居住地址',
+  '所属村庄',
+  '网格编号',
+  '家庭编号',
+  '与户主关系',
+  '备用手机号',
+];
 
 /**
  * 重点人群名单导入模板列。
@@ -82,7 +95,9 @@ export async function loadKeyGroupTagDict(): Promise<Map<string, KgTagEntry>> {
 export function loadKeyGroupTagDictFromRows(rows: any[]): Map<string, KgTagEntry> {
   const dict = new Map<string, KgTagEntry>();
   const put = (token: any, entry: KgTagEntry) => {
-    const k = String(token ?? '').trim().toLowerCase();
+    const k = String(token ?? '')
+      .trim()
+      .toLowerCase();
     if (k) dict.set(k, entry);
   };
   for (const r of rows) {
@@ -145,7 +160,7 @@ export function kgTagLabels(dict: Map<string, KgTagEntry>): string[] {
 export async function readRowsByColumns(
   filePath: string,
   columns: string[],
-  requiredColumns?: string[],
+  requiredColumns?: string[]
 ): Promise<Record<string, any>[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -199,9 +214,7 @@ export async function readRowsByColumns(
       const colNumber = useHeader ? (headerMap.get(key) ?? i + 1) : i + 1;
       const raw = row.getCell(colNumber).value;
       // 日期单元格直接取 YYYY-MM-DD，避免变成序列号
-      const v = raw instanceof Date
-        ? formatDate(raw)
-        : (raw == null ? '' : String(raw).trim());
+      const v = raw instanceof Date ? formatDate(raw) : raw == null ? '' : String(raw).trim();
       obj[c] = v;
     });
     if (Object.values(obj).some((v) => v !== '')) rows.push(obj);
@@ -209,21 +222,19 @@ export async function readRowsByColumns(
   return rows;
 }
 
-async function readRows(filePath: string): Promise<Record<string, any>[]> {
+/** 人员导入专用：按人员模板的列清单读取，身份三列为必填 */
+export async function readRows(filePath: string): Promise<Record<string, any>[]> {
   return readRowsByColumns(filePath, IMPORT_COLUMNS, ['姓名', '身份证号', '性别']);
 }
 
-
 /** 批量写入分片大小：逐行 INSERT 在万行级导入时会产生上万次数据库往返 */
 export const WRITE_CHUNK = 500;
-
 
 /** 删除临时文件，删除失败不影响主流程（文件残留在 uploads 目录，可定期清理） */
 export function safeUnlink(filePath?: string): void {
   if (!filePath) return;
   fs.unlink(filePath, () => {});
 }
-
 
 /** 批量写入导入错误行 */
 export async function insertImportErrors(
@@ -239,4 +250,3 @@ export async function insertImportErrors(
     );
   }
 }
-

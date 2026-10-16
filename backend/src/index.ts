@@ -1,7 +1,7 @@
 import { createApp } from './app';
 import { env, assertProductionSafety } from './config/env';
 import { runMigrations } from './db/migrate';
-import { pool, queryOne, execute, withTransaction } from './config/db';
+import { pool, queryOne, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
 import { markStaleImportTasks } from './services/importTask';
 import { logger } from './utils/logger';

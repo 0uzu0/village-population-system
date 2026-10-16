@@ -22,10 +22,7 @@ export function nullableStr(max?: number, message?: string): z.ZodTypeAny {
  * 查询参数里的可选枚举：允许缺省，也允许空串。
  * 前端「未选择」可能传 ''（否则 zod 会 400），这里把 '' 归一化成 undefined 再套默认值。
  */
-export function queryEnum<T extends [string, ...string[]]>(
-  values: T,
-  fallback: T[number]
-): z.ZodType<T[number]> {
+export function queryEnum<T extends [string, ...string[]]>(values: T, fallback: T[number]): z.ZodType<T[number]> {
   return z.preprocess(
     (v) => (v === '' || v === null ? undefined : v),
     z.enum(values).default(fallback)

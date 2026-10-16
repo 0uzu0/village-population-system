@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
-import { query, queryOne, execute, withTransaction, pool } from '../config/db';
+import { query, queryOne, withTransaction } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
-import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
+import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { z } from 'zod';
 import {

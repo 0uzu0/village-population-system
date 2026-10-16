@@ -1,5 +1,4 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import http from 'http';
 import express from 'express';
 // 必须先加载 shim，再注册路由
 import '../src/utils/async-shim';

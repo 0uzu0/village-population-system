@@ -25,10 +25,12 @@ export async function markStaleImportTasks(minutes = 10, force = false): Promise
     if (!stale.length) return 0;
     for (const t of stale) {
       await execute(`UPDATE excel_import_task SET status = 'FAILED', finished_at = NOW() WHERE id = ?`, [t.id]);
-      await execute(
-        `INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`,
-        [t.id, 0, `任务异常中断：超过 ${minutes} 分钟仍停留在「处理中」，已自动判定为失败（常见于导入过程报错或后端重启）`, '']
-      );
+      await execute(`INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`, [
+        t.id,
+        0,
+        `任务异常中断：超过 ${minutes} 分钟仍停留在「处理中」，已自动判定为失败（常见于导入过程报错或后端重启）`,
+        '',
+      ]);
     }
     logger.warn('import-task-reconciled', { count: stale.length });
     return stale.length;
@@ -42,16 +44,17 @@ export async function markStaleImportTasks(minutes = 10, force = false): Promise
 export async function markImportFailed(taskId: number, totalRows: number, err: unknown): Promise<void> {
   const reason = err instanceof Error ? err.message : String(err);
   try {
-    await execute(
-      `UPDATE excel_import_task SET status = 'FAILED', fail_count = ?, finished_at = NOW() WHERE id = ?`,
-      [totalRows, taskId]
-    );
-    await execute(
-      `INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`,
-      [taskId, 0, `导入过程异常中断（整批未生效）：${reason}`, '']
-    );
+    await execute(`UPDATE excel_import_task SET status = 'FAILED', fail_count = ?, finished_at = NOW() WHERE id = ?`, [
+      totalRows,
+      taskId,
+    ]);
+    await execute(`INSERT INTO excel_import_error (task_id, row_no, message, raw_data) VALUES (?,?,?,?)`, [
+      taskId,
+      0,
+      `导入过程异常中断（整批未生效）：${reason}`,
+      '',
+    ]);
   } catch (inner) {
     logger.error('import-task-mark-failed', { message: inner instanceof Error ? inner.message : String(inner) });
   }
 }
-

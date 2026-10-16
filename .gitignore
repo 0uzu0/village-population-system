@@ -33,8 +33,10 @@ Thumbs.db
 coverage/
 .nyc_output/
 *.tsbuildinfo
-frontend/vite.config.js
-frontend/vite.config.d.ts
+# 注：frontend/vite.config.js / .d.ts 曾是 tsc 在 vite.config.ts 旁边产出的产物，
+# 而 Vite 的配置查找顺序里 .js 优先于 .ts —— 于是配置改了却不生效。
+# 根因已由 frontend/tsconfig.node.json 的 outDir（指向 node_modules/.cache）解决，
+# 这里不再逐个屏蔽；若本地又见到该文件，删掉即可（前端有守卫测试会直接报错）。
 
 # === 构建产物缓存 ===
 .cache/

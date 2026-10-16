@@ -1,5 +1,3 @@
-import { Request } from 'express';
-
 /** 登录用户上下文（由 auth 中间件注入） */
 export interface AuthUser {
   id: number;

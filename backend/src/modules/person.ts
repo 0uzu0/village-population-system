@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { query, queryOne, execute, withTransaction, pool } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
-import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
+import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { calcAge } from '../utils/age';
@@ -217,7 +217,7 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
 
   // 批量取标签，避免 N+1
   const personIds = rows.map((r: any) => r.id);
-  let tagMap: Map<number, any[]> = new Map();
+  const tagMap: Map<number, any[]> = new Map();
   if (personIds.length) {
     const tags = await query<any>(
       `SELECT pt.person_id, td.id, td.name, td.code, td.color

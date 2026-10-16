@@ -28,13 +28,25 @@ async function loadKeyGroupTypes(): Promise<{ label: string; code: string; alias
   }));
 }
 
-
 /** 下载导入模板 */
 router.get('/template', requirePermission('excel:import'), async (_req: Request, res: Response) => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('人口导入模板');
   ws.columns = IMPORT_COLUMNS.map((c) => ({ header: c, key: c, width: 18 }));
-  ws.addRow(['张三', '男', '1990-01-01', '320102199001011234', '13800000000', '示例村一巷1号', '示例村一巷1号', '幸福村', 'G001', 'F001', '户主', '13900000000']);
+  ws.addRow([
+    '张三',
+    '男',
+    '1990-01-01',
+    '320102199001011234',
+    '13800000000',
+    '示例村一巷1号',
+    '示例村一巷1号',
+    '幸福村',
+    'G001',
+    'F001',
+    '户主',
+    '13900000000',
+  ]);
   ws.getRow(1).font = { bold: true };
   ws.getRow(2).getCell('身份证号').numFmt = '@';
 
@@ -89,7 +101,6 @@ router.get('/key-group/types', requirePermission('excel:import'), async (_req: R
   }
 });
 
-
 /** 专项导入类型元信息（前端页签与列说明用） */
 router.get('/special/types', requirePermission('excel:import'), (_req: Request, res: Response) => {
   const list = Object.values(SPECIAL_IMPORT_SPECS).map((s) => ({
@@ -109,7 +120,11 @@ router.get('/template/special/:type', requirePermission('excel:import'), async (
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(spec.label);
-  ws.columns = spec.columns.map((c) => ({ header: c, key: c, width: c.includes('描述') || c.includes('评估') ? 30 : 18 }));
+  ws.columns = spec.columns.map((c) => ({
+    header: c,
+    key: c,
+    width: c.includes('描述') || c.includes('评估') ? 30 : 18,
+  }));
   // 示例行仅示意格式，导入只读取第一个工作表
   ws.addRow(sampleRowFor(spec));
   ws.getRow(1).font = { bold: true };
@@ -127,9 +142,7 @@ router.get('/template/special/:type', requirePermission('excel:import'), async (
 
   // 第二张表：填写说明（不参与解析）
   const help = wb.addWorksheet('填写说明');
-  help.columns = [
-    { header: '说明', key: 'text', width: 78 },
-  ];
+  help.columns = [{ header: '说明', key: 'text', width: 78 }];
   spec.notes.forEach((n, i) => help.addRow({ text: `${i + 1}. ${n}` }));
   help.getRow(1).font = { bold: true };
 
@@ -142,19 +155,19 @@ router.get('/template/special/:type', requirePermission('excel:import'), async (
 /** 每类模板的示例行 */
 function sampleRowFor(spec: SpecialImportSpec): any[] {
   const base: Record<string, any> = {
-    '姓名': '张三',
-    '身份证号': '320102199001011234',
-    '残疾类别': '肢体',
-    '残疾等级': '二级',
-    '残疾证号': '132101199001011234',
-    '监护人': '张三妻',
-    '监护人手机': '13900000000',
-    '供养方式': '分散供养',
-    '银行账号': '6222000000000000000',
-    '发放金额': 850,
-    '家庭情况描述': '妻子务农，儿子在外务工，本人生活自理能力较弱。',
-    '身体评估结果': '行动不便，需定期上门随访。',
-    '备注': '',
+    姓名: '张三',
+    身份证号: '320102199001011234',
+    残疾类别: '肢体',
+    残疾等级: '二级',
+    残疾证号: '132101199001011234',
+    监护人: '张三妻',
+    监护人手机: '13900000000',
+    供养方式: '分散供养',
+    银行账号: '6222000000000000000',
+    发放金额: 850,
+    家庭情况描述: '妻子务农，儿子在外务工，本人生活自理能力较弱。',
+    身体评估结果: '行动不便，需定期上门随访。',
+    备注: '',
   };
   return spec.columns.map((c) => base[c] ?? '');
 }

@@ -9,7 +9,11 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "migrate": "tsx src/db/migrate.ts"
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.cjs\" \"*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.cjs\" \"*.mjs\"",
+    "migrate": "tsx src/db/migrate.ts",
+    "explain": "node scripts/explain-baseline.cjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -22,14 +26,18 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.0",
+    "eslint": "^9.39.4",
+    "prettier": "^3.9.10",
     "tsx": "^4.16.0",
     "typescript": "^5.5.4",
+    "typescript-eslint": "^8.71.2",
     "vitest": "^2.0.5"
   }
 }
