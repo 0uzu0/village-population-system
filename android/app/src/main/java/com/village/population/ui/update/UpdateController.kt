@@ -21,6 +21,7 @@ import com.village.population.BuildConfig
 import com.village.population.data.repository.UpdateRepository
 import com.village.population.ui.theme.AppTheme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
@@ -64,16 +65,23 @@ class UpdateController(
     /**
      * 检查更新。
      *
-     * @param manual true = 用户主动点击：显示「检查中」、失败时弹错误；
+     * @param manual true = 用户主动点击：检查超过一瞬才显示「检查中」，失败时弹错误；
      *               false = 启动静默检查：只在发现新版时弹，失败静默吞掉。
      */
     fun check(manual: Boolean) {
         val current = state
         if (current is UpdateState.Checking || current is UpdateState.Downloading) return
-        if (manual) state = UpdateState.Checking
         scope.launch {
             try {
+                // 「检查中」只在请求真的超过一瞬（600ms）才显示：GitHub 请求通常很快，
+                // 如果一进来就置 Checking，对话框会「弹出来又立刻消失」，视觉上就是闪屏。
+                // 用 delay 做防抖，快请求直接落到结果态，用户完全无感。
+                val debounce = if (manual) launch {
+                    delay(600)
+                    state = UpdateState.Checking
+                } else null
                 val info = repository.checkForUpdate()
+                debounce?.cancel()
                 if (info == null) {
                     state = if (manual) UpdateState.Latest(BuildConfig.VERSION_NAME) else UpdateState.Idle
                 } else {
@@ -133,7 +141,9 @@ fun UpdateDialogs(
         UpdateState.Idle -> Unit
 
         UpdateState.Checking -> AlertDialog(
-            onDismissRequest = onDismiss,
+            // 检查中不可点掉：点掉会 dismiss 置 Idle，但后台协程返回后又会把状态
+            // 覆盖成结果态，对话框「关了又弹」，视觉上就是闪屏
+            onDismissRequest = {},
             title = { Text("检查更新") },
             text = {
                 Column(
