@@ -216,7 +216,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                     SectionCard(title = "人口概况") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatCard(
-                                "在册人口", "${d.totalPopulation}",
+                                "总人口", "${d.hukouCount + d.residentCount}",
                                 Modifier.weight(1f), StatTone.Primary,
                                 onClick = { onNavigate(Routes.PERSONS) },
                             )
@@ -224,9 +224,18 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
                             StatCard("常住人口", "${d.residentCount}", Modifier.weight(1f), StatTone.Quiet)
+                            StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
+                        // 总人口是「户籍 + 常住」直接相加，而一个人可以既是户籍人口
+                        // 又是常住人口（两个口径有交叉）。不写这句，看到三个数对不上
+                        // 会以为是算错了，实际是有意按需求采用的默认口径。
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "总人口 = 户籍人口 + 常住人口（两者存在交叉，相加为默认统计口径）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppTheme.tokens.ink3,
+                        )
                     }
                 }
             }

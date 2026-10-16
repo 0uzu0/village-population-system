@@ -118,6 +118,14 @@ data class PersonCreateRequest(
     val familyId: Int? = null,
     val relation: String? = null,
     val remark: String? = null,
+    /**
+     * 建档/编辑时一并维护的标签 id 列表。
+     *
+     * 语义是**全量覆盖**：传空列表表示清空标签，字段整体不传才表示不动标签。
+     * 这里给它默认值 null，序列化时会连同 null 一起发出（后端按 null 处理），
+     * 与后端的「未传 = 不动标签」口径一致；要清空就传 emptyList()。
+     */
+    val tagIds: List<Int>? = null,
 )
 
 /**

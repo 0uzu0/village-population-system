@@ -28,6 +28,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.PersonCreateRequest
+import com.village.population.data.remote.dto.TagDto
 import com.village.population.data.remote.dto.VillageDto
 import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.PersonRepository
@@ -68,6 +69,10 @@ data class PersonEditUiState(
     val loaded: Boolean = true,
     val saving: Boolean = false,
     val villages: List<VillageDto> = emptyList(),
+    /** 可选的个人标签（用于「人口标签」多选） */
+    val personTags: List<TagDto> = emptyList(),
+    /** 已选中的标签 id。null 表示「尚未决定」（新增时也没打标签），保存时按空集合提交 */
+    val tagIds: List<Int> = emptyList(),
     val name: String = "",
     val idCard: String = "",
     val gender: String? = null,
@@ -102,10 +107,14 @@ class PersonEditViewModel(
 
     fun init() {
         if (!isEdit) {
-            // 新增：只需要村庄下拉的数据，表单本来就是空的
+            // 新增：只需要村庄下拉与标签选项，表单本来就是空的
             viewModelScope.launch {
-                runCatching { metaRepo.villages().value }.onSuccess { villages ->
-                    _state.update { it.copy(villages = villages) }
+                val villages = async { runCatching { metaRepo.villages().value }.getOrDefault(emptyList()) }
+                // 标签选项取自缓存优先的 personTags：走访前连过一次网，
+                // 到村里没信号也能正常显示标签列表（与重点人群入口同一份缓存）
+                val tags = async { runCatching { metaRepo.personTags().value }.getOrDefault(emptyList()) }
+                _state.update {
+                    it.copy(villages = villages.await(), personTags = tags.await())
                 }
             }
             return
@@ -114,9 +123,10 @@ class PersonEditViewModel(
         _state.update { it.copy(loading = true, loadError = null) }
         viewModelScope.launch {
             try {
-                // 村庄列表与人员档案互不依赖，并发发出。
-                // 串行的话「打开编辑页」要白等两个来回，而这段时间屏幕上什么都没有。
+                // 村庄列表、标签选项与人员档案互不依赖，并发发出。
+                // 串行的话「打开编辑页」要白等三个来回，而这段时间屏幕上什么都没有。
                 val villages = async { runCatching { metaRepo.villages().value }.getOrDefault(emptyList()) }
+                val tags = async { runCatching { metaRepo.personTags().value }.getOrDefault(emptyList()) }
                 val person = async { personRepo.detail(personId).value }
                 val p = person.await()
                 _state.update {
@@ -124,6 +134,10 @@ class PersonEditViewModel(
                         loading = false,
                         loaded = true,
                         villages = villages.await(),
+                        personTags = tags.await(),
+                        // 已有标签回填：tagIds 是「全量覆盖」语义，
+                        // 不回填的话保存时会把该人员原有标签清空
+                        tagIds = p.tags.map { it.id },
                         name = p.name,
                         idCard = p.idCard.orEmpty(),
                         gender = p.gender,
@@ -201,6 +215,9 @@ class PersonEditViewModel(
             liveAddress = s.liveAddress.takeIf { it.isNotBlank() },
             relation = s.relation.takeIf { it.isNotBlank() },
             remark = s.remark.takeIf { it.isNotBlank() },
+            // 全量覆盖语义：把多选框里的值原样提交。
+            // 编辑时 tagIds 已回填，用户没改动也会原样发回，不会被清空
+            tagIds = s.tagIds,
         )
 
         viewModelScope.launch {
@@ -351,6 +368,44 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                     placeholder = "请选择",
                     allowClear = true,
                 )
+            }
+
+            // 人口标签：建档时就挂上，不必先保存再回详情页逐个去加。
+            // 用一排可点选的 chip 而不是下拉多选——一个人身上常挂好几个标签，
+            // chip 一屏能看全、点一下就切换，比在小屏上开弹层勾选快得多。
+            SectionCard(title = "人口标签") {
+                if (state.personTags.isEmpty()) {
+                    Text(
+                        "暂无可用标签（可在 PC 端「人口标签」中维护）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = com.village.population.ui.theme.AppTheme.tokens.ink3,
+                    )
+                } else {
+                    Text(
+                        if (state.tagIds.isEmpty()) "未选择" else "已选 ${state.tagIds.size} 项",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = com.village.population.ui.theme.AppTheme.tokens.ink3,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        state.personTags.forEach { tag ->
+                            androidx.compose.material3.FilterChip(
+                                selected = tag.id in state.tagIds,
+                                onClick = {
+                                    vm.onField { s ->
+                                        s.copy(
+                                            tagIds = if (tag.id in s.tagIds) s.tagIds - tag.id else s.tagIds + tag.id,
+                                        )
+                                    }
+                                },
+                                label = { Text(tag.name) },
+                            )
+                        }
+                    }
+                }
             }
 
             SectionCard(title = "备注") {

@@ -133,6 +133,17 @@ interface ApiService {
     @GET("api/pending/summary")
     suspend fun pendingSummary(): ApiEnvelope<PendingSummaryDto>
 
+    /**
+     * 编辑待核查记录（补录 / 修正）。
+     *
+     * 后端只更新 body 里**出现过的**字段，因此这里用 Map 按需组装，
+     * 不用固定 data class——界面上没动的字段就不该被发过去，
+     * 否则会把别人的正确数据覆盖成空串。
+     * 已入库（RESOLVED）的记录后端返回 409。
+     */
+    @PUT("api/pending/{id}")
+    suspend fun updatePending(@Path("id") id: Int, @Body body: Map<String, String?>): VoidEnvelope
+
     @POST("api/pending/{id}/confirm")
     suspend fun confirmPending(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): VoidEnvelope
 

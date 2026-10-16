@@ -116,6 +116,35 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
         }
     }
 
+    /**
+     * 就地修正待核查记录并保存。
+     *
+     * 只把**改动过的**字段发给后端：patch 里多一个键，就可能把原本正确的值
+     * 覆盖成空串，所以界面上没动过的输入框不进 patch。
+     * 这个动作与「确认入库」一样要求当场有结论（改完要立刻看到新值），
+     * 因此不走离线队列——无网时直接报错，让用户知道没保存成功。
+     */
+    fun updatePending(id: Int, patch: Map<String, String?>, onResult: (Boolean, String) -> Unit) {
+        if (patch.isEmpty()) {
+            onResult(true, "没有需要保存的修改")
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(working = true) }
+            try {
+                meta.updatePending(id, patch)
+                _state.update { it.copy(working = false) }
+                // 重新拉列表：让卡片上显示的姓名/身份证等与新值一致，
+                // 否则保存成功后界面还是旧值，用户会以为没生效
+                load()
+                onResult(true, "已保存")
+            } catch (e: Exception) {
+                _state.update { it.copy(working = false) }
+                onResult(false, e.toUserMessage())
+            }
+        }
+    }
+
     /** 忽略：可以离线排队（晚几小时生效不影响结果） */
     fun ignore(id: Int, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
@@ -243,14 +272,56 @@ fun PendingScreen() {
     }
 
     detail?.let { row ->
-        PendingDetailDialog(row = row, onDismiss = { detail = null })
+        PendingDetailDialog(
+            row = row,
+            saving = state.working,
+            onDismiss = { detail = null },
+            onSave = { patch ->
+                vm.updatePending(row.id, patch) { ok, message ->
+                    toast(ok, message)
+                    // 保存成功后关掉弹窗（列表已在 ViewModel 里刷新）；
+                    // 失败则留在原地，让人接着改或改用其它方式处理
+                    if (ok) detail = null
+                }
+            },
+        )
     }
 }
 
-/** 待核查详情。字段与 import_pending 一一对应，**身份证号原样展示**——
- *  这一屏存在的意义就是让人拿它去核对，抹掉或格式化都会让核对无从下手。 */
+/**
+ * 待核查**编辑**弹窗。
+ *
+ * 原先这里是纯只读的一屏字段——网格员在村里核对时发现身份证号抄错了一位，
+ * 只能记住、回去开电脑改，或者干脆放弃这条。现在直接就地改完保存。
+ *
+ * 两个刻意保留的约束：
+ * 1. **身份证号原样展示、不做任何格式化**——这一屏存在的意义就是拿它去核对，
+ *    抹掉或加空格都会让核对无从下手；
+ * 2. 待核查原因、导入批次、导入时间是**系统判定/来源信息**，不可编辑，
+ *    仍以只读 InfoRow 展示，避免把「为什么被拦下」这条线索改没了。
+ */
 @Composable
-private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
+private fun PendingDetailDialog(
+    row: PendingDto,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (Map<String, String?>) -> Unit,
+) {
+    // 初值取档案当前值；只在提交时与初值比对，得到真正改动过的字段
+    var name by remember(row.id) { mutableStateOf(row.name.orEmpty()) }
+    var gender by remember(row.id) { mutableStateOf(row.gender.orEmpty()) }
+    var birthDate by remember(row.id) { mutableStateOf(row.birthDate.orEmpty()) }
+    var idCard by remember(row.id) { mutableStateOf(row.idCard.orEmpty()) }
+    var phone by remember(row.id) { mutableStateOf(row.phone.orEmpty()) }
+    var phoneBackup by remember(row.id) { mutableStateOf(row.phoneBackup.orEmpty()) }
+    var village by remember(row.id) { mutableStateOf(row.village.orEmpty()) }
+    var gridNo by remember(row.id) { mutableStateOf(row.gridNo.orEmpty()) }
+    var familyNo by remember(row.id) { mutableStateOf(row.familyNo.orEmpty()) }
+    var relation by remember(row.id) { mutableStateOf(row.relation.orEmpty()) }
+    var hukouAddress by remember(row.id) { mutableStateOf(row.hukouAddress.orEmpty()) }
+    var liveAddress by remember(row.id) { mutableStateOf(row.liveAddress.orEmpty()) }
+    var handleNote by remember(row.id) { mutableStateOf(row.handleNote.orEmpty()) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
@@ -261,36 +332,100 @@ private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
                     .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text("待核查详情", style = MaterialTheme.typography.titleMedium)
+                Text("编辑待核查记录", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "该记录尚未进入正式档案，核对后可回到列表「确认」或「忽略」。",
+                    "该记录尚未进入正式档案，可就地修正后保存，或回到列表「确认」「忽略」。",
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTheme.tokens.ink3,
                 )
                 Spacer(Modifier.height(10.dp))
-                InfoRow("姓名", row.name)
-                InfoRow("性别", row.gender)
-                InfoRow("出生日期", row.birthDate)
-                InfoRow("身份证号", row.idCard?.takeIf { it.isNotBlank() } ?: "（空）")
-                InfoRow("本人电话", row.phone)
-                InfoRow("备用电话", row.phoneBackup)
-                InfoRow("所属村庄", row.village)
-                InfoRow("网格编号", row.gridNo)
-                InfoRow("家庭编号", row.familyNo)
-                InfoRow("与户主关系", row.relation)
-                InfoRow("户籍地址", row.hukouAddress)
-                InfoRow("现居住地址", row.liveAddress)
+
+                EditableRow("姓名", name, { name = it })
+                EditableRow("性别", gender, { gender = it })
+                EditableRow("出生日期", birthDate, { birthDate = it }, placeholder = "yyyy-MM-dd")
+                EditableRow("身份证号", idCard, { idCard = it })
+                EditableRow("本人电话", phone, { phone = it })
+                EditableRow("备用电话", phoneBackup, { phoneBackup = it })
+                EditableRow("所属村庄", village, { village = it })
+                EditableRow("网格编号", gridNo, { gridNo = it })
+                EditableRow("家庭编号", familyNo, { familyNo = it })
+                EditableRow("与户主关系", relation, { relation = it })
+                EditableRow("户籍地址", hukouAddress, { hukouAddress = it })
+                EditableRow("现居住地址", liveAddress, { liveAddress = it })
+                EditableRow("处理备注", handleNote, { handleNote = it })
+
+                Spacer(Modifier.height(6.dp))
+                // 系统判定与来源信息保持只读
                 InfoRow("待核查原因", row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason))
-                InfoRow("处理备注", row.handleNote)
                 InfoRow("导入批次", listOfNotNull(row.batchNo, row.rowNo?.let { "第 $it 行" }).joinToString(" · "))
                 InfoRow("导入时间", row.createdAt)
-                Spacer(Modifier.height(6.dp))
+
+                Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("关闭") }
+                    TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            // 只提交改动过的字段：多带一个键就可能把正确值覆盖成空串
+                            val patch = buildMap<String, String?> {
+                                if (name != row.name.orEmpty()) put("name", name)
+                                if (gender != row.gender.orEmpty()) put("gender", gender)
+                                if (birthDate != row.birthDate.orEmpty()) put("birthDate", birthDate)
+                                if (idCard != row.idCard.orEmpty()) put("idCard", idCard)
+                                if (phone != row.phone.orEmpty()) put("phone", phone)
+                                if (phoneBackup != row.phoneBackup.orEmpty()) put("phoneBackup", phoneBackup)
+                                if (village != row.village.orEmpty()) put("village", village)
+                                if (gridNo != row.gridNo.orEmpty()) put("gridNo", gridNo)
+                                if (familyNo != row.familyNo.orEmpty()) put("familyNo", familyNo)
+                                if (relation != row.relation.orEmpty()) put("relation", relation)
+                                if (hukouAddress != row.hukouAddress.orEmpty()) put("hukouAddress", hukouAddress)
+                                if (liveAddress != row.liveAddress.orEmpty()) put("liveAddress", liveAddress)
+                                if (handleNote != row.handleNote.orEmpty()) put("handleNote", handleNote)
+                            }
+                            onSave(patch)
+                        },
+                        enabled = !saving,
+                    ) {
+                        Text(if (saving) "保存中…" else "保存")
+                    }
                 }
             }
         }
+    }
+}
+
+/** 编辑弹窗里的一行：左侧固定宽度标签 + 右侧单行输入框，与只读 InfoRow 对齐 */
+@Composable
+private fun EditableRow(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTheme.tokens.ink3,
+            modifier = Modifier.width(84.dp),
+        )
+        // 直接用 OutlinedTextField 而不是 FormField：这里的标签已经由左侧那列承担，
+        // 再给输入框传一个空 label，Material 仍会为它留出一行占位高度，行距会被顶散。
+        androidx.compose.material3.OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = placeholder?.let { { Text(it) } },
+            singleLine = true,
+            // 圆角与项目其它输入框保持一致（FormField 用的是 10.dp）
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

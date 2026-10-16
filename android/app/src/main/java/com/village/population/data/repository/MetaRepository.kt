@@ -118,6 +118,19 @@ class MetaRepository(
         exec.run { api.confirmPending(id) }
     }
 
+    /**
+     * 编辑待核查记录（补录 / 修正）。
+     *
+     * 只提交**改动过的**字段：后端按请求体里出现的键更新，多带一个键
+     * 就可能把原本正确的值覆盖成空串。因此调用方只传真正改了的字段，
+     * 界面上没动的输入框不要进 patch。
+     *
+     * 已入库（RESOLVED）的记录后端返回 409，调用方需提示「已入库不可再改」。
+     */
+    suspend fun updatePending(id: Int, patch: Map<String, String?>) {
+        exec.run { api.updatePending(id, patch) }
+    }
+
     /** 忽略：可以离线排队，被忽略的记录不会因为晚几小时生效而变味 */
     suspend fun ignorePending(id: Int): SubmitResult =
         try {
