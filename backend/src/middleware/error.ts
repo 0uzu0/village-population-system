@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../utils/response';
+import { logger } from '../utils/logger';
 import { ZodError } from 'zod';
 
 /** 统一错误处理中间件 */
@@ -23,7 +24,13 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     res.status(400).json({ code: 400, message: '文件大小超出限制', data: null });
     return;
   }
-  console.error('[UnhandledError]', req.method, req.path, err);
+  logger.error('unhandled-error', {
+    requestId: req.id,
+    method: req.method,
+    path: req.path,
+    message: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
   res.status(500).json({ code: 500, message: '服务器内部错误', data: null });
 }
 

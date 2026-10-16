@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { pool, queryOne, execute } from '../config/db';
+import { logger } from '../utils/logger';
 
 /**
  * 数据库版本化迁移器
@@ -131,10 +132,10 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       await conn.query('INSERT INTO schema_migrations (version) VALUES (?)', [mig.version]);
       await conn.commit();
       appliedNow.push(mig.version);
-      console.log(`[migrate] 已应用 ${mig.name}（${statements.length} 条语句）`);
+      logger.info('migration-applied', { name: mig.name, statements: statements.length });
     } catch (err) {
       await conn.rollback();
-      console.error(`[migrate] 迁移失败: ${mig.name}`, err);
+      logger.error('migration-failed', { name: mig.name, message: err instanceof Error ? err.message : String(err) });
       throw new Error(`数据库迁移失败: ${mig.name}`);
     } finally {
       conn.release();
@@ -147,11 +148,11 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
 if (require.main === module) {
   runMigrations()
     .then((r) => {
-      console.log('[migrate] 完成，本次应用:', r.applied, '跳过:', r.skipped);
+      logger.info('migration-done', { applied: r.applied, skipped: r.skipped });
       process.exit(0);
     })
     .catch((err) => {
-      console.error('[migrate] 失败', err);
+      logger.error('migration-aborted', { message: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     });
 }

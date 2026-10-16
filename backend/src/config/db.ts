@@ -1,5 +1,33 @@
 import mysql, { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { env } from './env';
+import { logger } from '../utils/logger';
+
+/**
+ * 慢 SQL 阈值（毫秒）。超过即在 stderr 打一条 warn 日志，便于排查「接口莫名变慢」。
+ * 设 0 可关闭。默认 200ms——本系统数据量在万级，超过 200ms 的查询基本都有优化空间。
+ */
+const SLOW_SQL_MS = Number(process.env.SLOW_SQL_MS ?? 200);
+
+/** 压成一行并截断，避免超长 SQL 把日志撑爆 */
+function summarizeSql(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/**
+ * 计时执行。注意**只记录参数个数，不记录参数值**——
+ * 参数里常有身份证号、手机号等敏感信息，不能落到日志。
+ */
+async function timed<T>(sql: string, params: any[], run: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    return await run();
+  } finally {
+    const cost = Date.now() - start;
+    if (SLOW_SQL_MS > 0 && cost >= SLOW_SQL_MS) {
+      logger.warn('slow-sql', { cost, paramCount: params.length, sql: summarizeSql(sql) });
+    }
+  }
+}
 
 /** MySQL 连接池（针对 1 万级人口规模合理配置） */
 export const pool: Pool = mysql.createPool({
@@ -39,8 +67,10 @@ export async function query<T = RowDataPacket[]>(
   sql: string,
   params: any[] = []
 ): Promise<T[]> {
-  const [rows] = await pool.query(sql, params);
-  return rows as T[];
+  return timed(sql, params, async () => {
+    const [rows] = await pool.query(sql, params);
+    return rows as T[];
+  });
 }
 
 /** 便捷查询：返回单行 */
@@ -57,8 +87,10 @@ export async function execute(
   sql: string,
   params: any[] = []
 ): Promise<ResultSetHeader> {
-  const [result] = await pool.execute(sql, params);
-  return result as ResultSetHeader;
+  return timed(sql, params, async () => {
+    const [result] = await pool.execute(sql, params);
+    return result as ResultSetHeader;
+  });
 }
 
 /** 在事务中执行回调，自动提交/回滚 */

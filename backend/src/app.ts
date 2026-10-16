@@ -6,6 +6,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { auditMiddleware } from './middleware/audit';
+import { requestLogger } from './middleware/requestLog';
 // 注意：鉴权由各业务模块自行 router.use(authMiddleware)，这里不需要全局挂载
 import authModule from './modules/auth';
 import userModule from './modules/user';
@@ -27,6 +28,9 @@ export function createApp(): Express {
   app.disable('x-powered-by');
   app.use(cors({ origin: env.corsOrigin === '*' ? true : env.corsOrigin.split(','), credentials: true }));
   app.use(express.json({ limit: '2mb' }));
+
+  // 请求日志（分配请求 ID + 记录访问日志），放在最前面以便后续所有环节都能串联
+  app.use(requestLogger);
 
   // 健康检查（不鉴权，供容器/负载均衡探活）
   app.get('/api/health', (_req, res) => {

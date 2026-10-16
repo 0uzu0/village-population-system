@@ -3,14 +3,15 @@ import { env, assertProductionSafety } from './config/env';
 import { runMigrations } from './db/migrate';
 import { pool, queryOne, execute, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
-import { markStaleImportTasks } from './modules/excel';
+import { markStaleImportTasks } from './services/importTask';
+import { logger } from './utils/logger';
 
 // 双保险：即使有未被路由层捕获的 Promise 拒绝，也只记录日志而不打崩进程
 process.on('unhandledRejection', (reason) => {
-  console.error('[server] 未处理的 Promise 拒绝:', reason);
+  logger.error('unhandled-rejection', { message: reason instanceof Error ? reason.message : String(reason) });
 });
 process.on('uncaughtException', (err) => {
-  console.error('[server] 未捕获的同步异常:', err);
+  logger.error('uncaught-exception', { message: err.message, stack: err.stack });
 });
 
 /** 首次启动：创建初始管理员并绑定系统管理员角色 */
@@ -33,7 +34,7 @@ async function bootstrapAdmin(): Promise<void> {
       await conn.query('INSERT IGNORE INTO sys_user_role (user_id, role_id) VALUES (?,?)', [uid, roleRows[0].id]);
     }
   });
-  console.log(`[bootstrap] 已创建初始管理员账号: ${env.adminInitUsername}`);
+  logger.info('bootstrap-admin-created', { username: env.adminInitUsername });
 }
 
 async function main(): Promise<void> {
@@ -51,15 +52,15 @@ async function main(): Promise<void> {
 
   const app = createApp();
   const server = app.listen(env.port, () => {
-    console.log(`[server] 村级人口管理系统后端已启动: http://localhost:${env.port}`);
+    logger.info('server-started', { port: env.port, nodeEnv: env.nodeEnv });
   });
 
   // 优雅关闭：正确处理容器终止信号
   const shutdown = (signal: string) => {
-    console.log(`[server] 收到 ${signal}，正在优雅关闭...`);
+    logger.info('shutdown-start', { signal });
     server.close(async () => {
       await pool.end();
-      console.log('[server] 已关闭');
+      logger.info('server-closed');
       process.exit(0);
     });
     // 超时强制退出
@@ -70,6 +71,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[server] 启动失败', err);
+  logger.error('startup-failed', { message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
   process.exit(1);
 });

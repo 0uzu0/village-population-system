@@ -17,6 +17,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      /** 请求 ID：由 requestLog 中间件注入，用于日志串联 */
+      id?: string;
     }
   }
 }

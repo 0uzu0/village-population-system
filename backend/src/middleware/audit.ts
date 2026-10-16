@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { execute } from '../config/db';
+import { logger } from '../utils/logger';
 
 /** 敏感字段：审计日志中需隐藏（仅凭证类，身份证/手机号已按明文存储不再脱敏） */
 const SENSITIVE_KEYS = ['password', 'password_hash', 'token', 'secret', 'oldPassword', 'newPassword'];
@@ -51,7 +52,7 @@ export async function writeAudit(entry: {
       ]
     );
   } catch (err) {
-    console.error('[audit] 写入审计日志失败', err);
+    logger.error('audit-write-failed', { message: err instanceof Error ? err.message : String(err) });
   }
 }
 

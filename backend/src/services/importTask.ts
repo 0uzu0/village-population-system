@@ -1,4 +1,5 @@
 import { query, execute } from '../config/db';
+import { logger } from '../utils/logger';
 
 // ===== 以下内容自 modules/excel.ts 机械搬迁，未改动逻辑 =====
 
@@ -29,10 +30,10 @@ export async function markStaleImportTasks(minutes = 10, force = false): Promise
         [t.id, 0, `任务异常中断：超过 ${minutes} 分钟仍停留在「处理中」，已自动判定为失败（常见于导入过程报错或后端重启）`, '']
       );
     }
-    console.warn(`[excel] 已收敛 ${stale.length} 个卡在「处理中」的导入任务`);
+    logger.warn('import-task-reconciled', { count: stale.length });
     return stale.length;
   } catch (e) {
-    console.error('[excel] 收敛孤儿导入任务失败', e);
+    logger.error('import-task-reconcile-failed', { message: e instanceof Error ? e.message : String(e) });
     return 0;
   }
 }
@@ -50,7 +51,7 @@ export async function markImportFailed(taskId: number, totalRows: number, err: u
       [taskId, 0, `导入过程异常中断（整批未生效）：${reason}`, '']
     );
   } catch (inner) {
-    console.error('[excel] 标记导入任务为失败时出错', inner);
+    logger.error('import-task-mark-failed', { message: inner instanceof Error ? inner.message : String(inner) });
   }
 }
 
