@@ -109,6 +109,7 @@ export const pendingApi = {
   ignore: (id: number, data?: any) => post(`/pending/${id}/ignore`, data || {}),
   remove: (id: number) => del(`/pending/${id}`),
   batchDelete: (ids: number[]) => post('/pending/batch-delete', { ids }),
+  batchIgnore: (ids: number[]) => post('/pending/batch-ignore', { ids }),
 };
 
 // ===== 用户与权限 =====

@@ -55,7 +55,7 @@ import { ElMessage } from 'element-plus';
 import { excelApi } from '@/api';
 import { taskTypeLabel, taskTypeTag } from '@/utils/importTask';
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     tasks: any[];
     loading?: boolean;

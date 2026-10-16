@@ -54,7 +54,7 @@ async function submit() {
     ElMessage.success('登录成功');
     const redirect = (route.query.redirect as string) || '/dashboard';
     router.push(redirect);
-  } catch (e) {
+  } catch {
     // 错误已由拦截器提示
   } finally {
     loading.value = false;

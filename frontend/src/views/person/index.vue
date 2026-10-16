@@ -65,13 +65,14 @@
             批量删除
           </el-button>
         </div>
-        <el-dropdown trigger="click" @command="toggleColumn">
+        <el-dropdown trigger="click" @command="onColumnCommand">
           <el-button size="small"><el-icon><Operation /></el-icon>列显隐</el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item v-for="c in columns" :key="c.prop" :command="c.prop">
                 {{ c.visible ? '✓ ' : '' }}{{ c.label }}
               </el-dropdown-item>
+              <el-dropdown-item divided command="__reset__">恢复默认列</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -322,7 +323,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
@@ -330,11 +331,12 @@ import { toPersonDetail } from '@/utils/nav';
 import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
 import { DISABILITY_LEVELS, DISABILITY_TYPES } from '@/utils/disability';
 import { birthFromIdCard, genderFromIdCard } from '@/utils/idcard';
+import { useListUrlSync } from '@/composables/useListUrlSync';
+import { useColumnVisibility } from '@/composables/useColumnVisibility';
 import TagPill from '@/components/TagPill.vue';
 import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
 const route = useRoute();
-const router = useRouter();
 import type { PersonItem } from '@/types';
 
 const auth = useAuthStore();
@@ -347,12 +349,44 @@ const selectedIds = ref<Set<number>>(new Set());
 const options = reactive({ grids: [] as any[], families: [] as any[], villages: [] as any[] });
 const commonTags = ref<any[]>([]);
 
-const query = reactive<any>({
-  page: 1, pageSize: 20, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], tagMode: 'ANY', sortBy: '', sortOrder: '',
-});
-
 /** 只看在册（默认开启）：隐藏已迁出/已死亡的历史档案，勾选状态筛选时以后者为准 */
 const activeOnly = ref(true);
+
+/**
+ * 查询条件与地址栏同步：新增筛选字段时只要往 fields 里加一行，
+ * 就会自动获得「写入 URL / 从 URL 还原 / 重置 / 组装请求参数」四件事。
+ */
+const {
+  query,
+  syncUrl,
+  restoreQuery,
+  resetQuery: resetQueryState,
+  buildParams,
+} = useListUrlSync({
+  path: '/persons',
+  initial: () => ({
+    page: 1,
+    pageSize: 20,
+    keyword: '',
+    gender: '',
+    gridId: null as number | null,
+    village: '',
+    status: '',
+    tagIds: [] as number[],
+    tagMode: 'ANY',
+    sortBy: '',
+    sortOrder: '',
+  }),
+  fields: [
+    { key: 'keyword' },
+    { key: 'gender' },
+    { key: 'gridId', type: 'number' },
+    { key: 'village' },
+    { key: 'status' },
+    { key: 'tagIds', type: 'numberArray' },
+  ],
+  extras: { activeOnly: { ref: activeOnly, defaultValue: true } },
+});
 
 /** 状态变更弹窗目标人员（单条或批量） */
 const statusVisible = ref(false);
@@ -371,7 +405,6 @@ function openBatchStatus() {
 const personTags = computed(() => commonTags.value.filter((t: any) => t.object_type === 'PERSON' && t.enabled === 1));
 
 /* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
-const COLUMNS_STORAGE_KEY = 'person:columns';
 const DEFAULT_COLUMNS = [
   { prop: 'name', label: '姓名', visible: true },
   { prop: 'gender', label: '性别', visible: true },
@@ -387,25 +420,16 @@ const DEFAULT_COLUMNS = [
   { prop: 'updated_at', label: '更新时间', visible: true },
 ];
 
-/**
- * 列显隐状态持久化到 localStorage。
- * 读取时以默认列为准做归并——后续增删列不会因旧缓存而错乱或漏列。
- */
-function restoreColumns() {
-  const base = DEFAULT_COLUMNS.map((c) => ({ ...c }));
-  try {
-    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
-    if (!raw) return base;
-    const saved: Record<string, boolean> = JSON.parse(raw);
-    return base.map((c) => ({ ...c, visible: typeof saved[c.prop] === 'boolean' ? saved[c.prop] : c.visible }));
-  } catch {
-    return base;
-  }
-}
+// 显隐持久化到 localStorage；读取时以默认列为准归并，后续增删列不会被旧缓存打乱
+const { columns, isColVisible, toggleColumn, resetColumns } = useColumnVisibility(
+  'person:columns',
+  DEFAULT_COLUMNS
+);
 
-const columns = ref(restoreColumns());
-function isColVisible(prop: string) {
-  return columns.value.find((c) => c.prop === prop)?.visible ?? false;
+/** 列显隐下拉的统一入口：普通项切换显隐，「恢复默认列」重置 */
+function onColumnCommand(prop: string) {
+  if (prop === '__reset__') resetColumns();
+  else toggleColumn(prop);
 }
 
 const exportFields = [
@@ -479,13 +503,14 @@ const exportForm = reactive({ fields: exportFields.map((f) => f.key), activeOnly
 function statusTag(s: string): any { return statusTagType(s); }
 function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '—'; }
 
+/**
+ * 列表查询。请求参数由 buildParams() 统一组装（数组字段转逗号串、布尔开关转 'true'/'false'），
+ * 查询完把条件写回地址栏，从详情页返回时才能还原现场。
+ */
 async function load() {
   loading.value = true;
   try {
-    const params: any = { ...query, activeOnly: activeOnly.value ? 'true' : 'false' };
-    if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
-    else delete params.tagIds;
-    const res = await personApi.list(params);
+    const res = await personApi.list(buildParams());
     list.value = res.data.list;
     total.value = res.data.total;
     syncUrl();
@@ -494,44 +519,11 @@ async function load() {
   }
 }
 
-/**
- * 把筛选条件同步到地址栏。
- * 这样从人员详情返回时，列表能还原成离开前的样子（而不是回到无条件的第一页）。
- */
-function syncUrl() {
-  const q: any = {};
-  if (query.keyword) q.keyword = String(query.keyword);
-  if (query.gender) q.gender = String(query.gender);
-  if (query.gridId) q.gridId = String(query.gridId);
-  if (query.village) q.village = String(query.village);
-  if (query.status) q.status = String(query.status);
-  if (!activeOnly.value) q.activeOnly = 'false';
-  if (query.tagIds?.length) q.tagIds = query.tagIds.join(',');
-  if (query.page > 1) q.page = String(query.page);
-  if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
-  router.replace({ path: '/persons', query: q });
-}
-
-/** 从地址栏恢复筛选条件（支持网格/村庄概览页跳转，也支持详情页返回时还原） */
-function restoreQuery() {
-  const rq = route.query;
-  if (rq.gridId) query.gridId = Number(rq.gridId);
-  if (rq.village) query.village = String(rq.village);
-  if (rq.keyword) query.keyword = String(rq.keyword);
-  if (rq.gender) query.gender = String(rq.gender);
-  if (rq.status) query.status = String(rq.status);
-  if (rq.activeOnly === 'false') activeOnly.value = false;
-  if (rq.tagIds) {
-    query.tagIds = String(rq.tagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
-  }
-  if (rq.page) query.page = Number(rq.page) || 1;
-  if (rq.pageSize) query.pageSize = Number(rq.pageSize) || 20;
-}
-
 function doSearch() { query.page = 1; load(); }
+
+/** 重置筛选（含「只看在册」开关）并重新查询 */
 function resetQuery() {
-  Object.assign(query, { page: 1, keyword: '', gender: '', gridId: null, village: '', status: '', tagIds: [], sortBy: '', sortOrder: '' });
-  activeOnly.value = true;
+  resetQueryState();
   load();
 }
 
@@ -543,16 +535,6 @@ function onSortChange({ prop, order }: any) {
   else if (order === 'descending') { query.sortBy = prop; query.sortOrder = 'desc'; }
   else { query.sortBy = ''; query.sortOrder = ''; }
   load();
-}
-function toggleColumn(prop: string) {
-  const c = columns.value.find((x) => x.prop === prop);
-  if (!c) return;
-  c.visible = !c.visible;
-  try {
-    const saved: Record<string, boolean> = {};
-    for (const col of columns.value) saved[col.prop] = col.visible;
-    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(saved));
-  } catch { /* 隐私模式下写入失败时忽略，不影响本次会话内的显隐 */ }
 }
 
 function openCreate() {

@@ -251,8 +251,10 @@ async function batchIgnore() {
   try {
     await ElMessageBox.confirm(`确认忽略选中的 ${selected.value.length} 条记录？`, '批量忽略', { type: 'info' });
   } catch { return; }
-  for (const r of selected.value) await pendingApi.ignore(r.id);
-  ElMessage.success('已忽略');
+  // 一次请求搞定：逐条调用在选了几十条时会打几十个请求，中途失败还会留下半批状态
+  const res: any = await pendingApi.batchIgnore(selected.value.map((r) => r.id));
+  ElMessage.success(res?.message || '已忽略');
+  selected.value = [];
   load();
   loadSummary();
 }
@@ -273,6 +275,7 @@ async function batchDelete() {
   } catch { return; }
   await pendingApi.batchDelete(selected.value.map((r) => r.id));
   ElMessage.success('已删除');
+  selected.value = [];
   load();
   loadSummary();
 }

@@ -214,20 +214,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { keyGroupApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
-import { statusLabel as statusLabelOf } from '@/utils/personStatus';
 import {
   DISABILITY_LEVELS, DISABILITY_TYPES, EXTREME_POVERTY_MODES, disabilityLevelShort,
 } from '@/utils/disability';
+import { useListUrlSync } from '@/composables/useListUrlSync';
 import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
-const router = useRouter();
 const auth = useAuthStore();
 const loading = ref(false);
 const list = ref<any[]>([]);
@@ -243,21 +242,70 @@ const grids = ref<any[]>([]);
 const stats = ref<any>({ gender: [], grids: [] });
 const hitTagIds = ref<number[]>([]);
 
-const query = reactive<any>({
-  page: 1, pageSize: 20, tagIds: [] as number[], tagMode: 'ANY', familyTagIds: [] as number[],
-  gridId: null, minAge: null, maxAge: null,
-  // 个性化筛选（V008）
-  extremePovertyMode: '',
-  disabilityLevelMin: '',
-  disabilityLevelMax: '',
-  disabilityType: '',
-  minSubsidy: null,
-  maxSubsidy: null,
-  guardian: '',
-});
-
 /** 只统计在册人员：已死亡/迁出的不再计入重点人群服务名单 */
 const activeOnly = ref(true);
+
+/** 枚举型筛选字段的可选值，恢复地址栏参数时用于挡掉非法值 */
+const TAG_MODES = ['ANY', 'ALL'];
+const GUARDIAN_MODES = ['YES', 'NO'];
+const EXTREME_POVERTY_MODE_VALUES = EXTREME_POVERTY_MODES.map((m) => m.value);
+/** 只接受白名单内的值，其余按未设置处理（否则非法值会被原样发给后端 → 400） */
+const pickOne = (allowed: readonly string[]) => (raw: string) =>
+  allowed.includes(raw) ? raw : undefined;
+
+/**
+ * 筛选条件 ↔ 地址栏同步。新增筛选项只要往 fields 加一行，
+ * 就同时获得写入 URL / 还原 / 重置 / 组装请求参数四件事。
+ */
+const {
+  query,
+  syncUrl,
+  restoreQuery: restoreQueryState,
+  resetQuery: resetQueryState,
+  buildParams,
+} = useListUrlSync({
+  path: '/key-groups',
+  initial: () => ({
+    page: 1,
+    pageSize: 20,
+    tagIds: [] as number[],
+    tagMode: 'ANY',
+    familyTagIds: [] as number[],
+    gridId: null as number | null,
+    minAge: null as number | null,
+    maxAge: null as number | null,
+    // 个性化筛选（V008）
+    extremePovertyMode: '',
+    disabilityLevelMin: '',
+    disabilityLevelMax: '',
+    disabilityType: '',
+    minSubsidy: null as number | null,
+    maxSubsidy: null as number | null,
+    guardian: '',
+  }),
+  fields: [
+    { key: 'tagIds', type: 'numberArray' },
+    { key: 'tagMode', defaultValue: 'ANY', parse: pickOne(TAG_MODES) },
+    { key: 'familyTagIds', type: 'numberArray' },
+    { key: 'gridId', type: 'number' },
+    { key: 'minAge', type: 'number' },
+    { key: 'maxAge', type: 'number' },
+    { key: 'extremePovertyMode', parse: pickOne(EXTREME_POVERTY_MODE_VALUES) },
+    { key: 'disabilityLevelMin', urlKey: 'dlMin' },
+    { key: 'disabilityLevelMax', urlKey: 'dlMax' },
+    { key: 'disabilityType', urlKey: 'dType' },
+    { key: 'minSubsidy', type: 'number' },
+    { key: 'maxSubsidy', type: 'number' },
+    { key: 'guardian', parse: pickOne(GUARDIAN_MODES) },
+  ],
+  extras: { activeOnly: { ref: activeOnly, defaultValue: true } },
+});
+
+/** 从地址栏恢复条件后，若有高级筛选自动展开折叠区，避免条件被隐藏看不见 */
+function restoreQuery() {
+  restoreQueryState();
+  if (advancedCount.value > 0) advancedOpen.value = ['adv'];
+}
 
 /** 个性化筛选区默认收起，但已设条件时自动展开，避免「设了却看不见」 */
 const advancedOpen = ref<string[]>([]);
@@ -278,7 +326,6 @@ function levelTag(level: string): any {
   return { LEVEL_1: 'danger', LEVEL_2: 'warning', LEVEL_3: 'primary', LEVEL_4: 'info' }[level] || 'info';
 }
 
-function statusLabel(s: string) { return statusLabelOf(s); }
 function tagName(id: number) { return personTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function familyTagName(id: number) { return familyTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function gridName(id: number) { return grids.value.find((g: any) => g.id === id)?.name || `#${id}`; }
@@ -390,74 +437,18 @@ const hasFilter = computed(
     advancedCount.value > 0
 );
 
-/**
- * 把筛选条件写入地址栏：
- * 一是从人员详情返回时能还原现场，二是筛查结果可直接复制分享。
- */
-function syncUrl() {
-  const q: any = {};
-  if (query.tagIds.length) q.tagIds = query.tagIds.join(',');
-  if (query.tagMode !== 'ANY') q.tagMode = query.tagMode;
-  if (query.familyTagIds.length) q.familyTagIds = query.familyTagIds.join(',');
-  if (query.gridId != null) q.gridId = String(query.gridId);
-  if (query.minAge != null) q.minAge = String(query.minAge);
-  if (query.maxAge != null) q.maxAge = String(query.maxAge);
-  // 个性化条件（V008）
-  if (query.extremePovertyMode) q.extremePovertyMode = query.extremePovertyMode;
-  if (query.disabilityLevelMin) q.dlMin = query.disabilityLevelMin;
-  if (query.disabilityLevelMax) q.dlMax = query.disabilityLevelMax;
-  if (query.disabilityType) q.dType = query.disabilityType;
-  if (query.minSubsidy != null) q.minSubsidy = String(query.minSubsidy);
-  if (query.maxSubsidy != null) q.maxSubsidy = String(query.maxSubsidy);
-  if (query.guardian) q.guardian = query.guardian;
-  if (!activeOnly.value) q.activeOnly = 'false';
-  if (query.page > 1) q.page = String(query.page);
-  if (query.pageSize !== 20) q.pageSize = String(query.pageSize);
-  router.replace({ path: '/key-groups', query: q });
-}
-
-/** 从地址栏恢复筛选条件（详情页返回、或直接粘贴带条件的链接） */
-function restoreQuery() {
-  const rq = route.query;
-  if (rq.tagIds) {
-    query.tagIds = String(rq.tagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
-  }
-  if (rq.tagMode === 'ALL' || rq.tagMode === 'ANY') query.tagMode = rq.tagMode;
-  if (rq.familyTagIds) {
-    query.familyTagIds = String(rq.familyTagIds).split(',').map((s) => Number(s)).filter((n) => !isNaN(n));
-  }
-  if (rq.gridId) query.gridId = Number(rq.gridId);
-  if (rq.minAge != null && rq.minAge !== '') query.minAge = Number(rq.minAge);
-  if (rq.maxAge != null && rq.maxAge !== '') query.maxAge = Number(rq.maxAge);
-  if (rq.extremePovertyMode) query.extremePovertyMode = String(rq.extremePovertyMode);
-  if (rq.dlMin) query.disabilityLevelMin = String(rq.dlMin);
-  if (rq.dlMax) query.disabilityLevelMax = String(rq.dlMax);
-  if (rq.dType) query.disabilityType = String(rq.dType);
-  if (rq.minSubsidy != null && rq.minSubsidy !== '') query.minSubsidy = Number(rq.minSubsidy);
-  if (rq.maxSubsidy != null && rq.maxSubsidy !== '') query.maxSubsidy = Number(rq.maxSubsidy);
-  if (rq.guardian === 'YES' || rq.guardian === 'NO') query.guardian = String(rq.guardian);
-  // 恢复时若有个性化条件，自动展开折叠区，避免条件被隐藏看不见
-  if (advancedCount.value > 0) advancedOpen.value = ['adv'];
-  if (rq.activeOnly === 'false') activeOnly.value = false;
-  if (rq.page) query.page = Number(rq.page) || 1;
-  if (rq.pageSize) query.pageSize = Number(rq.pageSize) || 20;
-}
-
+/** 列表查询：请求参数统一由 buildParams() 组装，查询后把条件写回地址栏 */
 async function load() {
   loading.value = true;
   try {
-    const params: any = { ...query, activeOnly: activeOnly.value ? 'true' : 'false' };
-    if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
-    else delete params.tagIds;
-    if (query.familyTagIds.length) params.familyTagIds = query.familyTagIds.join(',');
-    else delete params.familyTagIds;
+    const params = buildParams();
     // 前端字段名（dlMin/dlMax/dType 短名）→ 后端参数名，保持接口语义直白
     params.minDisabilityLevel = query.disabilityLevelMin || undefined;
     params.maxDisabilityLevel = query.disabilityLevelMax || undefined;
     params.disabilityType = query.disabilityType || undefined;
     delete params.disabilityLevelMin; delete params.disabilityLevelMax;
     // 空值不传：后端 zod 对空字符串会按非法枚举报错
-    for (const k of ['extremePovertyMode', 'guardian']) {
+    for (const k of ['extremePovertyMode', 'guardian', 'minDisabilityLevel', 'maxDisabilityLevel', 'disabilityType']) {
       if (!params[k]) delete params[k];
     }
     for (const k of ['minSubsidy', 'maxSubsidy']) {
@@ -486,12 +477,7 @@ function doSearch() {
 
 /** 回到未筛查状态并清空结果 */
 function reset() {
-  Object.assign(query, {
-    page: 1, tagIds: [], tagMode: 'ANY', familyTagIds: [], gridId: null, minAge: null, maxAge: null,
-    extremePovertyMode: '', disabilityLevelMin: '', disabilityLevelMax: '',
-    disabilityType: '', minSubsidy: null, maxSubsidy: null, guardian: '',
-  });
-  activeOnly.value = true;
+  resetQueryState();
   advancedOpen.value = [];
   searched.value = false;
   list.value = [];

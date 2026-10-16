@@ -325,7 +325,7 @@ async function doImport(options: any) {
     const pendingTip = d.pending ? `，${d.pending} 条转入待核查` : '';
     ElMessage.success({ message: `导入完成：成功 ${d.success} 条，失败 ${d.fail} 条${pendingTip}`, duration: 4000 });
     loadTasks();
-  } catch (e) {
+  } catch {
     // 错误已由拦截器提示；这里刷新列表，让用户看到该批次被标记为「失败」而不是一直处理中
     loadTasks();
   } finally {

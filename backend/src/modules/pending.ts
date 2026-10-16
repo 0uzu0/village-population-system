@@ -230,7 +230,10 @@ router.delete('/:id', requirePermission('excel:import'), async (req: Request, re
   return ok(res, { id }, '已删除');
 });
 
-const batchSchema = z.object({ ids: z.array(z.coerce.number()).min(1, '请选择要删除的记录') });
+/** 批量操作入参：提示语随动作变化，避免「忽略」时报「请选择要删除的记录」 */
+const batchIdsSchema = (emptyMessage: string) =>
+  z.object({ ids: z.array(z.coerce.number()).min(1, emptyMessage) });
+const batchSchema = batchIdsSchema('请选择要删除的记录');
 
 /** 批量删除 */
 router.post('/batch-delete', requirePermission('excel:import'), async (req: Request, res: Response) => {
@@ -245,6 +248,39 @@ router.post('/batch-delete', requirePermission('excel:import'), async (req: Requ
     ip: req.ip,
   });
   return ok(res, { count: ids.length }, `已删除 ${ids.length} 条`);
+});
+
+/**
+ * 批量忽略。
+ * 前端原先逐条调 /:id/ignore，选 50 条就是 50 个请求（且中间失败会留下半批状态），
+ * 这里收敛成一次 UPDATE。已入库的记录跳过而不是整批报错——用户选中的行里
+ * 混着一条已入库的不该让整次操作失败。
+ */
+router.post('/batch-ignore', requirePermission('excel:import'), async (req: Request, res: Response) => {
+  const { ids } = batchIdsSchema('请选择要忽略的记录').parse(req.body);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await query<any>(`SELECT id, status FROM import_pending WHERE id IN (${placeholders})`, ids);
+  const ignorable = rows.filter((r) => r.status !== 'RESOLVED').map((r) => Number(r.id));
+  if (!ignorable.length) throw new AppError('选中的记录均已入库，无需忽略', 409, 'NOTHING_TO_IGNORE');
+  await execute(
+    `UPDATE import_pending SET status = 'IGNORED', handle_note = ?, handled_by = ?, handled_at = NOW()
+     WHERE id IN (${ignorable.map(() => '?').join(',')})`,
+    [req.body?.note || '人工确认无需入库', req.user!.id, ...ignorable]
+  );
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'pending:batch_ignore',
+    request: { ids: ignorable, skipped: ids.length - ignorable.length },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  const skipped = ids.length - ignorable.length;
+  return ok(
+    res,
+    { count: ignorable.length, skipped },
+    skipped ? `已忽略 ${ignorable.length} 条，跳过已入库 ${skipped} 条` : `已忽略 ${ignorable.length} 条`
+  );
 });
 
 export default router;
