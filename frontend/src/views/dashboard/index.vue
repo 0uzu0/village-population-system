@@ -61,15 +61,18 @@ const changes = ref<any[]>([]);
 
 const statCards = computed(() => {
   const d = dash.value;
+  // 「总人口」口径 = 户籍人口 + 常住人口（二者有交叉，按需求直接相加作为默认口径）。
+  // 户籍/常住各自也单列一块，方便核对总人口的构成。
+  const hukou = d.hukouCount ?? 0;
+  const resident = d.residentCount ?? 0;
   return [
-    { label: '总人口', value: d.totalPopulation ?? 0, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
+    { label: '总人口', value: hukou + resident, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
+    { label: '户籍人口', value: hukou, icon: 'UserFilled', color: '#3978F6', bg: '#EAF1FE' },
     { label: '家庭总数', value: d.familyCount ?? 0, icon: 'House', color: '#0E7C6B', bg: '#E4F4F0' },
     { label: '网格总数', value: d.gridCount ?? 0, icon: 'Grid', color: '#5B5BD6', bg: '#ECECFA' },
     { label: '党员人数', value: d.partyCount ?? 0, icon: 'Flag', color: '#E5484D', bg: '#FDECEC' },
     { label: '退役军人', value: d.veteranCount ?? 0, icon: 'Medal', color: '#5B5BD6', bg: '#ECECFA' },
     { label: '优抚对象', value: d.preferentialCount ?? 0, icon: 'Star', color: '#0E7C6B', bg: '#E4F4F0' },
-    { label: '低保家庭', value: d.lowIncomeFamilyCount ?? 0, icon: 'HomeFilled', color: '#F76B15', bg: '#FEF0E6' },
-    { label: '低保对象', value: d.lowIncomePersonCount ?? 0, icon: 'UserFilled', color: '#F76B15', bg: '#FEF0E6' },
     { label: '特困供养', value: d.extremePovertyCount ?? 0, icon: 'Grape', color: '#C2410C', bg: '#FEF0E6' },
     { label: '残疾人', value: d.disabledCount ?? 0, icon: 'FirstAidKit', color: '#0E7C6B', bg: '#E4F4F0' },
   ];

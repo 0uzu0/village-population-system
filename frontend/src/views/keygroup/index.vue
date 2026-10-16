@@ -50,39 +50,6 @@
         <el-button @click="reset">重置</el-button>
       </div>
 
-      <!-- 个性化筛选：默认收起，按需展开（条件多，常用筛选项仍在一行） -->
-      <el-collapse v-model="advancedOpen" class="adv-collapse">
-        <el-collapse-item name="adv">
-          <template #title>
-            <span class="adv-title">个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）</span>
-            <span v-if="advancedCount" class="adv-badge">{{ advancedCount }}</span>
-          </template>
-          <div class="vp-search-bar">
-            <el-select v-model="query.extremePovertyMode" placeholder="特困供养方式" clearable style="width: 150px" @change="doSearch">
-              <el-option v-for="m in EXTREME_POVERTY_MODES" :key="m.value" :label="m.label" :value="m.value" />
-            </el-select>
-            <el-select v-model="query.disabilityLevelMin" placeholder="残疾等级自" clearable style="width: 130px">
-              <el-option v-for="l in DISABILITY_LEVELS" :key="l.value" :label="l.label" :value="l.value" />
-            </el-select>
-            <span class="sep">—</span>
-            <el-select v-model="query.disabilityLevelMax" placeholder="至" clearable style="width: 130px">
-              <el-option v-for="l in DISABILITY_LEVELS" :key="l.value" :label="l.label" :value="l.value" />
-            </el-select>
-            <el-select v-model="query.disabilityType" placeholder="残疾类别" clearable filterable allow-create style="width: 120px">
-              <el-option v-for="t in DISABILITY_TYPES" :key="t" :label="t" :value="t" />
-            </el-select>
-            <el-input-number v-model="query.minSubsidy" :min="0" :step="50" placeholder="金额≥" controls-position="right" style="width: 120px" />
-            <span class="sep">—</span>
-            <el-input-number v-model="query.maxSubsidy" :min="0" :step="50" placeholder="元/月" controls-position="right" style="width: 120px" />
-            <el-select v-model="query.guardian" placeholder="监护人" clearable style="width: 110px">
-              <el-option label="已登记" value="YES" />
-              <el-option label="未登记" value="NO" />
-            </el-select>
-            <el-button @click="doSearch"><el-icon><Search /></el-icon>应用</el-button>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
-
       <!-- 当前筛选条件：以可移除的标签呈现，便于逐个拆解条件 -->
       <div class="filter-chips">
         <span class="chips-label">当前筛选</span>
@@ -139,9 +106,6 @@
 
       <el-table :data="list" v-loading="loading" @row-click="(row: any) => $router.push(toPersonDetail(route, row.id))" class="result-table">
         <el-table-column prop="name" label="姓名" width="90" />
-        <el-table-column prop="person_no" label="编号" width="120" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.personNo || '—' }}</template>
-        </el-table-column>
         <el-table-column prop="gender" label="性别" width="60">
           <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
         </el-table-column>
@@ -152,8 +116,12 @@
         <el-table-column prop="phone" label="手机号" width="130">
           <template #default="{ row }">{{ row.phone || '—' }}</template>
         </el-table-column>
-        <el-table-column prop="phoneBackup" label="备用手机号" width="130">
-          <template #default="{ row }">{{ row.phoneBackup || '—' }}</template>
+        <!-- 编号与家庭列按需求移除，改为展示户籍地址与现居住地址（走访时用得上） -->
+        <el-table-column prop="hukouAddress" label="户籍地址" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.hukouAddress || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="liveAddress" label="现居住地址" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.liveAddress || '—' }}</template>
         </el-table-column>
         <el-table-column label="命中标签" min-width="180">
           <template #default="{ row }">
@@ -173,9 +141,6 @@
         </el-table-column>
         <el-table-column prop="gridName" label="网格" width="110">
           <template #default="{ row }">{{ row.gridName || '—' }}</template>
-        </el-table-column>
-        <el-table-column prop="familyName" label="家庭" width="110">
-          <template #default="{ row }">{{ row.familyName || '—' }}</template>
         </el-table-column>
         <!-- 个性化台账列（V008） -->
         <el-table-column prop="disabilityLevelShort" label="残疾等级" width="90">
@@ -220,9 +185,9 @@ import { ElMessage } from 'element-plus';
 import { keyGroupApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
-import {
-  DISABILITY_LEVELS, DISABILITY_TYPES, EXTREME_POVERTY_MODES, disabilityLevelShort,
-} from '@/utils/disability';
+// 个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）按需求整体移除，
+// 因此这里只保留列表「残疾等级」列展示需要的 disabilityLevelShort
+import { disabilityLevelShort } from '@/utils/disability';
 import { useListUrlSync } from '@/composables/useListUrlSync';
 import TagPill from '@/components/TagPill.vue';
 
@@ -247,8 +212,6 @@ const activeOnly = ref(true);
 
 /** 枚举型筛选字段的可选值，恢复地址栏参数时用于挡掉非法值 */
 const TAG_MODES = ['ANY', 'ALL'];
-const GUARDIAN_MODES = ['YES', 'NO'];
-const EXTREME_POVERTY_MODE_VALUES = EXTREME_POVERTY_MODES.map((m) => m.value);
 /** 只接受白名单内的值，其余按未设置处理（否则非法值会被原样发给后端 → 400） */
 const pickOne = (allowed: readonly string[]) => (raw: string) =>
   allowed.includes(raw) ? raw : undefined;
@@ -274,14 +237,6 @@ const {
     gridId: null as number | null,
     minAge: null as number | null,
     maxAge: null as number | null,
-    // 个性化筛选（V008）
-    extremePovertyMode: '',
-    disabilityLevelMin: '',
-    disabilityLevelMax: '',
-    disabilityType: '',
-    minSubsidy: null as number | null,
-    maxSubsidy: null as number | null,
-    guardian: '',
   }),
   fields: [
     { key: 'tagIds', type: 'numberArray' },
@@ -290,30 +245,14 @@ const {
     { key: 'gridId', type: 'number' },
     { key: 'minAge', type: 'number' },
     { key: 'maxAge', type: 'number' },
-    { key: 'extremePovertyMode', parse: pickOne(EXTREME_POVERTY_MODE_VALUES) },
-    { key: 'disabilityLevelMin', urlKey: 'dlMin' },
-    { key: 'disabilityLevelMax', urlKey: 'dlMax' },
-    { key: 'disabilityType', urlKey: 'dType' },
-    { key: 'minSubsidy', type: 'number' },
-    { key: 'maxSubsidy', type: 'number' },
-    { key: 'guardian', parse: pickOne(GUARDIAN_MODES) },
   ],
   extras: { activeOnly: { ref: activeOnly, defaultValue: true } },
 });
 
-/** 从地址栏恢复条件后，若有高级筛选自动展开折叠区，避免条件被隐藏看不见 */
+/** 从地址栏恢复条件（个性化筛选已移除，不再需要展开折叠区） */
 function restoreQuery() {
   restoreQueryState();
-  if (advancedCount.value > 0) advancedOpen.value = ['adv'];
 }
-
-/** 个性化筛选区默认收起，但已设条件时自动展开，避免「设了却看不见」 */
-const advancedOpen = ref<string[]>([]);
-const advancedCount = computed(() =>
-  [query.extremePovertyMode, query.disabilityLevelMin, query.disabilityLevelMax,
-    query.disabilityType, query.minSubsidy, query.maxSubsidy, query.guardian]
-    .filter((v) => v !== '' && v != null).length
-);
 
 /** 金额显示：整数不带小数，非整数保留两位 */
 function money(n?: number | null): string {
@@ -347,34 +286,8 @@ const activeChips = computed(() => {
   if (query.minAge != null || query.maxAge != null) {
     chips.push({ key: 'age', text: `年龄：${ageRangeText(query.minAge, query.maxAge)}` });
   }
-  // 个性化条件（V008）：与后端 conditions 文案保持一致
-  if (query.extremePovertyMode) {
-    const label = EXTREME_POVERTY_MODES.find((m) => m.value === query.extremePovertyMode)?.label || query.extremePovertyMode;
-    chips.push({ key: 'extremePovertyMode', text: `特困供养方式：${label}` });
-  }
-  if (query.disabilityLevelMin || query.disabilityLevelMax) {
-    const short = (v: string) => (v ? disabilityLevelShort(v) : '不限');
-    chips.push({
-      key: 'disabilityLevel',
-      text: `残疾等级：${short(query.disabilityLevelMin)} ~ ${short(query.disabilityLevelMax)}`,
-    });
-  }
-  if (query.disabilityType) chips.push({ key: 'disabilityType', text: `残疾类别：${query.disabilityType}` });
-  if (query.minSubsidy != null || query.maxSubsidy != null) {
-    chips.push({ key: 'subsidy', text: `发放金额：${moneyRangeText(query.minSubsidy, query.maxSubsidy)}` });
-  }
-  if (query.guardian) chips.push({ key: 'guardian', text: query.guardian === 'YES' ? '已登记监护人' : '未登记监护人' });
   return chips;
 });
-
-/** 金额区间人话表述 */
-function moneyRangeText(min?: number | null, max?: number | null): string {
-  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
-  if (min != null && max != null) return `${fmt(min)}~${fmt(max)} 元/月`;
-  if (min != null) return `≥ ${fmt(min)} 元/月`;
-  if (max != null) return `≤ ${fmt(max)} 元/月`;
-  return '不限';
-}
 
 /** 年龄区间人话表述，与后端口径一致（只给上界时按「<N+1 岁」理解） */
 function ageRangeText(minAge?: number | null, maxAge?: number | null): string {
@@ -398,11 +311,6 @@ function removeChip(key: string) {
   else if (key === 'familyTagIds') query.familyTagIds = [];
   else if (key === 'gridId') query.gridId = null;
   else if (key === 'age') { query.minAge = null; query.maxAge = null; }
-  else if (key === 'extremePovertyMode') query.extremePovertyMode = '';
-  else if (key === 'disabilityLevel') { query.disabilityLevelMin = ''; query.disabilityLevelMax = ''; }
-  else if (key === 'disabilityType') query.disabilityType = '';
-  else if (key === 'subsidy') { query.minSubsidy = null; query.maxSubsidy = null; }
-  else if (key === 'guardian') query.guardian = '';
   // 条件被拆完就回到未筛查状态，而不是退回全量人口
   if (!hasFilter.value) { reset(); return; }
   doSearch();
@@ -433,8 +341,7 @@ const hasFilter = computed(
     query.familyTagIds.length > 0 ||
     query.gridId != null ||
     query.minAge != null ||
-    query.maxAge != null ||
-    advancedCount.value > 0
+    query.maxAge != null
 );
 
 /** 列表查询：请求参数统一由 buildParams() 组装，查询后把条件写回地址栏 */
@@ -442,18 +349,6 @@ async function load() {
   loading.value = true;
   try {
     const params = buildParams();
-    // 前端字段名（dlMin/dlMax/dType 短名）→ 后端参数名，保持接口语义直白
-    params.minDisabilityLevel = query.disabilityLevelMin || undefined;
-    params.maxDisabilityLevel = query.disabilityLevelMax || undefined;
-    params.disabilityType = query.disabilityType || undefined;
-    delete params.disabilityLevelMin; delete params.disabilityLevelMax;
-    // 空值不传：后端 zod 对空字符串会按非法枚举报错
-    for (const k of ['extremePovertyMode', 'guardian', 'minDisabilityLevel', 'maxDisabilityLevel', 'disabilityType']) {
-      if (!params[k]) delete params[k];
-    }
-    for (const k of ['minSubsidy', 'maxSubsidy']) {
-      if (params[k] == null) delete params[k];
-    }
     const res = await keyGroupApi.query(params);
     list.value = res.data.page.list;
     total.value = res.data.page.total;
@@ -478,7 +373,6 @@ function doSearch() {
 /** 回到未筛查状态并清空结果 */
 function reset() {
   resetQueryState();
-  advancedOpen.value = [];
   searched.value = false;
   list.value = [];
   total.value = 0;
@@ -528,7 +422,7 @@ function quickTagIds(g: any) {
 }
 
 async function doExport() {
-  // 导出必须带上全部筛选条件（含个性化条件与在册口径），
+  // 导出必须带上全部筛选条件与在册口径，
   // 否则导出的会与屏幕上看到的结果不是同一批人
   const params: any = {
     gridId: query.gridId,
@@ -538,13 +432,6 @@ async function doExport() {
   };
   if (query.tagIds.length) params.tagIds = query.tagIds.join(',');
   if (query.familyTagIds.length) params.familyTagIds = query.familyTagIds.join(',');
-  if (query.extremePovertyMode) params.extremePovertyMode = query.extremePovertyMode;
-  if (query.disabilityLevelMin) params.minDisabilityLevel = query.disabilityLevelMin;
-  if (query.disabilityLevelMax) params.maxDisabilityLevel = query.disabilityLevelMax;
-  if (query.disabilityType) params.disabilityType = query.disabilityType;
-  if (query.minSubsidy != null) params.minSubsidy = query.minSubsidy;
-  if (query.maxSubsidy != null) params.maxSubsidy = query.maxSubsidy;
-  if (query.guardian) params.guardian = query.guardian;
   const res: any = await excelApi.export(params);
   ElMessage.success(`导出完成，共 ${res.data.total} 条，请到 Excel 页面下载`);
 }
@@ -583,31 +470,6 @@ onMounted(async () => {
 .quick-card .lbl { font-size: var(--font-size-sm); color: var(--color-text-regular); margin-top: 4px; }
 .note { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 10px; }
 .sep { color: var(--color-text-secondary); }
-/* 个性化筛选折叠区 */
-.adv-collapse {
-  margin-top: 10px;
-  border-top: 1px solid var(--color-border-light);
-}
-.adv-collapse :deep(.el-collapse-item__header) {
-  border-bottom: none;
-  height: 38px;
-  line-height: 38px;
-  background: transparent;
-}
-.adv-title { font-size: var(--font-size-sm); color: var(--color-text-regular); }
-.adv-badge {
-  display: inline-block;
-  min-width: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--color-primary);
-  color: #fff;
-  font-size: var(--font-size-xs);
-  line-height: 18px;
-  text-align: center;
-}
-.adv-collapse :deep(.el-collapse-item__wrap) { border-bottom: none; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 /* 筛选条件标签 */

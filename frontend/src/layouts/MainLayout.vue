@@ -13,10 +13,24 @@
         router
         class="menu"
       >
-        <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
+        <template v-for="item in visibleMenus" :key="item.path">
+          <!-- 有子项：渲染成可展开的父菜单（重点人群挂在人口档案下） -->
+          <el-sub-menu v-if="item.children?.length" :index="item.path">
+            <template #title>
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+            </template>
+            <el-menu-item v-for="c in item.children" :key="c.path" :index="c.path">
+              <el-icon><component :is="c.icon" /></el-icon>
+              <template #title>{{ c.title }}</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <!-- 无子项：普通一级菜单 -->
+          <el-menu-item v-else :index="item.path">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </template>
       </el-menu>
 
       <!--
@@ -112,15 +126,27 @@ interface MenuItem {
   title: string;
   icon: string;
   perm?: string;
+  /** 子菜单。有值时渲染为可展开的父项 */
+  children?: MenuItem[];
 }
 
 const menus: MenuItem[] = [
   { path: '/dashboard', title: '工作台', icon: 'Odometer' },
-  { path: '/persons', title: '人口档案', icon: 'User', perm: 'person:view' },
+  {
+    // 重点人群本质是「按标签筛人口」，与人口档案同源，收成人口档案的子项。
+    // 父项自身只是分类（点击展开），两个子项才是真正的页面入口
+    path: '/persons',
+    title: '人口档案',
+    icon: 'User',
+    perm: 'person:view',
+    children: [
+      { path: '/persons', title: '人口档案', icon: 'User', perm: 'person:view' },
+      { path: '/key-groups', title: '重点人群', icon: 'Aim', perm: 'keygroup:view' },
+    ],
+  },
   { path: '/families', title: '家庭管理', icon: 'House', perm: 'family:view' },
   { path: '/grids', title: '网格管理', icon: 'Grid', perm: 'grid:view' },
   { path: '/tags', title: '人口标签', icon: 'CollectionTag', perm: 'tag:view' },
-  { path: '/key-groups', title: '重点人群', icon: 'Aim', perm: 'keygroup:view' },
   { path: '/ledgers', title: '专项台账', icon: 'Tickets', perm: 'ledger:view' },
   { path: '/excel', title: 'Excel 导入导出', icon: 'Document', perm: 'excel:import' },
   { path: '/pending', title: '待核查人员', icon: 'WarningFilled', perm: 'excel:import' },
@@ -128,7 +154,23 @@ const menus: MenuItem[] = [
   { path: '/system', title: '系统设置', icon: 'Tools', perm: 'system:view' },
 ];
 
-const visibleMenus = computed(() => menus.filter((m) => !m.perm || auth.hasPermission(m.perm)));
+/**
+ * 按权限过滤菜单。父项与子项都要过滤：
+ * 子项全被权限挡掉时父项也不该留一个空的展开箭头。
+ */
+const visibleMenus = computed(() =>
+  menus
+    .map((m) => ({
+      ...m,
+      children: m.children?.filter((c) => !c.perm || auth.hasPermission(c.perm)),
+    }))
+    .filter((m) => {
+      const self = !m.perm || auth.hasPermission(m.perm);
+      // 有 children 字段的项，子项被筛空就整项不显示
+      if (m.children) return self && m.children.length > 0;
+      return self;
+    })
+);
 
 const activeMenu = computed(() => {
   const path = route.path;

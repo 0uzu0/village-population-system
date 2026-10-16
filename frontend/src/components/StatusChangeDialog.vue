@@ -20,7 +20,7 @@
       </el-form-item>
       <el-form-item label="变更为" required>
         <el-radio-group v-model="form.status">
-          <el-radio v-for="s in PERSON_STATUSES" :key="s" :value="s" :disabled="!isBatch && s === currentStatus">
+          <el-radio v-for="s in CHANGEABLE_STATUSES" :key="s" :value="s" :disabled="!isBatch && s === currentStatus">
             {{ statusLabel(s) }}
           </el-radio>
         </el-radio-group>
@@ -76,6 +76,17 @@ const form = reactive<{ status: string; statusDate: string | null; reason: strin
   statusDate: null,
   reason: '',
 });
+
+/**
+ * 可变更为的状态：去掉「迁入」。
+ *
+ * 「迁入」是人员入库时的**初始状态**（Excel 导入/手工建档时按迁入登记），
+ * 不是一次「变更」动作——把一个已在册的人变更成迁入，语义上站不住，
+ * 而且迁入属于在册状态，用它做变更会让人误以为档案发生了实质变化。
+ * 注意：这里只过滤变更目标，PERSON_STATUSES / ACTIVE_STATUSES 本身不动——
+ * 迁入仍要作为合法状态参与统计（在册口径）与筛选。
+ */
+const CHANGEABLE_STATUSES = PERSON_STATUSES.filter((s) => s !== 'MOVED_IN');
 
 const isBatch = computed(() => props.persons.length > 1);
 const currentStatus = computed(() => props.persons[0]?.status || '');
