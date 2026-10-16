@@ -32,7 +32,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -65,6 +68,7 @@ import com.village.population.util.DateText
 import com.village.population.util.PersonText
 import com.village.population.util.dial
 import com.village.population.util.toUserMessage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -130,6 +134,30 @@ class PersonDetailViewModel(
     fun view(photo: FileDto?) = _state.update { it.copy(viewing = photo) }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
+
+    /**
+     * 删除一张现场照片。
+     *
+     * 后端会连同磁盘上的物理文件一起删，**不可恢复**，
+     * 所以调用之前必须由 UI 层向用户要一次确认（见 PhotoViewerDialog）。
+     * 失败时把后端给的中文原因透到页面上：常见的两种是「只能删除自己上传的文件」
+     * 和权限不足，含糊一句「删除失败」会让人反复重试。
+     */
+    fun removePhoto(photo: FileDto) {
+        viewModelScope.launch {
+            runCatching { files.remove(photo.id) }
+                .onSuccess {
+                    _state.update {
+                        it.copy(
+                            photos = it.photos.filterNot { p -> p.id == photo.id },
+                            viewing = null,
+                            message = "已删除这张现场照片",
+                        )
+                    }
+                }
+                .onFailure { _state.update { s -> s.copy(message = it.toUserMessage()) } }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -191,6 +219,16 @@ fun PersonDetailScreen(
             ) {
                 if (state.fromCache) {
                     OfflineBanner("离线缓存数据（${DateText.describeAge(state.savedAt)}）")
+                }
+
+                // 删除照片这类操作的结果。显示几秒自己消失：
+                // 操作已经成功了，再留一行常驻文字会让页面看起来像还有事没办完
+                state.message?.let { msg ->
+                    LaunchedEffect(msg) {
+                        delay(2500L)
+                        vm.consumeMessage()
+                    }
+                    Text(msg, style = MaterialTheme.typography.bodyMedium, color = tokens.green)
                 }
 
                 // 身份卡（设计稿首页那张卡）：头像 + 姓名 + 状态 + 一行摘要
@@ -357,7 +395,11 @@ fun PersonDetailScreen(
     }
 
     state.viewing?.let { photo ->
-        PhotoViewerDialog(photo) { vm.view(null) }
+        PhotoViewerDialog(
+            photo = photo,
+            onDismiss = { vm.view(null) },
+            onDelete = { vm.removePhoto(photo) },
+        )
     }
 }
 
@@ -437,11 +479,40 @@ private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
     }
 }
 
-/** 放大查看。只做单张查看，不做左右滑动——这里的需求是「确认这张对不对」，不是相册 */
+/**
+ * 现场照片的说明文字：**拍摄时间优先**，没有才说上传时间。
+ *
+ * 后端 `file.ts` 已经把 DATETIME 按北京时间格式化成朴素文本下发，
+ * 所以这里**直接显示原串**、不再做一次解析。以前服务端给的是 UTC 的 ISO 串
+ * （13:00 拍的照片是 `2026-10-16T05:00:00.000Z`），谁在客户端随意一截就是 05:00，
+ * 「刚拍的照片显示成八小时前」就是这么来的：把换算放在两处，一定会有一处算错。
+ *
+ * 离线补传的照片，两者能差好几天——标明是哪一个，看的人才知道该信哪个。
+ */
+private fun photoTimeLabel(photo: FileDto): String? =
+    when {
+        !photo.capturedAt.isNullOrBlank() -> "拍摄 ${photo.capturedAt}"
+        !photo.createdAt.isNullOrBlank() -> "上传 ${photo.createdAt}"
+        else -> null
+    }
+
+/**
+ * 放大查看，并在这一屏直接删除。
+ *
+ * 「是不是拍错了、要不要留着」这个判断只有在看清原图之后才做得出来——
+ * 让人退出去再找删除按钮，等于把一次能完成的动作拆成两趟。
+ * 不左右滑动：需求是「确认这张对不对」，不是当相册翻。
+ */
 @Composable
-private fun PhotoViewerDialog(photo: FileDto, onDismiss: () -> Unit) {
+private fun PhotoViewerDialog(
+    photo: FileDto,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val files = LocalAppContainer.current.fileRepository
-    val file by androidx.compose.runtime.produceState<File?>(null, photo.id) {
+    val tokens = AppTheme.tokens
+    var confirming by remember { mutableStateOf(false) }
+    val file by produceState<File?>(null, photo.id) {
         value = runCatching { files.imageFile(photo.id) }.getOrNull()
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
@@ -469,10 +540,35 @@ private fun PhotoViewerDialog(photo: FileDto, onDismiss: () -> Unit) {
                 Text(
                     photo.fileName ?: "现场照片",
                     style = MaterialTheme.typography.bodySmall,
-                    color = AppTheme.tokens.ink3,
+                    color = tokens.ink3,
                 )
+                photoTimeLabel(photo)?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.ink3)
+                }
+                Spacer(Modifier.height(6.dp))
+                if (confirming) {
+                    // 二次确认必须说清「不可恢复」：后端删库记录的同时会删掉物理文件，
+                    // 删完既不能在界面上找回，也没有回收站
+                    Text(
+                        "删除后无法恢复，确定要删除这张现场照片？",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
+                    if (confirming) {
+                        TextButton(onClick = { confirming = false }) { Text("取消") }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = onDelete) {
+                            Text("确认删除", color = MaterialTheme.colorScheme.error)
+                        }
+                    } else {
+                        TextButton(onClick = { confirming = true }) {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = onDismiss) { Text("关闭") }
+                    }
                 }
             }
         }

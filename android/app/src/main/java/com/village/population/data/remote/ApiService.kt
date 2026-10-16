@@ -179,4 +179,11 @@ interface ApiService {
     @Streaming
     @GET("api/files/{id}")
     suspend fun downloadFile(@Path("id") id: Int): okhttp3.ResponseBody
+
+    /**
+     * 删除附件。后端会**连同磁盘上的文件一起删**，且只允许本人上传或管理员操作。
+     * 返回体是 `{code:0,message:"文件已删除",data:{id}}`，data 不用读，走 VoidEnvelope。
+     */
+    @DELETE("api/files/{id}")
+    suspend fun deleteFile(@Path("id") id: Int): VoidEnvelope
 }

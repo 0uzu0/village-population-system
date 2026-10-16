@@ -4,6 +4,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * 日期与年龄。
@@ -19,21 +20,46 @@ object DateText {
 
     private val DATE_TIME = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
     private val DATE_ONLY = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
-    private val FILE_STAMP = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.CHINA)
+    private val DATE_TIME_SEC = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA)
+
+    /**
+     * 北京时区。后端的 mysql2 连接配的是 `timezone: '+08:00'`，
+     * `file.ts` 的 `stampOf` 也固定按北京时间输出文件名，所以这里必须跟它同一口径——
+     * 否则同一个时刻在手机上与在服务器上会是两个名字。
+     *
+     * 写死 Asia/Shanghai 而不是取「设备当前时区」：手机被带到别的时区
+     * （或有人改了系统时区）时，按当地时间命名会与后台的存档对不上，
+     * 而这套东西只在中国境内的行政村使用，写死是安全的。
+     */
+    private val CN_ZONE = TimeZone.getTimeZone("Asia/Shanghai")
+
+    /** 文件名时间戳 `yyyy-MM-dd-HHmmss`。秒固定写全，排序才等价于时间排序 */
+    private val FILE_STAMP = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.CHINA).apply {
+        timeZone = CN_ZONE
+    }
 
     /** 今天，yyyy-MM-dd */
     fun today(): String = DATE_ONLY.format(Date())
 
     /**
-     * 文件名用的时间戳 `yyyyMMdd-HHmmss`，与后端 file.ts 的 stampOf 同一格式。
+     * 文件名用的时间戳 `yyyy-MM-dd-HH-mm-ss`，与后端 file.ts 的 stampOf 同一形状。
      *
-     * 现场照片的本地暂存名与后台命名都用它，于是「本机待同步列表里看到的名字」
-     * 和「上传后在服务器上的名字」是同一个，排查问题时能直接对上。
+     * 为什么是 `-` 而不是 `:`：`:` 在 Windows / NTFS 上是非法字符，
+     * 从服务器上拷下来的照片在村委的办公机上可能打不开。
+     *
+     * 本机暂存名（`IMG_2026-10-16-13-00-05.jpg`）与后台落盘名
+     * （`张三/2026-10-16-13-00-05.jpg`）因此同形，
+     * 「本机待同步列表里看到的名字」和「上传后在服务器上的名字」能直接对上，
+     * 排查问题时不用再到服务器上去翻。
      */
     fun fileStamp(millis: Long): String = FILE_STAMP.format(Date(millis))
 
     fun formatDateTime(millis: Long): String =
         if (millis <= 0L) "—" else DATE_TIME.format(Date(millis))
+
+    /** 带秒的时间。同一分钟连拍的照片，只有秒能把它们分开 */
+    fun formatTimestamp(millis: Long): String =
+        if (millis <= 0L) "—" else DATE_TIME_SEC.format(Date(millis))
 
     fun formatDate(millis: Long): String =
         if (millis <= 0L) "—" else DATE_ONLY.format(Date(millis))

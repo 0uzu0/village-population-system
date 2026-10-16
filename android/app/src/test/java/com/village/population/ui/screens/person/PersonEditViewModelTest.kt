@@ -13,8 +13,10 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -25,6 +27,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.TimeUnit
 
 /**
  * 「编辑人员」表单取数测试。
@@ -43,6 +46,12 @@ class PersonEditViewModelTest {
     private lateinit var api: ApiService
     private lateinit var personRepo: PersonRepository
     private lateinit var metaRepo: MetaRepository
+
+    /** 分发用的路径前缀。用前缀而非全等匹配，是为了容下查询串（如 villages?keyword=） */
+    private companion object {
+        const val PATH_VILLAGES = "/api/grids/villages"
+        const val PATH_PERSON = "/api/persons/"
+    }
 
     /** 后端 GET /api/persons/:id 的真实响应形状（字段名取自 toPersonVO） */
     private val detailJson = """
@@ -88,13 +97,46 @@ class PersonEditViewModelTest {
         server.shutdown()
     }
 
-    private fun enqueue(body: String, code: Int = 200) {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(code)
-                .setHeader("Content-Type", "application/json")
-                .setBody(body)
-        )
+    private fun json(body: String, code: Int = 200, delayMs: Long = 0) = MockResponse()
+        .setResponseCode(code)
+        .setHeader("Content-Type", "application/json")
+        .setBody(body)
+        .apply { if (delayMs > 0) setBodyDelay(delayMs, TimeUnit.MILLISECONDS) }
+
+    /**
+     * 按**请求路径**分发响应，而不是 `enqueue()` 那种「先到先得」的队列。
+     *
+     * ## 为什么必须这样
+     *
+     * `init()` 里村庄列表与人员档案是 `async` **并发**发出的（串行会让编辑页白等两个来回），
+     * 既然并发，两个请求到达 MockWebServer 的顺序就不受测试控制。
+     * 用 `enqueue()` 排队，等于把「哪个请求吃到哪份响应」交给调度运气：
+     * 一旦详情请求抢到了村庄那份响应（或村庄请求吃到那条 500），
+     * `loadError` 就不再是预想的那条消息——同一个提交在 CI 上一会儿绿一会儿红，
+     * 实测过就是这样失败的。
+     *
+     * 按路径分发之后，每个请求拿到什么只取决于它自己的 URL，
+     * 与协程调度顺序无关，测试因此是确定的。
+     */
+    private fun respondWith(vararg routes: Pair<String, () -> MockResponse>) {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val p = request.path ?: return notFound("<empty>")
+                for ((prefix, factory) in routes) {
+                    if (p.startsWith(prefix)) return factory()
+                }
+                return notFound(p)
+            }
+
+            /**
+             * 未预期的请求一律 404 并在消息里点名路径：
+             * 「多打了一个写请求」这类回归要能被一眼看出来，而不是悄悄返回一个 200。
+             */
+            private fun notFound(p: String) = json(
+                """{"code":404,"message":"unexpected request: $p","data":null}""",
+                code = 404
+            )
+        }
     }
 
     /** init() 里的协程会真的走网络，用轮询等待结果，避免依赖测试调度器的时序 */
@@ -104,16 +146,19 @@ class PersonEditViewModelTest {
         assertTrue("等待条件超时（5 秒）", cond())
     }
 
-    private fun villages() = enqueue(
-        """{"code":0,"message":"success","data":{"list":[
+    private val okVillages = {
+        json(
+            """{"code":0,"message":"success","data":{"list":[
              {"name":"某村","person_count":1282,"manager":"李主任","phone":"13800001111"}
            ],"total":1}}"""
-    )
+        )
+    }
+
+    private fun personDetail(delayMs: Long = 0) = { json(detailJson, delayMs = delayMs) }
 
     @Test
     fun `打开编辑页时表单会被既有档案填满`() {
-        villages()
-        enqueue(detailJson)
+        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail())
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 7)
         assertTrue("personId>0 应判定为编辑", vm.isEdit)
@@ -140,14 +185,8 @@ class PersonEditViewModelTest {
 
     @Test
     fun `读取档案期间不给表单_读完才放开保存`() {
-        // 让网络卡住，模拟村里信号很差的情况
-        val delayed = MockResponse()
-            .setResponseCode(200)
-            .setHeader("Content-Type", "application/json")
-            .setBody(detailJson)
-            .setBodyDelay(1, java.util.concurrent.TimeUnit.SECONDS)
-        villages()
-        server.enqueue(delayed)
+        // 让详情慢 1 秒，模拟村里信号很差的情况；村庄仍是即时的
+        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail(delayMs = 1_000))
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 7)
         vm.init()
@@ -162,8 +201,13 @@ class PersonEditViewModelTest {
 
     @Test
     fun `读取档案失败时明确报错并禁止保存_而不是给一张空表单`() {
-        villages()
-        enqueue("""{"code":500,"message":"数据库连接失败","data":null,"errorCode":"INTERNAL"}""", code = 500)
+        // 详情接口挂 500，村庄列表正常返回——两件事互不干扰，靠路径区分而非排队顺序
+        respondWith(
+            PATH_VILLAGES to okVillages,
+            PATH_PERSON to {
+                json("""{"code":500,"message":"数据库连接失败","data":null,"errorCode":"INTERNAL"}""", code = 500)
+            }
+        )
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 7)
         vm.init()
@@ -184,7 +228,7 @@ class PersonEditViewModelTest {
 
     @Test
     fun `新增人员时不去调详情接口`() {
-        villages()
+        respondWith(PATH_VILLAGES to okVillages)
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 0)
         assertTrue("personId=0 是新增", !vm.isEdit)

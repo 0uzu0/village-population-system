@@ -69,6 +69,16 @@ class FileRepository(
         exec.download { api.downloadFile(id) }
 
     /**
+     * 删除附件。
+     *
+     * 注意这是**不可逆**的：后端删库记录的同时会把磁盘上的物理文件删掉，
+     * 既不能在界面上找回，也去不了服务器目录里捞。所以调用方必须先拿到用户确认。
+     */
+    suspend fun remove(id: Int) {
+        exec.run { api.deleteFile(id) }
+    }
+
+    /**
      * 取回一张图片并落到本地缓存文件，返回该文件供 Coil 直接渲染。
      *
      * 为什么要落盘而不是把 ByteArray 交给 Coil：

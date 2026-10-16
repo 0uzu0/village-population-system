@@ -293,7 +293,7 @@ class SyncEngineTest {
                 capturedAt = capturedAt,
             )
         )
-        enqueueResponse("""{"code":0,"message":"success","data":{"id":1,"fileName":"20261016-193012-张三-P000123.jpg"}}""")
+        enqueueResponse("""{"code":0,"message":"success","data":{"id":1,"fileName":"2026-10-16-19-30-12-张三-P000123.jpg"}}""")
 
         val outcome = engine.run()
 
