@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 安装更新包：Android 8+ 走「安装未知应用」授权，系统安装器据此弹权限引导 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
       刻意不申请 CAMERA / 存储 / 定位权限，原因不是「省事」，而是「用不上」：

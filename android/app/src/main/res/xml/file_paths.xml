@@ -7,6 +7,10 @@
     <cache-path
         name="images"
         path="images/" />
+    <!-- 更新包下载目录：UpdateRepository.downloadApk() 实际写 context.cacheDir/updates/ -->
+    <cache-path
+        name="updates"
+        path="updates/" />
     <files-path
         name="offline"
         path="offline/" />

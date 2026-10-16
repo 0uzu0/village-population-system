@@ -13,7 +13,7 @@ plugins {
  * 不传则用占位地址；安装后还能在「我的 → 服务器设置」里改（存 DataStore），
  * 这一条对村级场景是刚需：同一个 APK 要发给几十个村，各村的服务器地址不一样。
  */
-val apiBaseUrl: String = (project.findProperty("apiBaseUrl") as String?) ?: "http://192.168.1.100:8080/"
+val apiBaseUrl: String = (project.findProperty("apiBaseUrl") as String?) ?: "https://work.zerolin.fun:11127/"
 
 /** 版本号由 CI 注入（run_number / tag），本地构建用默认值 */
 val appVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1

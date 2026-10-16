@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
     val container = LocalAppContainer.current
     val tokens = AppTheme.tokens
     val scope = rememberCoroutineScope()
+    val updateController = container.updateController
     val user by container.session.user.collectAsStateWithLifecycle()
     val pendingOps by container.queue.size.collectAsStateWithLifecycle()
 
@@ -132,6 +134,14 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                         title = "服务器地址",
                         subtitle = container.settings.baseUrlInMemory,
                     ) { showServerDialog = true }
+
+                    SettingDivider()
+
+                    SettingRow(
+                        icon = Icons.Filled.SystemUpdate,
+                        title = "检查更新",
+                        subtitle = "当前版本 ${BuildConfig.VERSION_NAME}",
+                    ) { updateController.check(manual = true) }
 
                     SettingDivider()
 

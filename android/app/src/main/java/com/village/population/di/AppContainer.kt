@@ -13,9 +13,14 @@ import com.village.population.data.repository.AuthRepository
 import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.PersonRepository
+import com.village.population.data.repository.UpdateRepository
 import com.village.population.data.sync.SyncEngine
 import com.village.population.data.sync.SyncManager
 import com.village.population.data.sync.SyncReplayer
+import com.village.population.ui.update.UpdateController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -77,6 +82,25 @@ class AppContainer(context: Context) {
     val metaRepository = MetaRepository(api, executor, cache, queue, json)
 
     val fileRepository = FileRepository(api, executor, File(appContext.cacheDir, "photos"))
+
+    // ---------------- 更新 ----------------
+
+    /**
+     * 检查更新 / 下载安装 APK。
+     * 独立于上面那套 api 的 OkHttp/Retrofit：GitHub 请求不能带 BaseUrlInterceptor
+     * （它会把 host 改写成村级服务器）也不能带 AuthInterceptor（Bearer 头）。
+     */
+    val updateRepository = UpdateRepository(appContext)
+
+    /**
+     * 更新流程的**唯一**控制器。
+     * AppRoot（启动静默检查 + 全局弹窗）与「我的」页（手动检查）共用这一个实例，
+     * 保证只有一个 state 源、不会出现两个弹窗同时叠在屏幕上。
+     */
+    val updateController = UpdateController(
+        CoroutineScope(SupervisorJob() + Dispatchers.Main),
+        updateRepository,
+    )
 
     // ---------------- 同步 ----------------
 

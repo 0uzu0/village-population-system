@@ -52,6 +52,7 @@ import com.village.population.ui.screens.person.PersonEditScreen
 import com.village.population.ui.screens.person.PersonListScreen
 import com.village.population.ui.screens.profile.ProfileScreen
 import com.village.population.ui.theme.AppTheme
+import com.village.population.ui.update.UpdateDialogs
 import kotlinx.coroutines.launch
 
 object Routes {
@@ -96,6 +97,7 @@ fun AppRoot() {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val updateController = container.updateController
 
     var ready by remember { mutableStateOf(false) }
 
@@ -132,6 +134,12 @@ fun AppRoot() {
         container.syncManager.requestSync()
     }
 
+    // 启动后台静默检查更新一次：失败不打扰用户，只有真发现新版才弹。
+    // 挂在 ready 上，等 bootstrap 装载完毕、首屏请求不再打占位地址后再发起
+    LaunchedEffect(ready) {
+        if (ready) updateController.check(manual = false)
+    }
+
     val signedIn by container.session.signedIn.collectAsStateWithLifecycle()
     val expiredReason by container.session.expiredReason.collectAsStateWithLifecycle()
     val pendingOps by container.queue.size.collectAsStateWithLifecycle()
@@ -160,6 +168,13 @@ fun AppRoot() {
             },
         )
     }
+
+    // 更新流程的弹窗挂在最外层壳上，与「我的」页手动入口互不干扰
+    UpdateDialogs(
+        state = updateController.state,
+        onDismiss = updateController::dismiss,
+        onDownload = updateController::download,
+    )
 
     if (!ready) {
         LoadingBox(text = "正在启动…")
