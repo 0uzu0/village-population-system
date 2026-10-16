@@ -1,7 +1,9 @@
 package com.village.population.ui.screens.home
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,10 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Icon
@@ -39,6 +42,7 @@ import com.village.population.data.remote.dto.TagDto
 import com.village.population.data.repository.FocusGroupQuery
 import com.village.population.data.repository.MetaRepository
 import com.village.population.ui.LocalAppContainer
+import com.village.population.ui.components.AppDivider
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.GrowRow
 import com.village.population.ui.components.LoadingBox
@@ -137,14 +141,39 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
+            // 问候行：头像圆牌 + 问候 + 今天日期 + 口径说明。
+            // 设计稿的首页第一屏就是「谁、什么时候、看的是什么口径」，三样齐了才敢往外报数
             item {
-                Text(
-                    "你好，${user?.displayName ?: "网格员"}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = tokens.ink,
-                )
-                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(38.dp)
+                            .background(tokens.brandLight, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            (user?.displayName ?: "村").take(1),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = tokens.brandStrong,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "你好，${user?.displayName ?: "网格员"}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.ink,
+                        )
+                        Text(
+                            DateText.today(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 // 口径说明常驻在首屏顶部：这套数字要拿去开会、填报表，
                 // 什么算进来、什么不算，必须跟数字一起出现，不能藏在帮助页里
                 Text(
@@ -163,19 +192,21 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
 
-            // 快捷动作：移动端真正高频的三件事
+            // 快捷动作：移动端真正高频的两件事（台账速记已去掉——那是对着大表格整理
+            // 金额与发票号的活，手机屏幕做不了也做不好，留在电脑端）
             item {
                 SectionCard(title = "快捷操作") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickActionTile("上门登记", Icons.Filled.PersonAdd, Modifier.weight(1f)) {
-                            onNavigate(Routes.personEdit(0))
-                        }
-                        QuickActionTile("拍照留痕", Icons.Filled.PhotoCamera, Modifier.weight(1f)) {
-                            onNavigate(Routes.capture())
-                        }
-                        QuickActionTile("台账速记", Icons.AutoMirrored.Filled.Assignment, Modifier.weight(1f)) {
-                            onNavigate(Routes.LEDGER)
-                        }
+                        QuickActionTile(
+                            "上门登记",
+                            Icons.Filled.PersonAdd,
+                            Modifier.weight(1f),
+                        ) { onNavigate(Routes.personEdit(0)) }
+                        QuickActionTile(
+                            "拍照留痕",
+                            Icons.Filled.PhotoCamera,
+                            Modifier.weight(1f),
+                        ) { onNavigate(Routes.capture()) }
                     }
                 }
             }
@@ -200,40 +231,46 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
 
-            state.groups.takeIf { it.isNotEmpty() }?.let { groups ->
+            // 重点人群：**整块装进同一张卡片**，行与行之间用细线分隔。
+            // 原先每个族群各是一张独立白卡，一屏九张白卡排下来，
+            // 「这些条目属于同一个分组」这件事完全没有表达出来——这正是
+            // 「重点人群分割显示不明显」的根因。现在一卡一组、线内分条，一眼就能扫完。
+            //
+            // 没有数据时**整块不显示**（不摆「暂无数据」的空位）：空提示只占地方，
+            // 而这一屏上还有别的内容要显示。
+            if (state.groups.isNotEmpty()) {
                 item {
-                    Text(
-                        "重点人群",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = tokens.ink,
-                        modifier = Modifier.padding(top = 2.dp, bottom = 1.dp),
-                    )
-                }
-                items(groups, key = { it.code }) { group ->
-                    GrowRow(
-                        label = group.label,
-                        count = group.count,
-                        dotColor = parseHexColor(group.color, tokens.brand),
-                        hint = if (group.byAge) "按年龄自动判定，无需打标签" else null,
-                    ) {
-                        // 把族群翻译成筛选条件：
-                        //  · 年龄类（老年/未成年）按出生日期筛，跟他有没有标签无关；
-                        //  · 身份类按标签筛，且必须用 tagCodes（党员 = 正式 + 预备），
-                        //    只用 code 会少一截人。
-                        val query = FocusGroupQuery.build(group, state.tags)
-                        if (query == null) {
-                            // 解析不出标签就**不要跳**：不加筛选地跳过去，
-                            // 等于把「低保对象 62 人」变成一个全村 1200 人的名单，
-                            // 用户不会知道是筛错了，只会以为名单本来就这样。
-                            Toast.makeText(
-                                context,
-                                "本机还没有标签字典（需要联网同步一次），暂时无法按「${group.label}」筛选",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        } else {
-                            container.personFilterBus.post(query, group.label)
-                            onNavigate(Routes.PERSONS)
+                    SectionCard(title = "重点人群") {
+                        state.groups.forEachIndexed { index, group ->
+                            if (index > 0) {
+                                Box(Modifier.padding(start = 18.dp)) { AppDivider() }
+                            }
+                            GrowRow(
+                                label = group.label,
+                                count = group.count,
+                                dotColor = parseHexColor(group.color, tokens.brand),
+                                hint = if (group.byAge) "按年龄自动判定，无需打标签" else null,
+                                showCard = false,
+                            ) {
+                                // 把族群翻译成筛选条件：
+                                //  · 年龄类（老年/未成年）按出生日期筛，跟他有没有标签无关；
+                                //  · 身份类按标签筛，且必须用 tagCodes（党员 = 正式 + 预备），
+                                //    只用 code 会少一截人。
+                                val query = FocusGroupQuery.build(group, state.tags)
+                                if (query == null) {
+                                    // 解析不出标签就**不要跳**：不加筛选地跳过去，
+                                    // 等于把「低保对象 62 人」变成一个全村 1200 人的名单，
+                                    // 用户不会知道是筛错了，只会以为名单本来就这样。
+                                    Toast.makeText(
+                                        context,
+                                        "本机还没有标签字典（需要联网同步一次），暂时无法按「${group.label}」筛选",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else {
+                                    container.personFilterBus.post(query, group.label)
+                                    onNavigate(Routes.PERSONS)
+                                }
+                            }
                         }
                     }
                 }
@@ -277,7 +314,12 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
     }
 }
 
-/** 快捷入口，对应设计稿的 `.qa`：品牌极浅底 + 图标 + 文字 */
+/**
+ * 快捷入口，对应设计稿的 `.qa`：品牌极浅底 + 图标 + 文字。
+ *
+ * 图标放进品牌浅底的圆牌里（而不是裸露一个小图标）：只剩两个入口时，
+ * 卡片里会空出一大块，圆牌把视觉重心压回中间，看起来才是一个完整的按钮而不是半张空卡。
+ */
 @Composable
 private fun QuickActionTile(
     label: String,
@@ -291,16 +333,22 @@ private fun QuickActionTile(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(11.dp),
         modifier = modifier.clickableNoRipple(true, onClick),
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(vertical = 13.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = tokens.brand)
-            Spacer(Modifier.height(5.dp))
+            Box(
+                Modifier.size(34.dp).background(tokens.brandLight, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = tokens.brandStrong, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(9.dp))
             Text(
                 label,
-                style = MaterialTheme.typography.bodySmall,
-                color = tokens.ink2,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.ink,
             )
         }
     }

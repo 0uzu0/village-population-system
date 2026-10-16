@@ -403,7 +403,13 @@ fun AppChip(
     }
 }
 
-/** 重点人群一行，对应设计稿的 `.grow`：色点 + 名称 + 人数 */
+/**
+ * 重点人群一行，对应设计稿的 `.grow`：色点 + 名称 + 人数。
+ *
+ * `showCard = false` 时不铺自己的白底：把若干行放进同一张 `SectionCard` 里时
+ * 由父卡片提供底色，行与行之间用 [AppDivider] 分隔——这样「这些行属于同一组」
+ * 才看得出来。每行各是一张白卡的话，一屏九张卡片排下来完全没有分组感。
+ */
 @Composable
 fun GrowRow(
     label: String,
@@ -411,10 +417,11 @@ fun GrowRow(
     dotColor: Color,
     modifier: Modifier = Modifier,
     hint: String? = null,
+    showCard: Boolean = true,
     onClick: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = if (showCard) MaterialTheme.colorScheme.surface else Color.Transparent,
         shape = RoundedCornerShape(11.dp),
         modifier = modifier.fillMaxWidth().clickableNoRipple(true, onClick),
     ) {
@@ -438,6 +445,12 @@ fun GrowRow(
             )
         }
     }
+}
+
+/** 卡片内的行分隔线。用它而不是留白：一列同类行之间，白底上的细线才读得出「这是同一组」 */
+@Composable
+fun AppDivider(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(AppTheme.tokens.line2))
 }
 
 /** 底部操作栏的一项 */

@@ -267,4 +267,61 @@ class SyncEngineTest {
         assertTrue(outcome is SyncOutcome.Done)
         assertEquals("文件没了就该当它完成，否则会一直卡在队列里", 0, queue.all().size)
     }
+
+    /**
+     * 回归用例：**断网时拍的照片，联网补传后必须仍然挂在同一个人身上。**
+     *
+     * 修之前这里是 `files.upload(file)`，bizType / bizId / capturedAt 全丢：
+     * 补传成功的照片在后台变成没有归属的孤儿附件，前台按人一张都查不到；
+     * 时间戳也变成补传时刻，「哪天去谁家拍的」这条线索一并消失。
+     * 这类 bug 只在「没信号」时出现，靠手工试很难复现，必须由这条用例钉住。
+     */
+    @Test
+    fun `断网拍的照片补传时带着归属与拍照时间_不会变成孤儿附件`() = runTest {
+        val capturedAt = 1_792_000_000_000L
+        val photo = File(Files.createTempDirectory("capture-test").toFile(), "IMG_20261016.jpg")
+        photo.writeText("fake-jpeg-bytes")
+
+        queue.enqueue(
+            QueuedOp(
+                id = "op-photo",
+                type = OpType.UPLOAD_FILE,
+                label = "上传现场照片",
+                localFile = photo.absolutePath,
+                refId = 42,
+                bizType = "PERSON",
+                capturedAt = capturedAt,
+            )
+        )
+        enqueueResponse("""{"code":0,"message":"success","data":{"id":1,"fileName":"20261016-193012-张三-P000123.jpg"}}""")
+
+        val outcome = engine.run()
+
+        assertTrue(outcome is SyncOutcome.Done)
+        val request = server.takeRequest()
+        assertEquals("/api/files/upload", request.path)
+        val body = request.body.readUtf8()
+        assertTrue("必须带上归属类型，实际：$body", body.contains("name=\"bizType\"") && body.contains("PERSON"))
+        assertTrue("必须带上人员 id，实际：$body", body.contains("name=\"bizId\"") && body.contains("42"))
+        assertTrue(
+            "必须带上拍照时间，否则后台会按补传时刻命名：$body",
+            body.contains("name=\"capturedAt\"") && body.contains(capturedAt.toString())
+        )
+    }
+
+    /**
+     * 旧版本 APK 留下的队列文件里没有 bizType / capturedAt 这两个字段，
+     * 升级后必须还能读出来（缺省为 null），而不是整条反序列化失败、把队列清空掉。
+     */
+    @Test
+    fun `旧版本队列文件缺少归属字段时仍可解析`() {
+        val legacy = """{"id":"old-1","type":"UPLOAD_FILE","payload":"{}","label":"上传照片",""" +
+            """"createdAt":1700000000000,"attempts":0,"localFile":"/tmp/a.jpg","refId":7}"""
+        val op = AppJson.decodeFromString(QueuedOp.serializer(), legacy)
+
+        assertEquals("old-1", op.id)
+        assertEquals(7, op.refId)
+        assertEquals(null, op.bizType)
+        assertEquals(null, op.capturedAt)
+    }
 }

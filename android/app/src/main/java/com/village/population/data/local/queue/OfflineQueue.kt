@@ -25,6 +25,18 @@ data class QueuedOp(
     val localFile: String? = null,
     /** 关联的业务 id（如人员 id），用于上传成功后回填 */
     val refId: Int? = null,
+    /**
+     * 附件归属类型，取值同后端的 BIZ_TYPES（目前是 "PERSON"）。
+     * 必须和 [refId] 一起入队：只存本地路径的话，联网后补传的照片会变成
+     * 没有归属的孤儿附件——用户在人员详情里永远看不到它。
+     */
+    val bizType: String? = null,
+    /**
+     * 拍照时间（epoch 毫秒）。
+     * 附件命名以它为准，不能用「补传时刻」：离线时上传时间会全挤在同一分钟，
+     * 那样等于把「哪天去谁家拍的」这条线索抹掉。
+     */
+    val capturedAt: Long? = null,
 ) {
     val exhausted: Boolean get() = attempts >= MAX_ATTEMPTS
 
@@ -34,12 +46,11 @@ data class QueuedOp(
     }
 }
 
-/** 支持的离线操作类型。新增一种操作 = 加一个常量 + 在 SyncWorker 里加一个分支 */
+/** 支持的离线操作类型。新增一种操作 = 加一个常量 + 在 SyncReplayer 里加一个分支 */
 object OpType {
     const val CREATE_PERSON = "CREATE_PERSON"
     const val UPDATE_PERSON = "UPDATE_PERSON"
     const val ADD_PERSON_TAG = "ADD_PERSON_TAG"
-    const val CREATE_LEDGER = "CREATE_LEDGER"
     const val PENDING_IGNORE = "PENDING_IGNORE"
     const val PENDING_CONFIRM = "PENDING_CONFIRM"
     const val UPLOAD_FILE = "UPLOAD_FILE"

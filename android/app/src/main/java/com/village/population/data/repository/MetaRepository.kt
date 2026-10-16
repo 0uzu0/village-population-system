@@ -9,9 +9,6 @@ import com.village.population.data.remote.ApiExecutor
 import com.village.population.data.remote.ApiService
 import com.village.population.data.remote.dto.BatchIdsRequest
 import com.village.population.data.remote.dto.DashboardDto
-import com.village.population.data.remote.dto.LedgerCategoryDto
-import com.village.population.data.remote.dto.LedgerRecordCreateRequest
-import com.village.population.data.remote.dto.LedgerRecordDto
 import com.village.population.data.remote.dto.PageData
 import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.remote.dto.PendingSummaryDto
@@ -24,10 +21,13 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 
 /**
- * 基础数据仓库：工作台指标、重点人群分组、村庄、待核查、台账。
+ * 基础数据仓库：工作台指标、重点人群分组、村庄、待核查。
  *
  * 这些都属于「看一眼」的数据——走访前缓存下来，现场没信号也能翻。
- * 写操作（台账速记、待核查处理）同样支持离线排队。
+ * 写操作（待核查处理）同样支持离线排队。
+ *
+ * **不含专项台账**：手机端不做台账速记。台账是「对着大表格整理金额与发票号」
+ * 的活，在手机上填反而更容易填错；这部分留在电脑端。
  */
 class MetaRepository(
     private val api: ApiService,
@@ -141,49 +141,4 @@ class MetaRepository(
     suspend fun batchIgnore(ids: List<Int>) {
         exec.run { api.batchIgnorePending(BatchIdsRequest(ids)) }
     }
-
-    // ---------------- 专项台账 ----------------
-
-    suspend fun ledgerMeta(): List<LedgerCategoryDto> =
-        cached("ledgerMeta", ListSerializer(LedgerCategoryDto.serializer())) {
-            exec.data { api.ledgerMeta() }
-        }.value
-
-    suspend fun ledgerRecords(
-        page: Int,
-        pageSize: Int = 20,
-        category: String? = null,
-        keyword: String? = null,
-    ): Cached<PageData<LedgerRecordDto>> {
-        val key = "ledger|$page|$pageSize|${category.orEmpty()}|${keyword.orEmpty()}"
-        return cached(key, PageData.serializer(LedgerRecordDto.serializer())) {
-            exec.page {
-                api.ledgerRecords(
-                    page = page,
-                    pageSize = pageSize,
-                    category = category?.takeIf { it.isNotBlank() },
-                    keyword = keyword?.takeIf { it.isNotBlank() },
-                )
-            }
-        }
-    }
-
-    /** 台账速记：现场记一笔，断网也先存下来 */
-    suspend fun createLedgerRecord(req: LedgerRecordCreateRequest): SubmitResult =
-        try {
-            exec.data { api.createLedgerRecord(req) }
-            SubmitResult.Sent()
-        } catch (e: ApiException) {
-            throw e
-        } catch (e: IOException) {
-            val label = "台账速记：${req.title ?: req.category}"
-            queue.enqueue(
-                QueuedOp(
-                    type = OpType.CREATE_LEDGER,
-                    payload = json.encodeToString(LedgerRecordCreateRequest.serializer(), req),
-                    label = label,
-                )
-            )
-            SubmitResult.Queued(label)
-        }
 }

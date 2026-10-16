@@ -171,77 +171,27 @@ data class BatchIdsRequest(
 )
 
 // ---------------------------------------------------------------------------
-// 专项台账
-// ---------------------------------------------------------------------------
-
-@Serializable
-data class LedgerWorkTypeDto(
-    val code: String = "",
-    val name: String = "",
-)
-
-/**
- * 条口配置。这部分是「配置写在代码里」的：数据库只存编码（WATER / RIVER_MOWING），
- * 中文名由后端 utils/ledger.ts 统一映射，移动端下拉框直接从 /ledgers/meta 取，
- * 不要在客户端再写一份中文名。
- */
-@Serializable
-data class LedgerCategoryDto(
-    val code: String = "",
-    val name: String = "",
-    val workTypes: List<LedgerWorkTypeDto> = emptyList(),
-)
-
-@Serializable
-data class LedgerRecordDto(
-    val id: Int = 0,
-    val category: String = "",
-    val workType: String? = null,
-    val recordDate: String? = null,
-    val laborCost: Double? = null,
-    val invoiceCost: Double? = null,
-    val invoiceNo: String? = null,
-    val responsible: String? = null,
-    val location: String? = null,
-    val title: String? = null,
-    val detail: String? = null,
-    val remark: String? = null,
-    val attachmentCount: Int = 0,
-    val attachments: List<FileDto> = emptyList(),
-    val categoryName: String? = null,
-    val workTypeName: String? = null,
-    val createdAt: String? = null,
-)
-
-/**
- * 台账速记请求。
- * `laborCost` / `invoiceCost` 是 DECIMAL(10,2)（元），机械费已在 V011 去掉，不要再加回来。
- */
-@Serializable
-data class LedgerRecordCreateRequest(
-    val category: String,
-    val workType: String? = null,
-    val recordDate: String? = null,
-    val laborCost: Double? = null,
-    val invoiceCost: Double? = null,
-    val invoiceNo: String? = null,
-    val responsible: String? = null,
-    val location: String? = null,
-    val title: String? = null,
-    val detail: String? = null,
-    val remark: String? = null,
-)
-
-// ---------------------------------------------------------------------------
 // 附件
 // ---------------------------------------------------------------------------
 
+/**
+ * 附件。移动端只做一件事：把现场照片挂到人身上再读回来。
+ *
+ * `fileName` 由后端按**拍照时间**生成（形如 `20261016-193012-张三-P000123.jpg`），
+ * 所以列表里直接显示它就能看出「哪天拍的、拍的是谁」，不需要额外字段。
+ *
+ * 注意这里**没有 url**：预览接口要 Bearer 头，直链一定 401，
+ * 必须先 download(id) 取回字节再交给图片框架（见 FileRepository.download）。
+ */
 @Serializable
 data class FileDto(
     val id: Int = 0,
     val fileName: String? = null,
     val contentType: String? = null,
     val size: Long? = null,
-    val url: String? = null,
+    val bizType: String? = null,
+    val bizId: Int? = null,
+    /** 拍摄/取证时间。PC 传的合同/发票没有这个值（为 null） */
+    val capturedAt: String? = null,
     val createdAt: String? = null,
 )

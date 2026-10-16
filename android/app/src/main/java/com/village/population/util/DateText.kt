@@ -19,9 +19,18 @@ object DateText {
 
     private val DATE_TIME = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
     private val DATE_ONLY = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+    private val FILE_STAMP = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.CHINA)
 
     /** 今天，yyyy-MM-dd */
     fun today(): String = DATE_ONLY.format(Date())
+
+    /**
+     * 文件名用的时间戳 `yyyyMMdd-HHmmss`，与后端 file.ts 的 stampOf 同一格式。
+     *
+     * 现场照片的本地暂存名与后台命名都用它，于是「本机待同步列表里看到的名字」
+     * 和「上传后在服务器上的名字」是同一个，排查问题时能直接对上。
+     */
+    fun fileStamp(millis: Long): String = FILE_STAMP.format(Date(millis))
 
     fun formatDateTime(millis: Long): String =
         if (millis <= 0L) "—" else DATE_TIME.format(Date(millis))

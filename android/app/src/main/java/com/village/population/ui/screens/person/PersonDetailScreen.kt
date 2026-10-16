@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,16 +32,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.PersonDto
+import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonRepository
+import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.BottomAction
 import com.village.population.ui.components.BottomActionBar
@@ -50,10 +58,11 @@ import com.village.population.ui.components.InfoRow
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
+import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
-import com.village.population.util.Mask
+import com.village.population.util.PersonText
 import com.village.population.util.dial
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class PersonDetailUiState(
     val loading: Boolean = true,
@@ -69,10 +79,16 @@ data class PersonDetailUiState(
     val fromCache: Boolean = false,
     val savedAt: Long = 0L,
     val message: String? = null,
+    /** 这个人的现场照片（按拍照时间倒序，后端已排好） */
+    val photos: List<FileDto> = emptyList(),
+    val photosLoading: Boolean = false,
+    /** 正在放大查看的那张（null = 没在看） */
+    val viewing: FileDto? = null,
 )
 
 class PersonDetailViewModel(
     private val repo: PersonRepository,
+    private val files: FileRepository,
     private val personId: Int,
 ) : ViewModel() {
 
@@ -98,9 +114,25 @@ class PersonDetailViewModel(
         }
     }
 
+    /**
+     * 现场照片。**失败不转成整页错误**：照片是附加信息，
+     * 权限不足或断网时人物档案本身仍然要看得到，不能因为图片区而整页报错。
+     */
+    fun loadPhotos() {
+        viewModelScope.launch {
+            _state.update { it.copy(photosLoading = true) }
+            runCatching { files.list(bizType = "PERSON", bizId = personId).list }
+                .onSuccess { list -> _state.update { it.copy(photos = list, photosLoading = false) } }
+                .onFailure { _state.update { it.copy(photosLoading = false) } }
+        }
+    }
+
+    fun view(photo: FileDto?) = _state.update { it.copy(viewing = photo) }
+
     fun consumeMessage() = _state.update { it.copy(message = null) }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PersonDetailScreen(
     personId: Int,
@@ -110,12 +142,18 @@ fun PersonDetailScreen(
 ) {
     val context = LocalContext.current
     val tokens = AppTheme.tokens
+    val container = LocalAppContainer.current
     val vm: PersonDetailViewModel = com.village.population.ui.containerViewModel {
-        PersonDetailViewModel(it.personRepository, personId)
+        PersonDetailViewModel(it.personRepository, it.fileRepository, personId)
     }
     val state by vm.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(personId) { vm.load() }
+    // 每次进入这一屏都重拉一次：Navigation Compose 只组合当前目的地，
+    // 从「拍照留痕」回来时本屏会重新进入组合，新上传的照片立刻就能看到。
+    LaunchedEffect(personId) {
+        vm.load()
+        vm.loadPhotos()
+    }
 
     val person = state.person
 
@@ -205,14 +243,33 @@ fun PersonDetailScreen(
                     }
                 }
 
+                // 现场照片：拍照留痕的落点。
+                // 没有照片时整块不显示——空白区块只占地方；「拍照留痕」按钮常驻在底部操作栏，
+                // 入口并没有因此消失。照片按拍照时间倒序（后端排好），文件名本身也带着
+                // 「哪天拍的、拍的谁」，所以不额外补一行说明文字。
+                if (state.photos.isNotEmpty()) {
+                    SectionCard(title = "现场照片（${state.photos.size}）") {
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            maxItemsInEachRow = 3,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            state.photos.forEach { photo ->
+                                PhotoThumb(photo) { vm.view(photo) }
+                            }
+                        }
+                    }
+                }
+
                 SectionCard(title = "基本信息") {
-                    InfoRow("身份证号", Mask.idCard(person.idCard))
-                    InfoRow("本人电话", Mask.phone(person.phone))
-                    InfoRow("备用电话", Mask.phone(person.phoneBackup))
+                    InfoRow("身份证号", person.idCard)
+                    InfoRow("本人电话", person.phone)
+                    InfoRow("备用电话", person.phoneBackup)
                     InfoRow("出生日期", person.birthDate)
                     InfoRow("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" })
                     InfoRow("人员编号", person.personNo)
-                    InfoRow("人员状态", statusLabel(person.status))
+                    InfoRow("人员状态", PersonText.status(person.status))
                 }
 
                 SectionCard(title = "户籍与居住") {
@@ -220,12 +277,13 @@ fun PersonDetailScreen(
                     InfoRow("所属网格", person.gridName)
                     InfoRow("户籍地址", person.hukouAddress)
                     InfoRow("现居住地址", person.liveAddress)
-                    InfoRow("与户主关系", person.relation)
                 }
 
+                // 「与户主关系」只出现在家庭这一处。原先「户籍与居住」也重复列了一行，
+                // 同一个值在两处出现，改了其中一个字段会让人怀疑另一个怎么没变。
                 SectionCard(title = "家庭") {
                     InfoRow("所属家庭", person.familyName)
-                    InfoRow("与户主关系", person.relation)
+                    InfoRow("与户主关系", PersonText.relation(person.relation))
                 }
 
                 SectionCard(title = "重点人群") {
@@ -254,7 +312,7 @@ fun PersonDetailScreen(
                         InfoRow("残疾等级", d.levelLabel ?: d.level)
                         InfoRow("残疾证号", d.card)
                         InfoRow("监护人", d.guardianName)
-                        InfoRow("监护人电话", Mask.phone(d.guardianPhone))
+                        InfoRow("监护人电话", d.guardianPhone)
                         InfoRow("备注", d.remark)
                     }
                 }
@@ -297,6 +355,10 @@ fun PersonDetailScreen(
             }
         }
     }
+
+    state.viewing?.let { photo ->
+        PhotoViewerDialog(photo) { vm.view(null) }
+    }
 }
 
 /**
@@ -331,13 +393,90 @@ private fun PersonTags(person: PersonDto) {
     }
 }
 
-/** 状态中文名，与 PC 端 utils/personStatus.ts 保持一致 */
-private fun statusLabel(status: String): String = when (status) {
-    "NORMAL" -> "正常"
-    "MOVED_IN" -> "迁入"
-    "MOVED_OUT" -> "迁出"
-    "DEAD" -> "死亡"
-    else -> status
+/**
+ * 现场照片缩略图。
+ *
+ * 图片接口要 Bearer 头，把 URL 直接丢给 `<img>` 那种做法必然 401，
+ * 所以必须先由 FileRepository 取回字节落到本地缓存文件，再交给 Coil 渲染
+ * （见 FileRepository.imageFile）。取不到就显示一块占位底，
+ * 不让整张卡片因为一张图而整块空掉。
+ */
+@Composable
+private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
+    val files = LocalAppContainer.current.fileRepository
+    val tokens = AppTheme.tokens
+    val file by androidx.compose.runtime.produceState<File?>(null, photo.id) {
+        value = runCatching { files.imageFile(photo.id) }.getOrNull()
+    }
+    Surface(
+        color = tokens.quiet,
+        shape = RoundedCornerShape(9.dp),
+        modifier = Modifier
+            .width(84.dp)
+            .height(84.dp)
+            .clickableNoRipple(file != null, onClick),
+    ) {
+        val loaded = file
+        if (loaded == null) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                if (photo.id > 0) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+        } else {
+            AsyncImage(
+                model = loaded,
+                contentDescription = photo.fileName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+/** 放大查看。只做单张查看，不做左右滑动——这里的需求是「确认这张对不对」，不是相册 */
+@Composable
+private fun PhotoViewerDialog(photo: FileDto, onDismiss: () -> Unit) {
+    val files = LocalAppContainer.current.fileRepository
+    val file by androidx.compose.runtime.produceState<File?>(null, photo.id) {
+        value = runCatching { files.imageFile(photo.id) }.getOrNull()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.padding(12.dp)) {
+                val loaded = file
+                if (loaded != null) {
+                    AsyncImage(
+                        model = loaded,
+                        contentDescription = photo.fileName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp),
+                    )
+                } else {
+                    Box(
+                        Modifier.fillMaxWidth().height(200.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { androidx.compose.material3.CircularProgressIndicator() }
+                }
+                Spacer(Modifier.height(8.dp))
+                // 文件名就是「拍照时间-谁-编号」（后端按拍照时间生成），
+                // 放在这里刚好当作这张照片的说明
+                Text(
+                    photo.fileName ?: "现场照片",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTheme.tokens.ink3,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
+                }
+            }
+        }
+    }
 }
 
 /** 状态徽标：在册给绿色，迁出/死亡给中性或红色——一眼能看出这个人还算不算在册数里 */

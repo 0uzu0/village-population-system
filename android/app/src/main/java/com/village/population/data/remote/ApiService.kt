@@ -6,9 +6,6 @@ import com.village.population.data.remote.dto.BatchIdsRequest
 import com.village.population.data.remote.dto.ChangePasswordRequest
 import com.village.population.data.remote.dto.DashboardDto
 import com.village.population.data.remote.dto.FileDto
-import com.village.population.data.remote.dto.LedgerCategoryDto
-import com.village.population.data.remote.dto.LedgerRecordCreateRequest
-import com.village.population.data.remote.dto.LedgerRecordDto
 import com.village.population.data.remote.dto.LoginRequest
 import com.village.population.data.remote.dto.LoginResponse
 import com.village.population.data.remote.dto.PageData
@@ -145,34 +142,20 @@ interface ApiService {
     @POST("api/pending/batch-ignore")
     suspend fun batchIgnorePending(@Body body: BatchIdsRequest): VoidEnvelope
 
-    // ---------------- 专项台账 ----------------
-
-    @GET("api/ledgers/meta")
-    suspend fun ledgerMeta(): ApiEnvelope<List<LedgerCategoryDto>>
-
-    @GET("api/ledgers/records")
-    suspend fun ledgerRecords(
-        @Query("page") page: Int,
-        @Query("pageSize") pageSize: Int,
-        @Query("category") category: String? = null,
-        @Query("workType") workType: String? = null,
-        @Query("keyword") keyword: String? = null,
-        @Query("startDate") startDate: String? = null,
-        @Query("endDate") endDate: String? = null,
-    ): ApiEnvelope<PageData<LedgerRecordDto>>
-
-    @POST("api/ledgers/records")
-    suspend fun createLedgerRecord(@Body body: LedgerRecordCreateRequest): ApiEnvelope<LedgerRecordDto>
-
     // ---------------- 附件 ----------------
 
     /**
      * 上传附件。后端不限大小（nginx 也已放开 client_max_body_size），
      * 唯一闸门是类型白名单：.pdf/.jpg/.jpeg/.png/.webp。
      *
-     * 返回的是**单个对象**（不是数组）；biz_type/biz_id 可以先留空，
-     * 由业务保存时回填（台账保存时按 created_by 认领本次上传的文件）。
-     * 权限是 ledger:manage —— 附件是随台账一起长出来的通用能力。
+     * 现场照片三个字段必须一起给，缺一个都会留下问题：
+     *  · bizType + bizId —— 照片挂在谁身上。缺了就是查不到的孤儿附件；
+     *  · capturedAt      —— 拍照时间（epoch 毫秒）。后端**以它命名文件**，
+     *                       并以它排序。离线补传时不传，文件名就会变成补传时刻，
+     *                       「哪天去谁家拍的」这条线索就丢了。
+     * 三者都可空，因为 PC 台账是「先传附件、保存记录时再认领」，那条路径不带这些字段。
+     *
+     * 权限跟随归属对象：PERSON → person:edit（或台账权限），LEDGER → ledger:manage。
      */
     @Multipart
     @POST("api/files/upload")
@@ -180,7 +163,17 @@ interface ApiService {
         @Part file: MultipartBody.Part,
         @Part("bizType") bizType: RequestBody,
         @Part("bizId") bizId: RequestBody,
+        @Part("capturedAt") capturedAt: RequestBody,
     ): ApiEnvelope<FileDto>
+
+    /** 某个人员 / 台账名下的附件列表（人员详情的「现场照片」区走这里） */
+    @GET("api/files")
+    suspend fun files(
+        @Query("bizType") bizType: String,
+        @Query("bizId") bizId: Int,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 100,
+    ): ApiEnvelope<PageData<FileDto>>
 
     /** 下载/预览：必须带 Bearer 头，所以不能直接把 URL 丢给图片控件 */
     @Streaming

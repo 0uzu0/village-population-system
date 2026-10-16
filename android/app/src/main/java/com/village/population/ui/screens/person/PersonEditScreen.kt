@@ -40,6 +40,7 @@ import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
 import com.village.population.ui.components.SectionCard
 import com.village.population.util.IdCard
+import com.village.population.util.PersonText
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -338,11 +339,17 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                     onValueChange = { v -> vm.onField { it.copy(liveAddress = v) } },
                 )
                 Spacer(Modifier.height(10.dp))
-                FormField(
+                // 与户主关系改成「从固定几项里选」，不再自由填写。
+                // 数据库里存的是编码（HEAD/SPOUSE/…，PC 端下拉框用的就是这套），
+                // 自由填写会写进「户主」「妻」这类中文，于是同一条字段在两端显示不同的字、
+                // 也没法按关系统计。选项与 PC 的 el-option 保持一致（见 PersonText.RELATIONS）。
+                PickerField(
                     label = "与户主关系",
-                    value = state.relation,
-                    onValueChange = { v -> vm.onField { it.copy(relation = v) } },
-                    placeholder = "户主 / 配偶 / 子女 …",
+                    value = PersonText.relation(state.relation),
+                    options = PersonText.RELATIONS.map { PickerOption(it.first, it.second) },
+                    onSelect = { option -> vm.onField { it.copy(relation = option?.value ?: "") } },
+                    placeholder = "请选择",
+                    allowClear = true,
                 )
             }
 

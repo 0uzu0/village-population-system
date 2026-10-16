@@ -76,7 +76,7 @@ class AppContainer(context: Context) {
 
     val metaRepository = MetaRepository(api, executor, cache, queue, json)
 
-    val fileRepository = FileRepository(api, executor)
+    val fileRepository = FileRepository(api, executor, File(appContext.cacheDir, "photos"))
 
     // ---------------- 同步 ----------------
 

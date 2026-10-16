@@ -1,7 +1,6 @@
 package com.village.population.ui.screens.person
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,7 +60,6 @@ import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
-import com.village.population.util.Mask
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,6 +81,17 @@ data class PersonListUiState(
     val filterLabel: String? = null,
 ) {
     val hasMore: Boolean get() = list.size < total
+
+    /**
+     * 用户是否真的加过筛选（决定要不要露出「重置」）。
+     *
+     * 特意**不算 activeOnly**：它默认就是 true，把它算进来的话「重置」会永远显示，
+     * 而按下去什么都不会变——那种按钮只会让人误以为列表已经被筛过了。
+     */
+    val hasUserFilter: Boolean
+        get() = !query.activeOnly || query.village != null || query.keyword.isNotBlank() ||
+            query.tagIds.isNotEmpty() || query.minAge != null || query.maxAge != null ||
+            filterLabel != null
 }
 
 class PersonListViewModel(
@@ -174,6 +183,7 @@ class PersonListViewModel(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PersonListScreen(
     onOpenPerson: (Int) -> Unit,
@@ -239,10 +249,14 @@ fun PersonListScreen(
                     onSearch = { vm.search() },
                 )
 
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                // 筛选片用 FlowRow 自动换行，不再用「一行 + 横向滚动」：
+                // 手机上这一排本来就能凑到 4 个（在册/村庄/重点人群/重置），
+                // 横向滚动会把最后一个直接挤出屏幕——用户看不到「重置」，
+                // 只会觉得筛选区坏了、还退不出筛选。换行后每个 chip 都在可见范围内。
+                FlowRow(
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     AppChip(
                         text = "仅看在册",
@@ -264,7 +278,11 @@ fun PersonListScreen(
                             trailingIcon = Icons.Filled.Clear,
                         )
                     }
-                    if (state.query.activeOnly || state.query.village != null) {
+                    // 「重置」只在**用户真的加过筛选**时出现。
+                    // 原先的条件里有 activeOnly，而它默认就是 true —— 等于这一颗按钮
+                    // 永远挂在那里。一颗常驻却按了没变化的按钮比没有更糟：
+                    // 它会让人以为当前列表是被筛过的。
+                    if (state.hasUserFilter) {
                         AppChip(text = "重置", selected = false, onClick = { vm.clearFilters() })
                     }
                 }
@@ -392,10 +410,14 @@ private fun VillageChooserDialog(
 
 /**
  * 人员行，对应设计稿的 `.pitem`：
- * 第一行「姓名 + 性别年龄」、第二行「脱敏证件号 · 村庄」、第三行标签。
+ * 第一行「姓名 + 性别年龄」、第二行「证件号 · 村庄」、第三行标签。
  *
- * 第二行放脱敏证件号而不是网格/住址：现场核人靠的是「年纪 + 尾号」，
- * 证件号能对上就基本确认是同一个人；住址那一列在村里几乎都是同一个村名，没有区分度。
+ * 第二行放证件号而不是网格/住址：现场核人靠的是「年纪 + 尾号」，
+ * 号码能对上就基本确认是同一个人；住址那一列在村里几乎都是同一个村名，没有区分度。
+ *
+ * 这里用完整号码、不做脱敏：这一屏就是拿着手机对着人核身份的，
+ * 抹掉前 6 位与中间位之后反而没法逐位核对。号码太长时按行尾省略，
+ * 点进详情能看到完整的。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -427,7 +449,7 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
             Spacer(Modifier.height(3.dp))
             Text(
                 listOfNotNull(
-                    Mask.idCard(person.idCard).takeIf { it.isNotBlank() },
+                    person.idCard?.takeIf { it.isNotBlank() },
                     person.village?.takeIf { it.isNotBlank() },
                 ).joinToString(" · ").ifBlank { "—" },
                 style = MaterialTheme.typography.bodySmall,

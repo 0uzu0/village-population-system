@@ -45,7 +45,6 @@ import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.screens.capture.CaptureScreen
 import com.village.population.ui.screens.home.HomeScreen
-import com.village.population.ui.screens.ledger.LedgerQuickScreen
 import com.village.population.ui.screens.login.LoginScreen
 import com.village.population.ui.screens.pending.PendingScreen
 import com.village.population.ui.screens.person.PersonDetailScreen
@@ -61,7 +60,6 @@ object Routes {
     const val PERSONS = "persons"
     const val PENDING = "pending"
     const val PROFILE = "profile"
-    const val LEDGER = "ledger"
     const val CAPTURE = "capture"
 
     private const val PERSON_DETAIL_BASE = "person"
@@ -89,6 +87,9 @@ private val TABS = listOf(
     Tab(Routes.PROFILE, "我的"),
 )
 
+/** 某个路由是不是底部 Tab 的落点 */
+private fun isTabRoute(route: String): Boolean = TABS.any { it.route == route }
+
 @Composable
 fun AppRoot() {
     val container = LocalAppContainer.current
@@ -97,6 +98,31 @@ fun AppRoot() {
     val scope = rememberCoroutineScope()
 
     var ready by remember { mutableStateOf(false) }
+
+    /**
+     * 切到某个底部 Tab。
+     *
+     * **所有通往 Tab 落点的跳转都必须走这里**，包括工作台上「重点人群」「在册人口」
+     * 这些卡片。这正是之前「在人口页点底部『工作台』没反应」的根因：
+     * 底栏用了一套 NavOptions（popUpTo + saveState + restoreState），
+     * 工作台里的卡片却用了不带任何 options 的裸 navigate()，同一个目的地被两套
+     * 不同的栈语义压进去，栈里就出现了「同一个 Tab 有多份、状态各不一样」的情况，
+     * 于是返回/切换时会出现「点了没动静」。
+     *
+     * 现在统一成一条最小规则：
+     *  · 弹回 HOME（Tab 的锚点），把中途压进来的页面清掉，返回键一次就退出；
+     *  · launchSingleTop 避免同一目的地压两层；
+     *  · **不用 saveState/restoreState**——不保留 Tab 内部状态，每次切过去都重新组合，
+     *    这也顺带保证看到的是最新数据（列表不会停在三天前的筛选结果上）。
+     */
+    fun switchTab(route: String) {
+        if (navController.currentBackStackEntry?.destination?.route == route) return
+        navController.navigate(route) {
+            popUpTo(Routes.HOME) { saveState = false }
+            launchSingleTop = true
+            restoreState = false
+        }
+    }
 
     // 冷启动必须先装载服务器地址与 token：拦截器读的是内存镜像，
     // 早于这一步发出的请求会打到占位地址上，全部失败
@@ -158,16 +184,7 @@ fun AppRoot() {
                         TABS.forEach { tab ->
                             NavigationBarItem(
                                 selected = currentRoute == tab.route,
-                                onClick = {
-                                    if (currentRoute != tab.route) {
-                                        navController.navigate(tab.route) {
-                                            // 底部 Tab 之间切换不该堆栈，否则返回键要点很多次才退出
-                                            popUpTo(Routes.HOME) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    }
-                                },
+                                onClick = { switchTab(tab.route) },
                                 icon = {
                                     TabIcon(tab.route, badge = if (tab.route == Routes.PENDING) pendingOps else 0)
                                 },
@@ -203,7 +220,11 @@ fun AppRoot() {
 
                 composable(Routes.HOME) {
                     HomeScreen(
-                        onNavigate = { route -> navController.navigate(route) },
+                        // Tab 落点走 switchTab（与底栏完全同一套栈语义），
+                        // 其余页面（新增人员、拍照留痕…）正常压栈
+                        onNavigate = { route ->
+                            if (isTabRoute(route)) switchTab(route) else navController.navigate(route)
+                        },
                     )
                 }
 
@@ -243,10 +264,6 @@ fun AppRoot() {
                     // 与 person.id 是两套编号，且这条记录本来就还没有正式人员。
                     // 详情改为在本页弹窗展示（见 PendingScreen）。
                     PendingScreen()
-                }
-
-                composable(Routes.LEDGER) {
-                    LedgerQuickScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable(
