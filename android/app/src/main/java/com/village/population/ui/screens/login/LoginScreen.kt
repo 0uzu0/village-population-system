@@ -1,5 +1,6 @@
 package com.village.population.ui.screens.login
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,10 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -28,9 +30,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -41,8 +46,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.BuildConfig
 import com.village.population.data.local.SettingsStore
 import com.village.population.data.repository.AuthRepository
-import com.village.population.ui.containerViewModel
 import com.village.population.ui.components.FormField
+import com.village.population.ui.components.clickableNoRipple
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -129,125 +135,161 @@ class LoginViewModel(
 
 @Composable
 fun LoginScreen(onLoggedIn: () -> Unit) {
-    val vm: LoginViewModel = containerViewModel { LoginViewModel(it.authRepository, it.settings) }
+    val tokens = AppTheme.tokens
+    val vm: LoginViewModel = com.village.population.ui.containerViewModel { LoginViewModel(it.authRepository, it.settings) }
     val state by vm.state.collectAsStateWithLifecycle()
-    var passwordVisible by mutableStateOf(false)
+    var passwordVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
+            .verticalScroll(rememberScrollState()),
     ) {
-        Spacer(Modifier.height(48.dp))
-
-        Surface(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(64.dp),
+        // 品牌渐变头（设计稿画法）：登录页是全应用唯一没有页头的屏，
+        // 一块渐变既交代了「这是什么应用」，也把视觉焦点压在下面的输入框上
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(Brush.linearGradient(listOf(tokens.brand, tokens.brandStrong)))
+                .padding(start = 20.dp, end = 20.dp, top = 34.dp, bottom = 26.dp),
         ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(46.dp).background(Color.White.copy(alpha = 0.20f), RoundedCornerShape(13.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
                     Icons.Filled.Home,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(34.dp),
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp),
                 )
             }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "掌上村务",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            Text(
+                "村级人口与重点人群精细化管理系统",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.85f),
+            )
         }
 
-        Spacer(Modifier.height(20.dp))
-        Text("掌上村务", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "村级人口与重点人群精细化管理系统",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = state.username,
+                onValueChange = vm::onUsername,
+                label = { Text("账号") },
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = state.password,
+                onValueChange = vm::onPassword,
+                label = { Text("密码") },
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        Spacer(Modifier.height(28.dp))
-
-        OutlinedTextField(
-            value = state.username,
-            onValueChange = vm::onUsername,
-            label = { Text("账号") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = state.password,
-            onValueChange = vm::onPassword,
-            label = { Text("密码") },
-            singleLine = true,
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+            // 服务器地址收成一行（设计稿的「服务器地址 ▾」）：
+            // 它一装完就填好了，日常登录根本不用看；但同一个包要发几十个村，
+            // 需要改的时候必须一眼找得到，所以放成显式的一行而不是藏进菜单
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickableNoRipple(true) { vm.toggleServerConfig() },
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "服务器地址",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                        )
+                        Text(
+                            state.baseUrl,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.ink2,
+                        )
+                    }
                     Icon(
-                        if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                        Icons.Filled.ChevronRight,
+                        contentDescription = if (state.showServerConfig) "收起服务器设置" else "展开服务器设置",
+                        tint = tokens.ink3,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        val error = state.error
-        if (error != null) {
-            Spacer(Modifier.height(10.dp))
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-        }
-        val notice = state.notice
-        if (notice != null) {
-            Spacer(Modifier.height(10.dp))
-            Text(notice, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
-        }
-
-        Spacer(Modifier.height(20.dp))
-        Button(
-            onClick = { vm.login(onLoggedIn) },
-            enabled = !state.loading,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Text(if (state.loading) "登录中…" else "登 录", style = MaterialTheme.typography.labelLarge)
-        }
-
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = vm::toggleServerConfig, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Icon(Icons.Filled.Settings, contentDescription = null)
-            Text("  服务器设置")
-        }
-
-        if (state.showServerConfig) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "同一个安装包会分发给多个村使用，服务器地址各不相同。地址只填 IP 与端口即可，" +
-                    "例如 192.168.1.100:8080，程序会自动补上 http://。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-            FormField(
-                label = "服务器地址",
-                value = state.baseUrl,
-                onValueChange = vm::onBaseUrl,
-                placeholder = "192.168.1.100:8080",
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = vm::saveBaseUrl, modifier = Modifier.weight(1f)) { Text("保存地址") }
-                TextButton(onClick = vm::resetBaseUrl, modifier = Modifier.weight(1f)) { Text("恢复默认") }
             }
-        }
 
-        Spacer(Modifier.height(32.dp))
-        Text(
-            "版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
-        Spacer(Modifier.height(24.dp))
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+            state.notice?.let {
+                Text(it, color = tokens.green, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Button(
+                onClick = { vm.login(onLoggedIn) },
+                enabled = !state.loading,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Text(if (state.loading) "登录中…" else "登 录", style = MaterialTheme.typography.labelLarge)
+            }
+
+            if (state.showServerConfig) {
+                Text(
+                    "同一个安装包会分发给多个村使用，服务器地址各不相同。地址只填 IP 与端口即可，" +
+                        "例如 192.168.1.100:8080，程序会自动补上 http://。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.ink3,
+                )
+                FormField(
+                    label = "服务器地址",
+                    value = state.baseUrl,
+                    onValueChange = vm::onBaseUrl,
+                    placeholder = "192.168.1.100:8080",
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = vm::saveBaseUrl,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("保存地址") }
+                    TextButton(onClick = vm::resetBaseUrl, modifier = Modifier.weight(1f)) { Text("恢复默认") }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）",
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.ink3,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            Spacer(Modifier.height(16.dp))
+        }
     }
 }

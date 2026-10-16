@@ -1,7 +1,11 @@
 package com.village.population.ui.navigation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FactCheck
@@ -12,8 +16,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -27,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -45,6 +52,7 @@ import com.village.population.ui.screens.person.PersonDetailScreen
 import com.village.population.ui.screens.person.PersonEditScreen
 import com.village.population.ui.screens.person.PersonListScreen
 import com.village.population.ui.screens.profile.ProfileScreen
+import com.village.population.ui.theme.AppTheme
 import kotlinx.coroutines.launch
 
 object Routes {
@@ -137,25 +145,42 @@ fun AppRoot() {
         bottomBar = {
             val showTabs = signedIn && TABS.any { it.route == currentRoute }
             if (showTabs) {
-                NavigationBar {
-                    TABS.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                if (currentRoute != tab.route) {
-                                    navController.navigate(tab.route) {
-                                        // 底部 Tab 之间切换不该堆栈，否则返回键要点很多次才退出
-                                        popUpTo(Routes.HOME) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
+                // 底栏对应设计稿的 `.nav`：白底、上沿一条细线、选中项走品牌色。
+                // 不用 NavigationBar 默认的 surfaceContainer 底色——那个色在浅色主题下
+                // 与页面底色非常接近，栏和内容会糊在一起，看不出哪里是边界
+                val tokens = AppTheme.tokens
+                Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(tokens.line2))
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                    ) {
+                        TABS.forEach { tab ->
+                            NavigationBarItem(
+                                selected = currentRoute == tab.route,
+                                onClick = {
+                                    if (currentRoute != tab.route) {
+                                        navController.navigate(tab.route) {
+                                            // 底部 Tab 之间切换不该堆栈，否则返回键要点很多次才退出
+                                            popUpTo(Routes.HOME) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
                                     }
-                                }
-                            },
-                            icon = {
-                                TabIcon(tab.route, badge = if (tab.route == Routes.PENDING) pendingOps else 0)
-                            },
-                            label = { Text(tab.label) },
-                        )
+                                },
+                                icon = {
+                                    TabIcon(tab.route, badge = if (tab.route == Routes.PENDING) pendingOps else 0)
+                                },
+                                label = { Text(tab.label) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = tokens.brand,
+                                    selectedTextColor = tokens.brand,
+                                    indicatorColor = tokens.brandLight,
+                                    unselectedIconColor = tokens.ink3,
+                                    unselectedTextColor = tokens.ink3,
+                                ),
+                            )
+                        }
                     }
                 }
             }

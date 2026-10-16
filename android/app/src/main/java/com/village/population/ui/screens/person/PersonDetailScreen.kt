@@ -1,28 +1,40 @@
 package com.village.population.ui.screens.person
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,6 +42,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.PersonDto
 import com.village.population.data.repository.PersonRepository
 import com.village.population.ui.components.AppTopBar
+import com.village.population.ui.components.BottomAction
+import com.village.population.ui.components.BottomActionBar
 import com.village.population.ui.components.DotLabel
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.InfoRow
@@ -37,15 +51,16 @@ import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.parseHexColor
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
+import com.village.population.util.Mask
+import com.village.population.util.dial
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.filled.Call
-import com.village.population.util.dial
 
 data class PersonDetailUiState(
     val loading: Boolean = true,
@@ -94,6 +109,7 @@ fun PersonDetailScreen(
     onCapture: () -> Unit,
 ) {
     val context = LocalContext.current
+    val tokens = AppTheme.tokens
     val vm: PersonDetailViewModel = com.village.population.ui.containerViewModel {
         PersonDetailViewModel(it.personRepository, personId)
     }
@@ -101,30 +117,28 @@ fun PersonDetailScreen(
 
     LaunchedEffect(personId) { vm.load() }
 
+    val person = state.person
+
     Scaffold(
         topBar = {
-            AppTopBar(
-                title = state.person?.name ?: "人员详情",
-                onBack = onBack,
-                actions = {
-                    state.person?.let { person ->
-                        if (person.phone?.isNotBlank() == true) {
-                            IconButton(onClick = { context.dial(person.phone) }) {
-                                Icon(Icons.Filled.Call, contentDescription = "拨打电话")
-                            }
-                        }
-                        IconButton(onClick = onCapture) {
-                            Icon(Icons.Filled.PhotoCamera, contentDescription = "拍照留痕")
-                        }
-                        IconButton(onClick = onEdit) {
-                            Icon(Icons.Filled.Edit, contentDescription = "编辑")
-                        }
+            // 标题用固定的「人员详情」而不是人名：人名就在下面第一张卡片上，
+            // 页头再写一遍会挤掉返回键右侧的空间，滚动时也没有额外信息量
+            AppTopBar(title = "人员详情", onBack = onBack)
+        },
+        bottomBar = {
+            if (person != null) {
+                // 操作栏固定底部（设计稿画法）：单手可及，比原先挤在右上角的三个小图标好按
+                val actions = buildList {
+                    if (person.phone?.isNotBlank() == true) {
+                        add(BottomAction("打电话", Icons.Filled.Call) { context.dial(person.phone) })
                     }
-                },
-            )
+                    add(BottomAction("拍照留痕", Icons.Filled.PhotoCamera, onCapture))
+                    add(BottomAction("编辑资料", Icons.Filled.Edit, onEdit))
+                }
+                BottomActionBar(actions)
+            }
         },
     ) { padding ->
-        val person = state.person
         when {
             state.loading && person == null -> LoadingBox(Modifier.padding(padding))
             state.error != null && person == null -> ErrorBox(state.error!!, Modifier.padding(padding)) { vm.load() }
@@ -134,24 +148,69 @@ fun PersonDetailScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 if (state.fromCache) {
                     OfflineBanner("离线缓存数据（${DateText.describeAge(state.savedAt)}）")
                 }
 
+                // 身份卡（设计稿首页那张卡）：头像 + 姓名 + 状态 + 一行摘要
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .background(tokens.brandLight, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Person,
+                                contentDescription = null,
+                                tint = tokens.brandStrong,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(11.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    person.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = tokens.ink,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                val (statusText, statusColor) = statusTag(person.status)
+                                DotLabel(statusText, statusColor)
+                            }
+                            Text(
+                                listOfNotNull(
+                                    if (person.gender == "FEMALE") "女" else "男",
+                                    (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
+                                    person.village?.takeIf { it.isNotBlank() },
+                                    person.gridName?.takeIf { it.isNotBlank() },
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.ink3,
+                            )
+                        }
+                    }
+                }
+
                 SectionCard(title = "基本信息") {
-                    InfoRow("姓名", person.name)
-                    InfoRow("性别", if (person.gender == "FEMALE") "女" else "男")
+                    InfoRow("身份证号", Mask.idCard(person.idCard))
+                    InfoRow("本人电话", Mask.phone(person.phone))
+                    InfoRow("备用电话", Mask.phone(person.phoneBackup))
                     InfoRow("出生日期", person.birthDate)
-                    InfoRow(
-                        "年龄",
-                        (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
-                    )
-                    InfoRow("身份证号", person.idCard)
-                    InfoRow("本人电话", person.phone)
-                    InfoRow("备用电话", person.phoneBackup)
+                    InfoRow("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" })
                     InfoRow("人员编号", person.personNo)
                     InfoRow("人员状态", statusLabel(person.status))
                 }
@@ -169,33 +228,16 @@ fun PersonDetailScreen(
                     InfoRow("与户主关系", person.relation)
                 }
 
-                SectionCard(title = "重点人群标签") {
+                SectionCard(title = "重点人群") {
                     if (person.tags.isEmpty()) {
                         Text(
                             "暂无标签。身份类人群（党员、低保、残疾等）通过打标签认定；" +
                                 "老年人、未成年人按出生日期自动判定，不需要打标签。",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = tokens.ink3,
                         )
                     } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            person.tags.forEach { tag ->
-                                DotLabel(
-                                    tag.name,
-                                    parseHexColor(tag.color, MaterialTheme.colorScheme.primary),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        person.tags.forEach { tag ->
-                            InfoRow(
-                                tag.name,
-                                listOfNotNull(
-                                    tag.effectDate?.let { "生效 $it" },
-                                    tag.status?.takeIf { it != "ACTIVE" }?.let { "状态 $it" },
-                                ).joinToString("，").ifBlank { "有效" },
-                            )
-                        }
+                        PersonTags(person)
                     }
                 }
 
@@ -212,7 +254,7 @@ fun PersonDetailScreen(
                         InfoRow("残疾等级", d.levelLabel ?: d.level)
                         InfoRow("残疾证号", d.card)
                         InfoRow("监护人", d.guardianName)
-                        InfoRow("监护人电话", d.guardianPhone)
+                        InfoRow("监护人电话", Mask.phone(d.guardianPhone))
                         InfoRow("备注", d.remark)
                     }
                 }
@@ -239,7 +281,7 @@ fun PersonDetailScreen(
                                         change.createdAt,
                                     ).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = tokens.ink3,
                                 )
                             }
                         }
@@ -249,11 +291,43 @@ fun PersonDetailScreen(
                 Text(
                     "数据来源：${person.dataSource ?: "—"}　更新时间：${person.updatedAt ?: "—"}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = tokens.ink3,
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(20.dp))
             }
         }
+    }
+}
+
+/**
+ * 标签区：色片 + 「生效/状态」两列。
+ *
+ * 用 FlowRow 而不是 Row：一个人身上挂六七个标签是常事（低保 + 残疾 + 老年…），
+ * 单行的 Row 会把超出部分直接切掉——患者看不到自己已经被打过的标签，
+ * 会以为没登记上，然后重复打一遍。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PersonTags(person: PersonDto) {
+    val tokens = AppTheme.tokens
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        person.tags.forEach { tag ->
+            DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    person.tags.forEach { tag ->
+        InfoRow(
+            tag.name,
+            listOfNotNull(
+                tag.effectDate?.let { "生效 $it" },
+                tag.status?.takeIf { it != "ACTIVE" }?.let { "状态 $it" },
+            ).joinToString("，").ifBlank { "有效" },
+        )
     }
 }
 
@@ -264,4 +338,15 @@ private fun statusLabel(status: String): String = when (status) {
     "MOVED_OUT" -> "迁出"
     "DEAD" -> "死亡"
     else -> status
+}
+
+/** 状态徽标：在册给绿色，迁出/死亡给中性或红色——一眼能看出这个人还算不算在册数里 */
+@Composable
+private fun statusTag(status: String): Pair<String, androidx.compose.ui.graphics.Color> {
+    val tokens = AppTheme.tokens
+    return when (status) {
+        "NORMAL", "MOVED_IN" -> "在册" to tokens.green
+        "DEAD" -> "已死亡" to tokens.red
+        else -> "已迁出" to tokens.ink3
+    }
 }

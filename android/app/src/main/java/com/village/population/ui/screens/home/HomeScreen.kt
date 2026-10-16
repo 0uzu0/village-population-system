@@ -1,7 +1,9 @@
 package com.village.population.ui.screens.home
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,10 +16,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,18 +35,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.DashboardDto
 import com.village.population.data.remote.dto.PendingSummaryDto
 import com.village.population.data.remote.dto.QuickGroupDto
-import com.village.population.data.repository.MetaRepository
 import com.village.population.data.remote.dto.TagDto
 import com.village.population.data.repository.FocusGroupQuery
+import com.village.population.data.repository.MetaRepository
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.ErrorBox
+import com.village.population.ui.components.GrowRow
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.StatCard
+import com.village.population.ui.components.StatTone
+import com.village.population.ui.components.clickableNoRipple
+import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.navigation.Routes
+import com.village.population.ui.theme.AppTheme
+import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
-import android.widget.Toast
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,29 +131,33 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             return@Column
         }
 
+        val tokens = AppTheme.tokens
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(14.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             item {
                 Text(
                     "你好，${user?.displayName ?: "网格员"}",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = tokens.ink,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
+                // 口径说明常驻在首屏顶部：这套数字要拿去开会、填报表，
+                // 什么算进来、什么不算，必须跟数字一起出现，不能藏在帮助页里
                 Text(
                     "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；各人群之间存在交叉，不可相加。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = tokens.ink3,
                 )
             }
 
             if (state.fromCache) {
                 item {
                     OfflineBanner(
-                        "当前显示的是本地缓存数据（${com.village.population.util.DateText.describeAge(state.savedAt)}），" +
+                        "当前显示的是本地缓存数据（${DateText.describeAge(state.savedAt)}），" +
                             "只可作为参考，上报口径请以联网结果为准。"
                     )
                 }
@@ -156,14 +166,14 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             // 快捷动作：移动端真正高频的三件事
             item {
                 SectionCard(title = "快捷操作") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        QuickAction("上门登记", Icons.Filled.PersonAdd, Modifier.weight(1f)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QuickActionTile("上门登记", Icons.Filled.PersonAdd, Modifier.weight(1f)) {
                             onNavigate(Routes.personEdit(0))
                         }
-                        QuickAction("拍照留痕", Icons.Filled.PhotoCamera, Modifier.weight(1f)) {
+                        QuickActionTile("拍照留痕", Icons.Filled.PhotoCamera, Modifier.weight(1f)) {
                             onNavigate(Routes.capture())
                         }
-                        QuickAction("台账速记", Icons.AutoMirrored.Filled.Assignment, Modifier.weight(1f)) {
+                        QuickActionTile("台账速记", Icons.AutoMirrored.Filled.Assignment, Modifier.weight(1f)) {
                             onNavigate(Routes.LEDGER)
                         }
                     }
@@ -173,18 +183,18 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             state.dashboard?.let { d ->
                 item {
                     SectionCard(title = "人口概况") {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatCard(
                                 "在册人口", "${d.totalPopulation}",
-                                Modifier.weight(1f), MaterialTheme.colorScheme.primary,
+                                Modifier.weight(1f), StatTone.Primary,
                                 onClick = { onNavigate(Routes.PERSONS) },
                             )
-                            StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
+                            StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), StatTone.Green)
                         }
-                        Spacer(Modifier.height(10.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), MaterialTheme.colorScheme.onSurfaceVariant)
-                            StatCard("常住人口", "${d.residentCount}", Modifier.weight(1f), MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
+                            StatCard("常住人口", "${d.residentCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
                     }
                 }
@@ -194,12 +204,19 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 item {
                     Text(
                         "重点人群",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tokens.ink,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 1.dp),
                     )
                 }
                 items(groups, key = { it.code }) { group ->
-                    QuickGroupRow(group) {
+                    GrowRow(
+                        label = group.label,
+                        count = group.count,
+                        dotColor = parseHexColor(group.color, tokens.brand),
+                        hint = if (group.byAge) "按年龄自动判定，无需打标签" else null,
+                    ) {
                         // 把族群翻译成筛选条件：
                         //  · 年龄类（老年/未成年）按出生日期筛，跟他有没有标签无关；
                         //  · 身份类按标签筛，且必须用 tagCodes（党员 = 正式 + 预备），
@@ -225,21 +242,23 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             state.pending?.let { p ->
                 item {
                     SectionCard(title = "待核查人员") {
-                        Text(
-                            "共 ${p.total} 条待处理",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (p.total > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "共 ${p.total} 条待处理",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (p.total > 0) tokens.amber else tokens.ink2,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            androidx.compose.material3.TextButton(onClick = { onNavigate(Routes.PENDING) }) {
+                                Text("去处理")
+                            }
+                        }
                         Text(
                             "来源：Excel 导入时身份证号为空或非法的记录，需要逐条补齐或忽略。",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = tokens.ink3,
                         )
-                        Spacer(Modifier.height(10.dp))
-                        androidx.compose.material3.TextButton(onClick = { onNavigate(Routes.PENDING) }) {
-                            Text("去处理")
-                        }
                     }
                 }
             }
@@ -249,69 +268,39 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = tokens.ink3,
                     )
                 }
             }
-            item { Spacer(Modifier.height(24.dp)) }
+            item { Spacer(Modifier.height(20.dp)) }
         }
     }
 }
 
+/** 快捷入口，对应设计稿的 `.qa`：品牌极浅底 + 图标 + 文字 */
 @Composable
-private fun QuickGroupRow(group: QuickGroupDto, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(1.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(group.label, style = MaterialTheme.typography.bodyLarge)
-                if (group.byAge) {
-                    Text(
-                        "按年龄自动判定，无需打标签",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                }
-            }
-            Text(
-                "${group.count}",
-                style = MaterialTheme.typography.titleMedium,
-                color = com.village.population.ui.components.parseHexColor(
-                    group.color,
-                    MaterialTheme.colorScheme.primary,
-                ),
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuickAction(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = modifier,
+private fun QuickActionTile(
+    label: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tokens = AppTheme.tokens
+    Surface(
+        color = tokens.brandFaint,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(11.dp),
+        modifier = modifier.clickableNoRipple(true, onClick),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            Modifier.fillMaxWidth().padding(vertical = 13.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            Spacer(Modifier.height(6.dp))
+            Icon(icon, contentDescription = null, tint = tokens.brand)
+            Spacer(Modifier.height(5.dp))
             Text(
                 label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.ink2,
             )
         }
     }

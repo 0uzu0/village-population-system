@@ -1,5 +1,6 @@
 package com.village.population.ui.screens.ledger
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,11 +29,13 @@ import com.village.population.data.remote.dto.LedgerCategoryDto
 import com.village.population.data.remote.dto.LedgerRecordCreateRequest
 import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.SubmitResult
+import com.village.population.ui.components.AppChip
 import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.FormField
 import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
 import com.village.population.ui.components.SectionCard
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,14 +152,28 @@ fun LedgerQuickScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionCard(title = "工作事项") {
-                PickerField(
-                    label = "条口 *",
-                    value = state.categories.firstOrNull { it.code == state.category }?.name.orEmpty(),
-                    options = state.categories.map { PickerOption(it.code, it.name) },
-                    onSelect = { option -> option?.let { vm.onCategory(it.value) } },
-                    searchable = false,
-                )
+            SectionCard(title = "条口与类型") {
+                // 条口用胶囊片而不是下拉弹窗（设计稿画法）：条口只有水利/民政/卫健三个，
+                // 点一下就能选中，弹窗再选一次是白白多一次点击
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.categories.forEach { category ->
+                        AppChip(
+                            text = category.name,
+                            selected = state.category == category.code,
+                            onClick = { vm.onCategory(category.code) },
+                        )
+                    }
+                    if (state.categories.isEmpty()) {
+                        Text(
+                            "条口配置未取到，请检查网络后重进本页",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppTheme.tokens.ink3,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
                 PickerField(
                     label = "工作类型",
@@ -174,17 +191,17 @@ fun LedgerQuickScreen(onBack: () -> Unit) {
                     onValueChange = { v -> vm.onField { it.copy(title = v) } },
                     placeholder = "如：3 组河道打草",
                 )
-                Spacer(Modifier.height(10.dp))
-                FormField(
-                    label = "日期",
-                    value = state.recordDate,
-                    onValueChange = { v -> vm.onField { it.copy(recordDate = v) } },
-                    placeholder = "yyyy-MM-dd",
-                )
             }
 
-            SectionCard(title = "费用") {
+            SectionCard(title = "工作量") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FormField(
+                        label = "发生日期",
+                        value = state.recordDate,
+                        onValueChange = { v -> vm.onField { it.copy(recordDate = v) } },
+                        placeholder = "yyyy-MM-dd",
+                        modifier = Modifier.weight(1f),
+                    )
                     FormField(
                         label = "人工费（元）",
                         value = state.laborCost,
@@ -192,6 +209,9 @@ fun LedgerQuickScreen(onBack: () -> Unit) {
                         keyboardType = KeyboardType.Decimal,
                         modifier = Modifier.weight(1f),
                     )
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FormField(
                         label = "发票金额（元）",
                         value = state.invoiceCost,
@@ -199,18 +219,18 @@ fun LedgerQuickScreen(onBack: () -> Unit) {
                         keyboardType = KeyboardType.Decimal,
                         modifier = Modifier.weight(1f),
                     )
+                    FormField(
+                        label = "发票号",
+                        value = state.invoiceNo,
+                        onValueChange = { v -> vm.onField { it.copy(invoiceNo = v) } },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                Spacer(Modifier.height(10.dp))
-                FormField(
-                    label = "发票号",
-                    value = state.invoiceNo,
-                    onValueChange = { v -> vm.onField { it.copy(invoiceNo = v) } },
-                )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "机械费已从台账字段中去掉（V011），不要再往备注里折算。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = AppTheme.tokens.ink3,
                 )
             }
 
@@ -254,6 +274,7 @@ fun LedgerQuickScreen(onBack: () -> Unit) {
                     }
                 },
                 enabled = !state.saving,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text(if (state.saving) "保存中…" else "保存台账")

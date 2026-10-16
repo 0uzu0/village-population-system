@@ -1,5 +1,6 @@
 package com.village.population.ui.screens.pending
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,26 +10,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -47,16 +48,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.repository.MetaRepository
 import com.village.population.ui.components.EmptyBox
-import com.village.population.ui.components.InfoRow
 import com.village.population.ui.components.ErrorBox
+import com.village.population.ui.components.InfoRow
 import com.village.population.ui.components.LoadingBox
+import com.village.population.ui.components.QCard
+import com.village.population.ui.components.SearchField
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import android.widget.Toast
 
 data class PendingUiState(
     val loading: Boolean = true,
@@ -165,6 +168,7 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
 @Composable
 fun PendingScreen() {
     val context = LocalContext.current
+    val tokens = AppTheme.tokens
     val vm: PendingViewModel = com.village.population.ui.containerViewModel { PendingViewModel(it.metaRepository) }
     val state by vm.state.collectAsStateWithLifecycle()
     // 详情就在本页用弹窗展示：import_pending.id 与 person.id 是两套编号，
@@ -180,34 +184,37 @@ fun PendingScreen() {
 
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
-                    "共 ${state.total} 条待核查",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "这些记录来自 Excel 导入：身份证号为空或非法，无法直接建档。" +
-                        "核对后可「确认入库」（按姓名匹配已有人员）或「忽略」。",
+                    "共 ${state.total} 条待处理 · 来源：导入时身份证号为空或非法，需逐条补齐或忽略。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = tokens.ink3,
                 )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                SearchField(
                     value = state.keyword,
                     onValueChange = vm::onKeyword,
-                    placeholder = { Text("按姓名搜索") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "按姓名搜索",
+                    onSearch = { vm.load() },
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { vm.batchIgnore(toast) },
-                    enabled = state.selected.isNotEmpty() && !state.working,
-                    modifier = Modifier.fillMaxWidth(),
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("批量忽略（已选 ${state.selected.size} 条）")
+                    Text(
+                        if (state.selected.isEmpty()) "未勾选记录" else "已勾选 ${state.selected.size} 条",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.selected.isEmpty()) tokens.ink3 else tokens.brand,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = { vm.batchIgnore(toast) },
+                        enabled = state.selected.isNotEmpty() && !state.working,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    ) { Text("批量忽略", style = MaterialTheme.typography.bodySmall) }
                 }
             }
 
@@ -216,8 +223,8 @@ fun PendingScreen() {
                 state.error != null -> ErrorBox(state.error!!) { vm.load() }
                 state.list.isEmpty() -> EmptyBox("没有待核查记录")
                 else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.list, key = { it.id }) { row ->
                         PendingRow(
@@ -246,7 +253,7 @@ fun PendingScreen() {
 private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(
@@ -259,7 +266,7 @@ private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
                 Text(
                     "该记录尚未进入正式档案，核对后可回到列表「确认」或「忽略」。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = AppTheme.tokens.ink3,
                 )
                 Spacer(Modifier.height(10.dp))
                 InfoRow("姓名", row.name)
@@ -280,7 +287,7 @@ private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
                 InfoRow("导入时间", row.createdAt)
                 Spacer(Modifier.height(6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
+                    TextButton(onClick = onDismiss) { Text("关闭") }
                 }
             }
         }
@@ -295,6 +302,12 @@ private fun reasonLabel(reason: String?): String? = when (reason) {
     else -> reason
 }
 
+/**
+ * 待核查卡片，对应设计稿的 `.qcard`：琥珀左边框 + 姓名 + 原因 + 两个操作。
+ *
+ * 「为什么这条要核查」写在卡片上而不是藏进详情：这一屏通常有几十条，
+ * 逐条点进去看原因才能决定怎么处理，等于把网格员按在屏幕上点几十次。
+ */
 @Composable
 private fun PendingRow(
     row: PendingDto,
@@ -305,48 +318,58 @@ private fun PendingRow(
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
-    Card(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(1.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = checked, onCheckedChange = { onToggle() })
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        row.name ?: "（无姓名）",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        listOfNotNull(
-                            row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
-                            row.village,
-                            row.reason,
-                        ).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+    val tokens = AppTheme.tokens
+    QCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = checked, onCheckedChange = { onToggle() })
+            Column(Modifier.weight(1f)) {
+                Text(
+                    row.name ?: "（无姓名）",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tokens.ink,
+                )
+                Text(
+                    listOfNotNull(
+                        row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
+                        row.village?.takeIf { it.isNotBlank() },
+                        row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason),
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.ink3,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onConfirm, enabled = !working, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("确认")
-                }
-                OutlinedButton(onClick = onIgnore, enabled = !working, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.Cancel, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("忽略")
-                }
-                IconButton(onClick = onOpen) {
-                    Text("详情", style = MaterialTheme.typography.bodyMedium)
-                }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Button(
+                onClick = onConfirm,
+                enabled = !working,
+                shape = RoundedCornerShape(7.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = tokens.brand),
+            ) { Text("确认入库", style = MaterialTheme.typography.bodySmall) }
+            OutlinedButton(
+                onClick = onIgnore,
+                enabled = !working,
+                shape = RoundedCornerShape(7.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+            ) { Text("忽略", style = MaterialTheme.typography.bodySmall) }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onOpen) {
+                Text("详情", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(2.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                )
             }
         }
     }

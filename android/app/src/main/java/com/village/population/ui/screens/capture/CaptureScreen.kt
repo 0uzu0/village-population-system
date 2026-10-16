@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -40,11 +44,18 @@ import com.village.population.data.local.queue.QueuedOp
 import com.village.population.data.repository.FileRepository
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.AppTopBar
+import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.isNetworkProblem
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.launch
 import java.io.File
+
+/** 提示的三种性质：成功 / 降级（已入队） / 失败。分开是因为它们该长的样子完全不同 */
+private enum class CapLevel { OK, WARN, ERROR }
+
+private data class CapMessage(val text: String, val level: CapLevel)
 
 /**
  * 拍照留痕。
@@ -60,11 +71,12 @@ import java.io.File
 fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
     val container = LocalAppContainer.current
     val context = LocalContext.current
+    val tokens = AppTheme.tokens
     val pendingOps by container.queue.size.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var photoFile by remember { mutableStateOf<File?>(null) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<CapMessage?>(null) }
     var uploading by remember { mutableStateOf(false) }
 
     fun newPhotoFile(): File {
@@ -73,7 +85,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
     }
 
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) message = "照片已就绪，可预览后上传"
+        if (ok) message = CapMessage("照片已就绪，可预览后上传", CapLevel.OK)
     }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -86,15 +98,15 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     target.outputStream().use { output -> input.copyTo(output) }
                 }
                 photoFile = target
-                message = "已选择图片，可预览后上传"
-            }.onFailure { message = "读取所选图片失败：${it.message}" }
+                message = CapMessage("已选择图片，可预览后上传", CapLevel.OK)
+            }.onFailure { message = CapMessage("读取所选图片失败：${it.message}", CapLevel.ERROR) }
         }
     }
 
     fun startUpload() {
         val file = photoFile ?: return
         if (!FileRepository.isAllowed(file.name)) {
-            message = "仅支持 PDF / JPG / JPEG / PNG / WEBP"
+            message = CapMessage("仅支持 PDF / JPG / JPEG / PNG / WEBP", CapLevel.ERROR)
             return
         }
         uploading = true
@@ -103,7 +115,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                 container.fileRepository.upload(file, bizType = personId?.let { "PERSON" }, bizId = personId)
                 file.delete()
                 photoFile = null
-                message = "上传成功"
+                message = CapMessage("上传成功", CapLevel.OK)
             } catch (e: Exception) {
                 if (e.isNetworkProblem()) {
                     // 网络问题才入队；业务错误（如权限不足）当场告诉用户，排队重试没意义
@@ -116,9 +128,12 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                         )
                     )
                     photoFile = null
-                    message = "当前无网络，照片已暂存本机（队列 $pendingOps 条），联网后自动上传"
+                    message = CapMessage(
+                        "当前无网络，照片已暂存本机（队列 $pendingOps 条），联网后自动上传",
+                        CapLevel.WARN,
+                    )
                 } else {
-                    message = e.toUserMessage()
+                    message = CapMessage(e.toUserMessage(), CapLevel.ERROR)
                 }
             } finally {
                 uploading = false
@@ -128,12 +143,40 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
 
     Scaffold(topBar = { AppTopBar(title = "拍照留痕", onBack = onBack) }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             SectionCard(title = "拍摄 / 选择照片") {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Filled.PhotoCamera,
+                        contentDescription = null,
+                        tint = tokens.brand,
+                        modifier = Modifier.size(38.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "拍照或从相册选择",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.ink,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "不需要申请相机与存储权限\n照片经系统相机 / 文件选择器授权写入",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.ink3,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
+                    Button(
                         onClick = {
                             val file = newPhotoFile()
                             photoFile = file
@@ -144,6 +187,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                             )
                             takePicture.launch(uri)
                         },
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f).height(48.dp),
                     ) {
                         Icon(Icons.Filled.PhotoCamera, contentDescription = null)
@@ -151,6 +195,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     }
                     OutlinedButton(
                         onClick = { pickImage.launch("image/*") },
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f).height(48.dp),
                     ) {
                         Icon(Icons.Filled.Image, contentDescription = null)
@@ -162,7 +207,7 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     Text(
                         "将关联到人员 #$personId",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = tokens.ink3,
                     )
                 }
             }
@@ -184,20 +229,35 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     Text(
                         "${file.name}（${file.length() / 1024} KB）",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = tokens.ink3,
                     )
                     Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = ::startUpload,
                         enabled = !uploading,
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                     ) { Text(if (uploading) "上传中…" else "上传") }
                 }
             }
 
-            message?.let {
-                Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.secondary)
+            // 结果提示按性质换样子：失败必须是红的，入队要跟「缓存数据」用同一种琥珀横幅，
+            // 全用绿色会让「上传失败」看起来也像成功了
+            message?.let { m ->
+                when (m.level) {
+                    CapLevel.WARN -> OfflineBanner(m.text)
+                    CapLevel.OK -> Text(m.text, style = MaterialTheme.typography.bodyLarge, color = tokens.green)
+                    CapLevel.ERROR -> Text(
+                        m.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
+
+            OfflineBanner(
+                "上传失败（通常是没信号）时会自动暂存，本地文件保留，联网后自动重传。"
+            )
 
             if (pendingOps > 0) {
                 SectionCard(title = "待同步") {
@@ -209,8 +269,9 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     OutlinedButton(
                         onClick = {
                             container.syncManager.requestSync()
-                            message = "已请求同步，请稍后查看「我的 → 离线数据」"
+                            message = CapMessage("已请求同步，请稍后查看「我的 → 待同步记录」", CapLevel.OK)
                         },
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("立即同步") }
                 }

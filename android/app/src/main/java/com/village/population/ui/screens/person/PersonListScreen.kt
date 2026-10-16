@@ -1,9 +1,12 @@
 package com.village.population.ui.screens.person
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,25 +14,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -50,16 +47,21 @@ import com.village.population.data.remote.dto.PersonDto
 import com.village.population.data.remote.dto.VillageDto
 import com.village.population.data.repository.PersonQuery
 import com.village.population.data.repository.PersonRepository
-import com.village.population.data.repository.hasMore
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.PendingFilter
+import com.village.population.ui.components.AppChip
+import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.DotLabel
 import com.village.population.ui.components.EmptyBox
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
+import com.village.population.ui.components.SearchField
+import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.DateText
+import com.village.population.util.Mask
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -113,6 +115,12 @@ class PersonListViewModel(
 
     fun onVillage(value: String?) {
         _state.update { it.copy(query = it.query.copy(village = value, page = 1)) }
+        load()
+    }
+
+    /** 只清掉「重点人群」这一路筛选，保留用户自己输的搜索词与村庄 */
+    fun clearFocusFilter() {
+        _state.update { it.copy(query = it.query.copy(tagIds = emptyList(), minAge = null, maxAge = null, page = 1), filterLabel = null) }
         load()
     }
 
@@ -172,6 +180,7 @@ fun PersonListScreen(
     onCreatePerson: () -> Unit,
 ) {
     val container = LocalAppContainer.current
+    val tokens = AppTheme.tokens
     val vm: PersonListViewModel = com.village.population.ui.containerViewModel {
         PersonListViewModel(it.personRepository, it.metaRepository)
     }
@@ -186,85 +195,78 @@ fun PersonListScreen(
     }
 
     Scaffold(
+        topBar = {
+            AppTopBar(
+                title = "人口查询",
+                actions = {
+                    // 总数放在标题栏右侧（设计稿的 `.bar .rt`）：
+                    // 放在内容区会跟着列表一起滚走，而「筛选后到底有多少人」是要随时能看见的
+                    Text(
+                        "共 ${state.total} 人",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(end = 16.dp),
+                    )
+                },
+            )
+        },
         floatingActionButton = {
+            // 品牌底 + 白字（设计稿的 `.fab`）；Material 默认用的是 primaryContainer，
+            // 浅蓝底上放浅蓝字，在户外的强光下几乎看不见
             ExtendedFloatingActionButton(
                 onClick = onCreatePerson,
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("上门登记") },
+                text = { Text("新增") },
+                containerColor = tokens.brand,
+                contentColor = androidx.compose.ui.graphics.Color.White,
             )
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                OutlinedTextField(
-                    value = state.query.keyword,
-                    onValueChange = vm::onKeyword,
-                    placeholder = { Text("姓名 / 身份证号 / 手机号") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (state.query.keyword.isNotEmpty()) {
-                            IconButton(onClick = { vm.onKeyword(""); vm.search() }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "清空")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { vm.search() }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FilterChip(
-                        selected = state.query.activeOnly,
-                        onClick = { vm.toggleActiveOnly() },
-                        label = { Text("仅看在册") },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    FilterChip(
-                        selected = state.query.village != null,
-                        onClick = { villagePickerOpen = true },
-                        label = {
-                            Text(
-                                state.query.village?.take(6) ?: "按村庄",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (state.query.hasFilter) {
-                        androidx.compose.material3.TextButton(onClick = vm::clearFilters) { Text("重置") }
-                    }
-                }
-                // 筛完必须让人**看得见筛了什么**：从「低保对象 62 人」点进来却只看到
-                // 「共 62 人」，使用者会怀疑是漏了人，而不是意识到当前是筛选结果
-                state.filterLabel?.let { label ->
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(
-                            selected = true,
-                            onClick = vm::clearFilters,
-                            label = { Text("重点人群：$label") },
-                            trailingIcon = {
-                                Icon(
-                                    Icons.Filled.Clear,
-                                    contentDescription = "取消该筛选",
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
-                        )
-                    }
-                }
-                Text(
-                    "共 ${state.total} 人" + (state.filterLabel?.let { "（已按「$it」筛选）" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(6.dp))
+            Column(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // 缓存横幅放在最上面（设计稿位置）：它是在说「下面这一屏数据别太当真」，
+                // 得先看到它再看数字，压在列表下面就成了马后炮
                 if (state.fromCache) {
                     OfflineBanner("离线数据（${DateText.describeAge(state.savedAt)}），联网后会自动刷新")
-                    Spacer(Modifier.height(6.dp))
+                }
+
+                SearchField(
+                    value = state.query.keyword,
+                    onValueChange = vm::onKeyword,
+                    placeholder = "搜姓名 / 身份证号 / 手机号",
+                    onSearch = { vm.search() },
+                )
+
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AppChip(
+                        text = "仅看在册",
+                        selected = state.query.activeOnly,
+                        onClick = { vm.toggleActiveOnly() },
+                    )
+                    AppChip(
+                        text = state.query.village?.take(6) ?: "按村庄",
+                        selected = state.query.village != null,
+                        onClick = { villagePickerOpen = true },
+                    )
+                    // 筛完必须让人**看得见筛了什么**：从「低保对象 62 人」点进来却只看到
+                    // 「共 62 人」，使用者会怀疑是漏了人，而不是意识到当前是筛选结果
+                    state.filterLabel?.let { label ->
+                        AppChip(
+                            text = "重点人群：$label",
+                            selected = true,
+                            onClick = { vm.clearFocusFilter() },
+                            trailingIcon = Icons.Filled.Clear,
+                        )
+                    }
+                    if (state.query.activeOnly || state.query.village != null) {
+                        AppChip(text = "重置", selected = false, onClick = { vm.clearFilters() })
+                    }
                 }
             }
 
@@ -273,8 +275,8 @@ fun PersonListScreen(
                 state.error != null -> ErrorBox(state.error!!) { vm.load() }
                 state.list.isEmpty() -> EmptyBox("没有符合条件的在册人员")
                 else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.list, key = { it.id }) { person ->
                         PersonRow(person) { onOpenPerson(person.id) }
@@ -286,7 +288,7 @@ fun PersonListScreen(
                                 Text(
                                     if (state.loadingMore) "加载中…" else "上拉加载更多",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = tokens.ink3,
                                 )
                             }
                         }
@@ -296,7 +298,7 @@ fun PersonListScreen(
                                 Text(
                                     "已显示全部 ${state.total} 人",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = tokens.ink3,
                                 )
                             }
                         }
@@ -333,11 +335,12 @@ private fun VillageChooserDialog(
     onSelect: (String?) -> Unit,
 ) {
     var keyword by remember { mutableStateOf("") }
+    val tokens = AppTheme.tokens
     val filtered = remember(keyword, villages) {
         if (keyword.isBlank()) villages else villages.filter { it.name.contains(keyword, ignoreCase = true) }
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        androidx.compose.material3.Surface(
+        Surface(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
         ) {
@@ -350,6 +353,7 @@ private fun VillageChooserDialog(
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     placeholder = { Text("搜索村名") },
                     singleLine = true,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -371,7 +375,7 @@ private fun VillageChooserDialog(
                             Text(
                                 "${village.personCount} 人",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = tokens.ink2,
                             )
                         }
                     }
@@ -386,52 +390,62 @@ private fun VillageChooserDialog(
     }
 }
 
+/**
+ * 人员行，对应设计稿的 `.pitem`：
+ * 第一行「姓名 + 性别年龄」、第二行「脱敏证件号 · 村庄」、第三行标签。
+ *
+ * 第二行放脱敏证件号而不是网格/住址：现场核人靠的是「年纪 + 尾号」，
+ * 证件号能对上就基本确认是同一个人；住址那一列在村里几乎都是同一个村名，没有区分度。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(1.dp),
-        modifier = Modifier.fillMaxWidth(),
+    val tokens = AppTheme.tokens
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(11.dp),
+        modifier = Modifier.fillMaxWidth().clickableNoRipple(true, onClick),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     person.name,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                    color = tokens.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                Text(
-                    "${if (person.gender == "FEMALE") "女" else "男"} · ${person.age ?: DateText.ageOf(person.birthDate) ?: "?"} 岁",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Spacer(Modifier.width(7.dp))
+                DotLabel(
+                    "${if (person.gender == "FEMALE") "女" else "男"} · " +
+                        "${person.age ?: DateText.ageOf(person.birthDate) ?: "?"} 岁",
+                    tokens.ink2,
                 )
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 listOfNotNull(
+                    Mask.idCard(person.idCard).takeIf { it.isNotBlank() },
                     person.village?.takeIf { it.isNotBlank() },
-                    person.gridName?.takeIf { it.isNotBlank() },
-                    person.liveAddress?.takeIf { it.isNotBlank() },
                 ).joinToString(" · ").ifBlank { "—" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.ink3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (person.tags.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     person.tags.take(4).forEach { tag ->
-                        DotLabel(
-                            tag.name,
-                            parseHexColor(tag.color, MaterialTheme.colorScheme.primary),
-                        )
+                        DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
                     }
                     if (person.tags.size > 4) {
-                        DotLabel("+${person.tags.size - 4}", MaterialTheme.colorScheme.outline)
+                        DotLabel("+${person.tags.size - 4}", tokens.ink3)
                     }
                 }
             }

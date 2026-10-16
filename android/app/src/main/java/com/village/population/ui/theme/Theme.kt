@@ -1,72 +1,173 @@
 package com.village.population.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 主色沿用 PC 端的品牌蓝（frontend/src/styles/tokens.css 的 --color-primary #3978F6），
-// 但刻意调深一档：#3978F6 上放白字对比度只有 3.5:1，达不到 WCAG AA 的 4.5:1；
-// 手机多在户外强光下看，按钮上的字必须更实。色相不变，两端仍然是同一个品牌色。
-private val BrandBlue = Color(0xFF1D6FE0)
-private val BrandBlueDark = Color(0xFF8FB8F5)
-private val Green = Color(0xFF12A150)
-private val Amber = Color(0xFFE08A00)
-private val Red = Color(0xFFD93025)
-
-private val LightColors = lightColorScheme(
-    primary = BrandBlue,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCE8FF),
-    onPrimaryContainer = Color(0xFF0A2A5E),
-    secondary = Green,
-    onSecondary = Color.White,
-    tertiary = Amber,
-    background = Color(0xFFF4F6FA),
-    onBackground = Color(0xFF1B1F26),
-    surface = Color.White,
-    onSurface = Color(0xFF1B1F26),
-    surfaceVariant = Color(0xFFEDF1F7),
-    onSurfaceVariant = Color(0xFF4A5260),
-    outline = Color(0xFFC6CDD8),
-    error = Red,
-    onError = Color.White,
+/**
+ * 设计令牌（design tokens）。
+ *
+ * 色值**逐项对齐** `docs/移动端设计说明.html` 的 `:root` 变量，不是另取一套。
+ * 为什么不用 Material 的 `colorScheme` 直接表达：设计稿里有若干「同一个色相、不同用途」
+ * 的档位（品牌正色 / 深色 / 浅底 / 极浅底，墨色三级，线条两级），Material 的
+ * `primary/primaryContainer/surfaceVariant` 装不下这么多档，硬塞会把语义扯乱
+ * （典型后果就是「提示用 outline 当文字色」——outline 是描边色，拿它写字只有 1.6:1 对比度）。
+ *
+ * 两端保持一致的方式是 `AppTokensTest`：它把这份色值跟设计说明 HTML 里的
+ * `--brand: #1D6FE0;` 逐条比对。改了设计稿而没改这里，测试会红。
+ */
+@Immutable
+data class AppTokens(
+    /** 品牌正色：顶栏底、主按钮底、选中态 */
+    val brand: Color,
+    /** 品牌深色：浅底之上的文字（如品牌浅底标签里的字） */
+    val brandStrong: Color,
+    /** 品牌浅底：标签底、导航选中指示 */
+    val brandLight: Color,
+    /** 品牌极浅底：指标块与快捷入口的底色 */
+    val brandFaint: Color,
+    /** 一级墨色：正文 */
+    val ink: Color,
+    /** 二级墨色：次要文字、字段名 */
+    val ink2: Color,
+    /** 三级墨色：说明文字、时间戳 */
+    val ink3: Color,
+    /** 描边色 */
+    val line: Color,
+    /** 更浅的分隔线 */
+    val line2: Color,
+    /** 页面底色 */
+    val bg: Color,
+    /** 「安静」档指标块底色（户籍/常住这类非重点数字） */
+    val quiet: Color,
+    val green: Color,
+    val greenBg: Color,
+    val amber: Color,
+    val amberBg: Color,
+    /** 琥珀横幅的描边，比 amberBg 深一档 */
+    val amberLine: Color,
+    val red: Color,
+    val redBg: Color,
 )
 
-private val DarkColors = darkColorScheme(
-    primary = BrandBlueDark,
-    onPrimary = Color(0xFF0A2A5E),
-    primaryContainer = Color(0xFF1B3E75),
-    onPrimaryContainer = Color(0xFFDCE8FF),
-    secondary = Color(0xFF6FD39A),
-    onSecondary = Color(0xFF06301A),
-    tertiary = Color(0xFFF2B34C),
-    background = Color(0xFF12161C),
-    onBackground = Color(0xFFE6EAF0),
-    surface = Color(0xFF1A1F27),
-    onSurface = Color(0xFFE6EAF0),
-    surfaceVariant = Color(0xFF262C36),
-    onSurfaceVariant = Color(0xFFB6BFCB),
-    outline = Color(0xFF3C4450),
-    error = Color(0xFFFF8A80),
-    onError = Color(0xFF3B0907),
+/** 设计稿 `:root` 的浅色档，逐值对应 */
+val LightTokens = AppTokens(
+    brand = Color(0xFF1D6FE0),
+    brandStrong = Color(0xFF1557B0),
+    brandLight = Color(0xFFEAF1FE),
+    brandFaint = Color(0xFFF5F8FE),
+    ink = Color(0xFF1B1F26),
+    ink2 = Color(0xFF4A5260),
+    ink3 = Color(0xFF7A8494),
+    line = Color(0xFFE2E7EF),
+    line2 = Color(0xFFEDF1F7),
+    bg = Color(0xFFF4F6FA),
+    quiet = Color(0xFFF8FAFD),
+    green = Color(0xFF12A150),
+    greenBg = Color(0xFFE8F7EE),
+    amber = Color(0xFFB26B00),
+    amberBg = Color(0xFFFDF3E3),
+    amberLine = Color(0xFFF0DDB8),
+    red = Color(0xFFC0261B),
+    redBg = Color(0xFFFDECEA),
 )
+
+/**
+ * 深色档。设计稿只画了浅色，这一组是**派生**的：色相不动，
+ * 亮底压暗、暗底提亮，保证夜间在村里走巷子时屏幕不刺眼、字又看得清。
+ */
+val DarkTokens = AppTokens(
+    brand = Color(0xFF6FA8F5),
+    brandStrong = Color(0xFFA8C9F7),
+    brandLight = Color(0xFF1E2C42),
+    brandFaint = Color(0xFF1C232D),
+    ink = Color(0xFFE6EAF0),
+    ink2 = Color(0xFFB6BFCB),
+    ink3 = Color(0xFF8B94A3),
+    line = Color(0xFF2C3441),
+    line2 = Color(0xFF242B35),
+    bg = Color(0xFF12161C),
+    quiet = Color(0xFF1B212A),
+    green = Color(0xFF6FD39A),
+    greenBg = Color(0xFF14301F),
+    amber = Color(0xFFF2B34C),
+    amberBg = Color(0xFF38290F),
+    amberLine = Color(0xFF5A431A),
+    red = Color(0xFFFF8A80),
+    redBg = Color(0xFF3B1412),
+)
+
+private val LocalTokens = staticCompositionLocalOf { LightTokens }
+
+/** 取设计令牌：`AppTheme.tokens.brand`。比 `MaterialTheme.colorScheme` 更贴近设计稿 */
+object AppTheme {
+    val tokens: AppTokens
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalTokens.current
+}
+
+/**
+ * colorScheme 由令牌**派生**，不另写一套色值。
+ * 这样「改令牌」与「改组件配色」是同一个动作，不会出现两边色号对不上的情况。
+ */
+private fun schemeFrom(t: AppTokens, dark: Boolean): ColorScheme {
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    val cardSurface = if (dark) Color(0xFF1A1F27) else Color.White
+    val onBrand = if (dark) Color(0xFF08192E) else Color.White
+    return base.copy(
+        primary = t.brand,
+        onPrimary = onBrand,
+        primaryContainer = t.brandLight,
+        onPrimaryContainer = t.brandStrong,
+        secondary = t.green,
+        onSecondary = if (dark) Color(0xFF06301A) else Color.White,
+        secondaryContainer = t.greenBg,
+        onSecondaryContainer = t.green,
+        tertiary = t.amber,
+        onTertiary = if (dark) Color(0xFF2A1C00) else Color.White,
+        tertiaryContainer = t.amberBg,
+        onTertiaryContainer = t.amber,
+        background = t.bg,
+        onBackground = t.ink,
+        surface = cardSurface,
+        onSurface = t.ink,
+        surfaceVariant = t.line2,
+        onSurfaceVariant = t.ink2,
+        outline = t.line,
+        outlineVariant = t.line2,
+        error = t.red,
+        onError = if (dark) Color(0xFF3B0907) else Color.White,
+        errorContainer = t.redBg,
+        onErrorContainer = t.red,
+        surfaceTint = t.brand,
+    )
+}
 
 /**
  * 字号整体比 Material 默认大一号。
  * 使用者是村干部和网格员，相当一部分人戴老花镜——把「看起来精致」让位给「看得清」，
  * 是本应用在排版上唯一的一条硬规则。
+ * 设计稿标注的字号是「手机屏幕上的视觉参考」，这里只借用它的**层级关系**，
+ * 绝对字号按下表往上抬一档。
  */
 private val AppTypography = androidx.compose.material3.Typography(
     titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, lineHeight = 30.sp),
     titleMedium = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium, lineHeight = 26.sp),
     bodyLarge = TextStyle(fontSize = 17.sp, lineHeight = 25.sp),
     bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
+    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 19.sp),
     labelLarge = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
 )
 
@@ -75,9 +176,12 @@ fun VillageTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = AppTypography,
-        content = content,
-    )
+    val tokens = if (darkTheme) DarkTokens else LightTokens
+    CompositionLocalProvider(LocalTokens provides tokens) {
+        MaterialTheme(
+            colorScheme = schemeFrom(tokens, darkTheme),
+            typography = AppTypography,
+            content = content,
+        )
+    }
 }
