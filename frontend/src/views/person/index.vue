@@ -38,9 +38,6 @@
           <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
         <el-checkbox v-model="activeOnly" style="margin-left: 4px" @change="doSearch">只看在册</el-checkbox>
-        <el-select v-model="query.tagIds" placeholder="标签（并集）" clearable multiple filterable collapse-tags style="width: 200px" @change="doSearch">
-          <el-option v-for="t in commonTags" :key="t.id" :label="t.name" :value="t.id" />
-        </el-select>
         <el-button type="primary" @click="doSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
       </div>
@@ -159,9 +156,18 @@
     </div>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑人员' : '新增人员'" width="720px" top="6vh">
+    <!--
+      destroy-on-close：关闭即销毁弹窗内的组件实例与 DOM。
+      不开的话每次关闭只是隐藏，几十个表单组件（含几百个家庭 option）连同它们的
+      watcher 常驻内存，反复开关会越堆越多，最终把主线程拖垮、点侧边栏跳转卡死。
+
+      tab 加 lazy：三个页签共约 40 个表单控件，默认会一次性全部渲染，
+      首次点「新增人员」要现建这么多组件，所以刷新后第一次打开特别卡。
+      懒加载后只渲染当前页签，首次打开只需建「基本信息」这一屏。
+    -->
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑人员' : '新增人员'" width="720px" top="6vh" destroy-on-close>
       <el-tabs v-model="formTab" class="form-tabs">
-        <el-tab-pane label="基本信息" name="basic">
+        <el-tab-pane label="基本信息" name="basic" lazy>
           <el-form :model="form" label-width="100px">
             <el-row :gutter="16">
               <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="form.name" /></el-form-item></el-col>
@@ -190,17 +196,49 @@
               <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="备用手机号"><el-input v-model="form.phoneBackup" placeholder="家属/第二联系人" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
-              <el-col :span="12"><el-form-item label="所属家庭"><el-select v-model="form.familyId" filterable clearable style="width: 100%"><el-option v-for="f in options.families" :key="f.id" :label="f.family_no" :value="f.id" /></el-select></el-form-item></el-col>
+              <!--
+                家庭下拉用 el-select-v2（虚拟滚动）而不是 el-select：
+                /persons/meta/options 返回的是全量家庭（无分页），一个村几百户时
+                el-select 会真的渲染几百个 el-option 节点，是弹窗卡顿的大头之一。
+                v2 只渲染可视区的十几条，数据量再大也是常数开销。
+              -->
+              <el-col :span="12">
+                <el-form-item label="所属家庭">
+                  <el-select-v2
+                    v-model="form.familyId"
+                    :options="familyOptions"
+                    filterable
+                    clearable
+                    style="width: 100%"
+                    placeholder="输入户号搜索"
+                  />
+                </el-form-item>
+              </el-col>
               <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="所属村庄"><el-input v-model="form.village" /></el-form-item></el-col>
               <el-col :span="24"><el-form-item label="户籍地址"><el-input v-model="form.hukouAddress" /></el-form-item></el-col>
               <el-col :span="24"><el-form-item label="居住地址"><el-input v-model="form.liveAddress" /></el-form-item></el-col>
+              <!-- 建档时就能挂标签，不必先保存再回列表页逐个去「标签」里加 -->
+              <el-col :span="24">
+                <el-form-item label="人口标签">
+                  <el-select-v2
+                    v-model="form.tagIds"
+                    :options="personTagOptions"
+                    multiple
+                    filterable
+                    clearable
+                    collapse-tags
+                    style="width: 100%"
+                    placeholder="可多选；空表示不打标签"
+                  />
+                </el-form-item>
+              </el-col>
               <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
             </el-row>
           </el-form>
         </el-tab-pane>
 
-        <el-tab-pane label="补贴与评估" name="subsidy">
+        <el-tab-pane label="补贴与评估" name="subsidy" lazy>
           <el-form :model="form" label-width="100px">
             <el-row :gutter="16">
               <el-col :span="12"><el-form-item label="银行账号"><el-input v-model="form.bankAccount" placeholder="补贴发放到账账号" /></el-form-item></el-col>
@@ -219,7 +257,7 @@
           </el-form>
         </el-tab-pane>
 
-        <el-tab-pane label="残疾信息" name="disability">
+        <el-tab-pane label="残疾信息" name="disability" lazy>
           <el-form :model="form" label-width="100px">
             <el-row :gutter="16">
               <el-col :span="12"><el-form-item label="残疾类别">
@@ -372,8 +410,6 @@ const {
     gridId: null as number | null,
     village: '',
     status: '',
-    tagIds: [] as number[],
-    tagMode: 'ANY',
     sortBy: '',
     sortOrder: '',
   }),
@@ -383,7 +419,6 @@ const {
     { key: 'gridId', type: 'number' },
     { key: 'village' },
     { key: 'status' },
-    { key: 'tagIds', type: 'numberArray' },
   ],
   extras: { activeOnly: { ref: activeOnly, defaultValue: true } },
 });
@@ -403,6 +438,14 @@ function openBatchStatus() {
 }
 
 const personTags = computed(() => commonTags.value.filter((t: any) => t.object_type === 'PERSON' && t.enabled === 1));
+
+/** el-select-v2 的选项格式：{ label, value }。家庭全量返回，靠虚拟滚动扛住数量 */
+const familyOptions = computed(() =>
+  options.families.map((f: any) => ({ label: f.family_no, value: f.id }))
+);
+const personTagOptions = computed(() =>
+  personTags.value.map((t: any) => ({ label: t.name, value: t.id }))
+);
 
 /* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
 const DEFAULT_COLUMNS = [
@@ -464,6 +507,8 @@ const formTab = ref('basic');
 const emptyForm = () => ({
   id: null, name: '', formerName: '', gender: 'MALE', birthDate: '', idCard: '', phone: '', phoneBackup: '',
   gridId: null, familyId: null, relation: '', village: '', hukouAddress: '', liveAddress: '', remark: '',
+  // 建档/编辑时一并维护的标签 id 列表（后端写入 person_tag）
+  tagIds: [] as number[],
   // 补贴与评估（V008）
   bankAccount: '', subsidyAmount: undefined as number | undefined, familyCondition: '', healthAssessment: '',
   // 残疾档案（V008）：全部为空表示非残疾人，保存时后端会清除档案
@@ -556,6 +601,8 @@ async function openEdit(row: any) {
     idCard: p.idCard || '', phone: p.phone || '', phoneBackup: p.phoneBackup || '',
     gridId: p.gridId, familyId: p.familyId, relation: p.relation,
     village: p.village || '', hukouAddress: p.hukouAddress || '', liveAddress: p.liveAddress || '', remark: p.remark || '',
+    // 详情里的标签回填到多选：列表行不带 tags，这里用的是 detail 接口的结果
+    tagIds: (p.tags || []).map((t: any) => t.id).filter((id: any) => typeof id === 'number'),
     bankAccount: p.bankAccount || '',
     subsidyAmount: p.subsidyAmount ?? undefined,
     familyCondition: p.familyCondition || '', healthAssessment: p.healthAssessment || '',
