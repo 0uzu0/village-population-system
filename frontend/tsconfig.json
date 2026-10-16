@@ -15,7 +15,10 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
+    // 不再写 baseUrl：TS 6.0 起 baseUrl 已弃用（7.0 移除），且它已不再作为模块查找根。
+    // paths 的取值本来就相对本文件所在目录解析，原先 baseUrl 是 "."、写法是 "./src/*"，
+    // 所以删掉它解析结果一字不差。全仓非相对导入只有真实包名（vue/axios/element-plus 等），
+    // 没有任何一处依赖 baseUrl 兜底。
     "paths": {
       "@/*": ["./src/*"]
     },

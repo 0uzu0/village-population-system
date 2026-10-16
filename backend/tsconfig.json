@@ -1,8 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // nodenext 而不是老的 node10（原写法 "Node"）：TS 6.0 起 moduleResolution
+    // "node"/"node10" 已弃用、7.0 将移除。除了清掉弃用告警，node10 还不认
+    // package.json 的 exports 字段，会出现「tsc 过、Node 运行时解析不到」的类型与运行时
+    // 不一致。本包没有 "type" 字段，.ts 仍按 CommonJS 编译，产物与原先逐字节一致。
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": "./src",
