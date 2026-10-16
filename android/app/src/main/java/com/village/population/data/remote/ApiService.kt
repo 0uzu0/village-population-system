@@ -18,6 +18,7 @@ import com.village.population.data.remote.dto.PersonCreateRequest
 import com.village.population.data.remote.dto.PersonDto
 import com.village.population.data.remote.dto.QuickGroupData
 import com.village.population.data.remote.dto.SimpleListData
+import com.village.population.data.remote.dto.TagDto
 import com.village.population.data.remote.dto.UserDto
 import com.village.population.data.remote.dto.VillageDto
 import com.village.population.data.remote.dto.VoidEnvelope
@@ -101,6 +102,21 @@ interface ApiService {
 
     @GET("api/key-groups/quick")
     suspend fun quickGroups(): ApiEnvelope<QuickGroupData>
+
+    // ---------------- 标签 ----------------
+
+    /**
+     * 个人标签定义。移动端只用它把重点人群的 `tagCodes` 解析成 `tagIds`
+     * （人员列表是按 tagIds 筛的），不做标签字典管理——那是电脑端的活。
+     *
+     * 需要 `tag:view` 权限：普通用户角色有这个权限（V002 里只有 user/system/audit 三类被排除），
+     * 但调用方仍要按「可能失败」来处理，失败时不能把整个工作台带崩。
+     */
+    @GET("api/tags/definitions")
+    suspend fun tagDefinitions(
+        @Query("objectType") objectType: String,
+        @Query("pageSize") pageSize: Int = 200,
+    ): ApiEnvelope<PageData<TagDto>>
 
     // ---------------- 统计 ----------------
 

@@ -36,15 +36,21 @@ inline fun <reified VM : ViewModel> containerViewModel(noinline builder: (AppCon
  * minAge=60，跳「低保户」要带上 tagIds=[..]。把这类组合条件塞进 URL 查询串
  * 会迅速失控（十来个可选参数），而这个值是**一次性的**——列表消费掉就该清空，
  * 也正好符合「从详情页返回时不该重新套用筛选」的预期。
+ *
+ * `label` 是人话版的来源说明（如「低保对象」）。列表页要把它显示出来：
+ * 一个被筛过、却看不出被筛过的列表，用户只会以为「怎么少人了」。
  */
-class PersonFilterBus {
-    var pending: PersonQuery? = null
+data class PendingFilter(val query: PersonQuery, val label: String? = null)
 
-    fun post(query: PersonQuery) {
-        pending = query
+class PersonFilterBus {
+    var pending: PendingFilter? = null
+        private set
+
+    fun post(query: PersonQuery, label: String? = null) {
+        pending = PendingFilter(query, label)
     }
 
-    fun consume(): PersonQuery? {
+    fun consume(): PendingFilter? {
         val value = pending
         pending = null
         return value

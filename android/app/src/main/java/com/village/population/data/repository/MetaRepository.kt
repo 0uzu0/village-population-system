@@ -16,6 +16,7 @@ import com.village.population.data.remote.dto.PageData
 import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.remote.dto.PendingSummaryDto
 import com.village.population.data.remote.dto.QuickGroupDto
+import com.village.population.data.remote.dto.TagDto
 import com.village.population.data.remote.dto.VillageDto
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
@@ -69,6 +70,19 @@ class MetaRepository(
     suspend fun villages(keyword: String? = null): Cached<List<VillageDto>> =
         cached("villages:${keyword.orEmpty()}", ListSerializer(VillageDto.serializer())) {
             exec.simpleList { api.villages(keyword?.takeIf { it.isNotBlank() }) }
+        }
+
+    // ---------------- 标签 ----------------
+
+    /**
+     * 个人标签定义。只用于把重点人群的 tagCodes 解析成 tagIds。
+     *
+     * 缓存下来很有必要：走访前在工作台连一次网，到了村里（没信号）点「低保对象」
+     * 仍然能正确地筛出低保名单——否则那个入口就只能干瞪眼。
+     */
+    suspend fun personTags(): Cached<List<TagDto>> =
+        cached("personTags", ListSerializer(TagDto.serializer())) {
+            exec.page { api.tagDefinitions(objectType = "PERSON", pageSize = 200) }.list
         }
 
     // ---------------- 待核查 ----------------

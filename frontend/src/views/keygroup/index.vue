@@ -389,8 +389,8 @@ function isQuickActive(g: any) {
   if (g.byAge) {
     return query.tagIds.length === 0 && (query.minAge ?? null) === (g.minAge ?? null) && (query.maxAge ?? null) === (g.maxAge ?? null);
   }
-  const tag = personTags.value.find((t) => t.code === g.code);
-  return !!tag && query.tagIds.length === 1 && query.tagIds[0] === tag.id;
+  const ids = quickTagIds(g);
+  return ids.length > 0 && ids.length === query.tagIds.length && ids.every((id) => query.tagIds.includes(id));
 }
 
 function removeChip(key: string) {
@@ -506,11 +506,25 @@ function setQuickTag(g: any) {
     query.minAge = g.minAge ?? null;
     query.maxAge = g.maxAge ?? null;
   } else {
-    const tag = personTags.value.find((t) => t.code === g.code);
-    if (!tag) return;
-    query.tagIds = [tag.id];
+    const ids = quickTagIds(g);
+    if (!ids.length) return;
+    query.tagIds = ids;
   }
   doSearch();
+}
+
+/**
+ * 族群 code → 标签 id 列表。
+ *
+ * 必须按 `tagCodes` 解析而不是只看 `code`：「党员」要含预备党员，
+ * 用单个 code 筛选会比卡片上的人数少一截（卡片与工作台都是按 tagCodes 求和的）。
+ * 并集语义，所以 tagMode 固定为 ANY。
+ */
+function quickTagIds(g: any) {
+  const codes: string[] = g.tagCodes?.length ? g.tagCodes : [g.code];
+  return codes
+    .map((c) => personTags.value.find((t: any) => t.code === c)?.id)
+    .filter((id): id is number => typeof id === 'number');
 }
 
 async function doExport() {

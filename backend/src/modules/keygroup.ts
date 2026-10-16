@@ -8,71 +8,66 @@ import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/
 import { formatDate } from '../utils/date';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import { activeSql } from '../utils/personStatus';
-import { FOCUS_GROUPS, focusGroupLabel } from '../utils/focusGroups';
+import { FOCUS_GROUPS, allFocusTagCodes, buildQuickGroups, isAgeGroup } from '../utils/focusGroups';
 import { z } from 'zod';
 import { queryEnum } from '../utils/schema';
 
 const router = Router();
 router.use(authMiddleware);
 
-
 /**
- * 重点人群快捷入口定义。
+ * 重点人群快捷入口。
  * - 身份类（党员/退役军人…）按标签编码统计，需先通过名单导入或手工打标签
  * - 年龄类（老年人/未成年人）按年龄自动判定，无需打标签即可统计
  *
- * 定义统一取自 utils/focusGroups.ts（唯一来源），这里只是投影成接口返回结构。
- * `code` 是对外契约：身份类等于真实 tag_definition.code，前端据此匹配标签做筛选。
+ * 定义统一取自 utils/focusGroups.ts（唯一来源），这里只负责查数，
+ * 投影成接口返回结构交给 buildQuickGroups。
+ *
+ * `tagCodes` 会随响应一起返回：客户端点卡片下钻到人员列表时，必须按这些编码
+ * 去解析标签 id 才能筛对（「党员」= 正式 + 预备，只按 code 筛会漏人）。
  */
-const QUICK_GROUPS = FOCUS_GROUPS.map((g) => ({
-  label: focusGroupLabel(g),
-  code: g.code,
-  minAge: g.minAge,
-  maxAge: g.maxAge,
-}));
+const FOCUS_TAG_CODES = allFocusTagCodes();
 
 /** 快捷入口统计（身份类按标签人数，年龄类按出生日期推算，均存在交叉、不可相加） */
 router.get('/quick', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
   // 与 /query 同口径：只统计在册人员，已死亡/迁出的不再计入重点人群服务名单
-  const tagRows = await query<any>(
-    `SELECT td.code, td.name, td.color,
-       (SELECT COUNT(*) FROM person_tag pt
-          JOIN person p2 ON p2.id = pt.person_id
-        WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
-          AND ${activeSql('p2')}) AS cnt
-     FROM tag_definition td
-     WHERE td.code IN (${QUICK_GROUPS.map(() => '?').join(',')})`,
-    QUICK_GROUPS.map((g) => g.code)
-  );
-  const tagMap = new Map(tagRows.map((r: any) => [r.code, r]));
+  //
+  // ⚠️ 查的是 **tagCodes**（不是族群 code）：此前按族群 code 查，「党员」只统计到
+  // 正式党员，与工作台卡片 / 网格村庄表格（都按 tagCodes 求和）的数字对不上——
+  // 同一个「党员」在两个页面是两个数，用户只会当成系统坏了。
+  const tagRows = FOCUS_TAG_CODES.length
+    ? await query<any>(
+        `SELECT td.code, td.color,
+           (SELECT COUNT(*) FROM person_tag pt
+              JOIN person p2 ON p2.id = pt.person_id
+            WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
+              AND ${activeSql('p2')}) AS cnt
+         FROM tag_definition td
+         WHERE td.code IN (${FOCUS_TAG_CODES.map(() => '?').join(',')})`,
+        FOCUS_TAG_CODES
+      )
+    : [];
 
-  const list: any[] = [];
-  for (const g of QUICK_GROUPS) {
-    const r = tagMap.get(g.code);
-    const isAgeGroup = g.minAge != null || g.maxAge != null;
-    let count = 0;
-    if (isAgeGroup) {
-      // 年龄类：直接按出生日期推算，不依赖是否打过标签
-      const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
-      const row = await queryOne<any>(
-        `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND ${activeSql('p')}`,
-        af.params
-      );
-      count = Number(row?.cnt || 0);
-    } else {
-      count = r ? Number(r.cnt) : 0;
-    }
-    list.push({
-      label: g.label,
-      code: g.code,
-      count,
-      color: r ? r.color : '#3978F6',
-      // 前端据此决定是「按标签筛」还是「按年龄筛」
-      byAge: isAgeGroup,
-      minAge: g.minAge ?? null,
-      maxAge: g.maxAge ?? null,
-    });
+  const tagCounts: Record<string, number> = {};
+  const tagColors: Record<string, string> = {};
+  for (const r of tagRows) {
+    tagCounts[r.code] = Number(r.cnt || 0);
+    tagColors[r.code] = r.color;
   }
+
+  // 年龄类：直接按出生日期推算，不依赖是否打过标签
+  const ageCounts: Record<string, number> = {};
+  for (const g of FOCUS_GROUPS) {
+    if (!isAgeGroup(g)) continue;
+    const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
+    const row = await queryOne<any>(
+      `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND ${activeSql('p')}`,
+      af.params
+    );
+    ageCounts[g.code] = Number(row?.cnt || 0);
+  }
+
+  const list = buildQuickGroups({ tagCounts, tagColors, ageCounts });
   return ok(res, {
     list,
     note: `口径：仅统计在册人员（正常/迁入），已迁出、已死亡的不计入；各人群人数存在交叉，不可简单相加；老年人按 ${ELDERLY_MIN_AGE} 周岁及以上、未成年人按 ${MINOR_MAX_AGE + 1} 周岁以下自动判定，无需打标签`,

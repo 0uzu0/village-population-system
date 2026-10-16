@@ -121,3 +121,58 @@ export function allFocusTagCodes(): string[] {
   for (const g of FOCUS_GROUPS) for (const c of g.tagCodes) set.add(c);
   return [...set];
 }
+
+/** 快捷入口（GET /key-groups/quick）返回给客户端的单条 */
+export interface QuickGroupVo {
+  label: string;
+  code: string;
+  /**
+   * 构成该族群的标签编码（命中任一即计入）。
+   *
+   * ⚠️ 这是**客户端下钻筛选的依据**：`code` 只是族群编码，拿它去匹配标签会漏人
+   * （「党员」的 code 是 PARTY_MEMBER，但这个人群还要算上预备党员）。
+   * 因此接口必须把它带出去，前端不能再靠自己猜。
+   */
+  tagCodes: string[];
+  count: number;
+  color: string;
+  /** true 表示按年龄判定（筛 minAge/maxAge），false 表示按标签筛 */
+  byAge: boolean;
+  minAge: number | null;
+  maxAge: number | null;
+}
+
+export interface QuickGroupCounts {
+  /** 标签编码 → 在册人数 */
+  tagCounts: Record<string, number>;
+  /** 标签编码 → 颜色 */
+  tagColors: Record<string, string>;
+  /** 年龄类族群 code → 人数（按出生日期推算，与标签无关） */
+  ageCounts?: Record<string, number>;
+}
+
+/**
+ * 把「各标签人数 / 各年龄组人数」投影成快捷入口列表。
+ *
+ * 抽成纯函数是为了能直接测「人数与筛选口径是否一致」——这是本模块最容易
+ * 出错也最难发现的地方：族群人数由 `tagCodes` 求和（与工作台卡片同一算法），
+ * 客户端拿 `tagCodes` 去筛，两边才对得上。
+ */
+export function buildQuickGroups(counts: QuickGroupCounts): QuickGroupVo[] {
+  return FOCUS_GROUPS.map((g) => {
+    const byAge = isAgeGroup(g);
+    return {
+      label: focusGroupLabel(g),
+      code: g.code,
+      tagCodes: g.tagCodes,
+      count: byAge
+        ? counts.ageCounts?.[g.code] ?? 0
+        : g.tagCodes.reduce((sum, c) => sum + (counts.tagCounts[c] ?? 0), 0),
+      // 颜色取族群主标签（身份类的 code 一定在自己的 tagCodes 里）
+      color: counts.tagColors[g.code] ?? '#3978F6',
+      byAge,
+      minAge: g.minAge ?? null,
+      maxAge: g.maxAge ?? null,
+    };
+  });
+}

@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -34,7 +35,8 @@ import com.village.population.data.remote.dto.DashboardDto
 import com.village.population.data.remote.dto.PendingSummaryDto
 import com.village.population.data.remote.dto.QuickGroupDto
 import com.village.population.data.repository.MetaRepository
-import com.village.population.data.repository.PersonQuery
+import com.village.population.data.remote.dto.TagDto
+import com.village.population.data.repository.FocusGroupQuery
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.LoadingBox
@@ -43,6 +45,7 @@ import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.StatCard
 import com.village.population.ui.navigation.Routes
 import com.village.population.util.toUserMessage
+import android.widget.Toast
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +59,8 @@ data class HomeUiState(
     val dashboard: DashboardDto? = null,
     val groups: List<QuickGroupDto> = emptyList(),
     val pending: PendingSummaryDto? = null,
+    /** 标签字典，用来把重点人群的 tagCodes 翻译成 tagIds。取不到就是空表 */
+    val tags: List<TagDto> = emptyList(),
     val fromCache: Boolean = false,
     val savedAt: Long = 0L,
     val note: String? = null,
@@ -70,10 +75,13 @@ class HomeViewModel(private val meta: MetaRepository) : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
-                // 三个请求互不依赖，并发发出（串行会让首屏多等两个来回）
+                // 四个请求互不依赖，并发发出（串行会让首屏多等三个来回）
                 val dashboard = async { meta.dashboard() }
                 val groups = async { meta.quickGroups() }
                 val pending = async { meta.pendingSummary() }
+                // 标签字典只服务于「点重点人群跳列表」这一个动作，
+                // 拿不到（无权限/没缓存）不该把整个工作台变成错误页，所以单独消化
+                val tags = async { runCatching { meta.personTags().value }.getOrDefault(emptyList()) }
 
                 val d = dashboard.await()
                 val g = groups.await()
@@ -83,6 +91,7 @@ class HomeViewModel(private val meta: MetaRepository) : ViewModel() {
                         dashboard = d.value,
                         groups = g.value,
                         pending = runCatching { pending.await() }.getOrNull(),
+                        tags = tags.await(),
                         fromCache = d.fromCache || g.fromCache,
                         savedAt = maxOf(d.savedAt, g.savedAt),
                     )
@@ -96,6 +105,7 @@ class HomeViewModel(private val meta: MetaRepository) : ViewModel() {
 
 @Composable
 fun HomeScreen(onNavigate: (String) -> Unit) {
+    val context = LocalContext.current
     val container = LocalAppContainer.current
     val vm: HomeViewModel = com.village.population.ui.containerViewModel { HomeViewModel(it.metaRepository) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -190,15 +200,24 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
                 items(groups, key = { it.code }) { group ->
                     QuickGroupRow(group) {
-                        // 年龄类人群按 minAge/maxAge 筛，身份类按标签筛——
-                        // 这两者不能混，老年人是靠出生日期算出来的，跟他有没有标签无关
-                        val query = when {
-                            group.byAge && group.minAge != null -> PersonQuery(minAge = group.minAge, page = 1)
-                            group.byAge -> PersonQuery(maxAge = group.maxAge, page = 1)
-                            else -> PersonQuery(page = 1)
+                        // 把族群翻译成筛选条件：
+                        //  · 年龄类（老年/未成年）按出生日期筛，跟他有没有标签无关；
+                        //  · 身份类按标签筛，且必须用 tagCodes（党员 = 正式 + 预备），
+                        //    只用 code 会少一截人。
+                        val query = FocusGroupQuery.build(group, state.tags)
+                        if (query == null) {
+                            // 解析不出标签就**不要跳**：不加筛选地跳过去，
+                            // 等于把「低保对象 62 人」变成一个全村 1200 人的名单，
+                            // 用户不会知道是筛错了，只会以为名单本来就这样。
+                            Toast.makeText(
+                                context,
+                                "本机还没有标签字典（需要联网同步一次），暂时无法按「${group.label}」筛选",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        } else {
+                            container.personFilterBus.post(query, group.label)
+                            onNavigate(Routes.PERSONS)
                         }
-                        container.personFilterBus.post(query)
-                        onNavigate(Routes.PERSONS)
                     }
                 }
             }

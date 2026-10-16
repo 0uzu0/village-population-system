@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -25,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,12 +40,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.repository.MetaRepository
 import com.village.population.ui.components.EmptyBox
+import com.village.population.ui.components.InfoRow
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.LoadingBox
 import com.village.population.util.toUserMessage
@@ -158,10 +163,14 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
 }
 
 @Composable
-fun PendingScreen(onOpenPerson: (Int) -> Unit) {
+fun PendingScreen() {
     val context = LocalContext.current
     val vm: PendingViewModel = com.village.population.ui.containerViewModel { PendingViewModel(it.metaRepository) }
     val state by vm.state.collectAsStateWithLifecycle()
+    // 详情就在本页用弹窗展示：import_pending.id 与 person.id 是两套编号，
+    // 早先这里直接 navigate("person/{row.id}")，打开的要么是另一个人的档案，
+    // 要么是根本不存在的 id——**待核查记录本来就还没有对应的正式人员**。
+    var detail by remember { mutableStateOf<PendingDto?>(null) }
 
     LaunchedEffect(Unit) { vm.load() }
 
@@ -216,7 +225,7 @@ fun PendingScreen(onOpenPerson: (Int) -> Unit) {
                             checked = state.selected.contains(row.id),
                             working = state.working,
                             onToggle = { vm.toggle(row.id) },
-                            onOpen = { onOpenPerson(row.id) },
+                            onOpen = { detail = row },
                             onConfirm = { vm.confirm(row.id, toast) },
                             onIgnore = { vm.ignore(row.id, toast) },
                         )
@@ -225,6 +234,65 @@ fun PendingScreen(onOpenPerson: (Int) -> Unit) {
             }
         }
     }
+
+    detail?.let { row ->
+        PendingDetailDialog(row = row, onDismiss = { detail = null })
+    }
+}
+
+/** 待核查详情。字段与 import_pending 一一对应，**身份证号原样展示**——
+ *  这一屏存在的意义就是让人拿它去核对，抹掉或格式化都会让核对无从下手。 */
+@Composable
+private fun PendingDetailDialog(row: PendingDto, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                Modifier
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text("待核查详情", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "该记录尚未进入正式档案，核对后可回到列表「确认」或「忽略」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                InfoRow("姓名", row.name)
+                InfoRow("性别", row.gender)
+                InfoRow("出生日期", row.birthDate)
+                InfoRow("身份证号", row.idCard?.takeIf { it.isNotBlank() } ?: "（空）")
+                InfoRow("本人电话", row.phone)
+                InfoRow("备用电话", row.phoneBackup)
+                InfoRow("所属村庄", row.village)
+                InfoRow("网格编号", row.gridNo)
+                InfoRow("家庭编号", row.familyNo)
+                InfoRow("与户主关系", row.relation)
+                InfoRow("户籍地址", row.hukouAddress)
+                InfoRow("现居住地址", row.liveAddress)
+                InfoRow("待核查原因", row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason))
+                InfoRow("处理备注", row.handleNote)
+                InfoRow("导入批次", listOfNotNull(row.batchNo, row.rowNo?.let { "第 $it 行" }).joinToString(" · "))
+                InfoRow("导入时间", row.createdAt)
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") }
+                }
+            }
+        }
+    }
+}
+
+/** 待核查原因码 → 中文；与后端 import_pending.reason 的取值一致 */
+private fun reasonLabel(reason: String?): String? = when (reason) {
+    "ID_CARD_MISSING" -> "身份证号缺失"
+    "ID_CARD_INVALID" -> "身份证号非法"
+    null -> null
+    else -> reason
 }
 
 @Composable

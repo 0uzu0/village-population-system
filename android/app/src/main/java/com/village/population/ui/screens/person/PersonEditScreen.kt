@@ -33,20 +33,38 @@ import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.PersonRepository
 import com.village.population.data.repository.SubmitResult
 import com.village.population.ui.components.AppTopBar
+import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.FormField
+import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
 import com.village.population.ui.components.SectionCard
 import com.village.population.util.IdCard
 import com.village.population.util.toUserMessage
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * 编辑表单状态。
+ *
+ * `loading` / `loaded` 这两个标志是后补的，起因是一个很难看的失败方式：
+ * 打开编辑页时表单会**先渲染成一片空白**（状态初值就是空串），档案要等
+ * 网络回来才填进去。在村里那种没信号或信号很差的院子里，这片空白会持续
+ * 几秒到几十秒；用户不知道它在加载，只知道「这人的信息全没了」。
+ * 更糟的是此时点保存：表单持有一堆空值，一提交就会把原来的档案**覆盖成空**。
+ *
+ * 所以现在：读档案期间不给表单（避免误以为档案是空的），
+ * 读失败时明确报错并**禁止保存**（宁可让人退回详情页，也不能让他把数据改没了）。
+ */
 data class PersonEditUiState(
+    /** 正在读取既有档案 */
     val loading: Boolean = false,
+    /** 编辑模式下档案已成功取回；新增模式下恒为 true */
+    val loaded: Boolean = true,
     val saving: Boolean = false,
     val villages: List<VillageDto> = emptyList(),
     val name: String = "",
@@ -61,6 +79,9 @@ data class PersonEditUiState(
     val relation: String = "",
     val remark: String = "",
     val idCardHint: String? = null,
+    /** 读取档案失败（整页错误） */
+    val loadError: String? = null,
+    /** 表单校验/保存失败（表单内提示） */
     val error: String? = null,
 )
 
@@ -70,38 +91,53 @@ class PersonEditViewModel(
     private val personId: Int,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(PersonEditUiState())
+    private val _state = MutableStateFlow(PersonEditUiState(loaded = personId <= 0))
     val state: StateFlow<PersonEditUiState> = _state.asStateFlow()
 
     val isEdit: Boolean get() = personId > 0
 
+    /** 档案没读回来就不允许保存——否则一次误触就能把人家的档案清空 */
+    val canSave: Boolean get() = !_state.value.saving && (!isEdit || _state.value.loaded)
+
     fun init() {
-        viewModelScope.launch {
-            runCatching { metaRepo.villages().value }.onSuccess { villages ->
-                _state.update { it.copy(villages = villages) }
-            }
-            if (isEdit) {
-                _state.update { it.copy(loading = true) }
-                runCatching { personRepo.detail(personId).value }.onSuccess { p ->
-                    _state.update {
-                        it.copy(
-                            loading = false,
-                            name = p.name,
-                            idCard = p.idCard.orEmpty(),
-                            gender = p.gender,
-                            birthDate = p.birthDate.orEmpty(),
-                            phone = p.phone.orEmpty(),
-                            phoneBackup = p.phoneBackup.orEmpty(),
-                            village = p.village,
-                            hukouAddress = p.hukouAddress.orEmpty(),
-                            liveAddress = p.liveAddress.orEmpty(),
-                            relation = p.relation.orEmpty(),
-                            remark = p.remark.orEmpty(),
-                        )
-                    }
-                }.onFailure { e ->
-                    _state.update { it.copy(loading = false, error = e.toUserMessage()) }
+        if (!isEdit) {
+            // 新增：只需要村庄下拉的数据，表单本来就是空的
+            viewModelScope.launch {
+                runCatching { metaRepo.villages().value }.onSuccess { villages ->
+                    _state.update { it.copy(villages = villages) }
                 }
+            }
+            return
+        }
+
+        _state.update { it.copy(loading = true, loadError = null) }
+        viewModelScope.launch {
+            try {
+                // 村庄列表与人员档案互不依赖，并发发出。
+                // 串行的话「打开编辑页」要白等两个来回，而这段时间屏幕上什么都没有。
+                val villages = async { runCatching { metaRepo.villages().value }.getOrDefault(emptyList()) }
+                val person = async { personRepo.detail(personId).value }
+                val p = person.await()
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        loaded = true,
+                        villages = villages.await(),
+                        name = p.name,
+                        idCard = p.idCard.orEmpty(),
+                        gender = p.gender,
+                        birthDate = p.birthDate.orEmpty(),
+                        phone = p.phone.orEmpty(),
+                        phoneBackup = p.phoneBackup.orEmpty(),
+                        village = p.village,
+                        hukouAddress = p.hukouAddress.orEmpty(),
+                        liveAddress = p.liveAddress.orEmpty(),
+                        relation = p.relation.orEmpty(),
+                        remark = p.remark.orEmpty(),
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(loading = false, loadError = e.toUserMessage()) }
             }
         }
     }
@@ -138,6 +174,11 @@ class PersonEditViewModel(
 
     fun save(onSaved: (SubmitResult) -> Unit) {
         val s = _state.value
+        // 兜底：档案还没读回来之前不允许提交，否则会用空表单覆盖掉既有档案
+        if (isEdit && !s.loaded) {
+            _state.update { it.copy(error = "档案尚未读取完成，请稍后重试（或返回详情页重新进入）") }
+            return
+        }
         if (s.name.isBlank()) {
             _state.update { it.copy(error = "姓名必填") }
             return
@@ -192,6 +233,20 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
             )
         },
     ) { padding ->
+        // 关键：档案没读回来之前**不渲染表单**。
+        // 先给一个空表单再异步填进去，用户在加载期间看到的就是「这人的信息全没了」，
+        // 而且他一旦直接点保存，空值会把原档案覆盖掉。
+        if (state.loading) {
+            LoadingBox(Modifier.padding(padding), "正在读取档案…")
+            return@Scaffold
+        }
+        if (state.loadError != null) {
+            ErrorBox(
+                "读取档案失败：${state.loadError}\n为避免用空白表单覆盖掉原档案，已暂停编辑。",
+                Modifier.padding(padding),
+            ) { vm.init() }
+            return@Scaffold
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -200,6 +255,12 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // 错误提示放最上面。原先放在按钮上方——那在一张长表单里等于看不见，
+            // 用户只看到「点了保存没反应」。
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+
             SectionCard(title = "身份信息") {
                 FormField(
                     label = "姓名 *",
@@ -294,9 +355,6 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                 )
             }
 
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
             resultMessage?.let {
                 Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
             }
@@ -314,7 +372,8 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                             }
                         }
                     },
-                    enabled = !state.saving,
+                    // 档案没读回来就不给点：空表单提交会把原档案覆盖成空
+                    enabled = vm.canSave,
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) {
                     Text(if (state.saving) "保存中…" else "保存")

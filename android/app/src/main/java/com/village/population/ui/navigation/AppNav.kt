@@ -214,9 +214,10 @@ fun AppRoot() {
                 }
 
                 composable(Routes.PENDING) {
-                    PendingScreen(
-                        onOpenPerson = { id -> navController.navigate(Routes.personDetail(id)) },
-                    )
+                    // 不再从这里跳人员详情：待核查记录用的是 import_pending.id，
+                    // 与 person.id 是两套编号，且这条记录本来就还没有正式人员。
+                    // 详情改为在本页弹窗展示（见 PendingScreen）。
+                    PendingScreen()
                 }
 
                 composable(Routes.LEDGER) {

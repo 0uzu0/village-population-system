@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,6 +52,7 @@ import com.village.population.data.repository.PersonQuery
 import com.village.population.data.repository.PersonRepository
 import com.village.population.data.repository.hasMore
 import com.village.population.ui.LocalAppContainer
+import com.village.population.ui.PendingFilter
 import com.village.population.ui.components.DotLabel
 import com.village.population.ui.components.EmptyBox
 import com.village.population.ui.components.ErrorBox
@@ -75,6 +77,8 @@ data class PersonListUiState(
     val fromCache: Boolean = false,
     val savedAt: Long = 0L,
     val villages: List<VillageDto> = emptyList(),
+    /** 从工作台某个重点人群跳过来时记下来源名称，列表上要显示，见下方说明 */
+    val filterLabel: String? = null,
 ) {
     val hasMore: Boolean get() = list.size < total
 }
@@ -87,10 +91,14 @@ class PersonListViewModel(
     private val _state = MutableStateFlow(PersonListUiState())
     val state: StateFlow<PersonListUiState> = _state.asStateFlow()
 
-    /** 进入页面时应用外部传来的筛选（工作台点某个重点人群跳过来） */
-    fun applyPendingFilter(query: PersonQuery?) {
-        if (query == null) return
-        _state.update { it.copy(query = query) }
+    /**
+     * 进入页面时应用外部传来的筛选（工作台点某个重点人群跳过来）。
+     *
+     * 必须把来源名称一起记住并显示：一个「只显示 62 人」的列表如果看不出是被筛过的，
+     * 使用者会以为档案丢了人——尤其是从「低保对象 62 人」点进来的时候。
+     */
+    fun applyPendingFilter(pending: PendingFilter) {
+        _state.update { it.copy(query = pending.query, filterLabel = pending.label) }
         load()
     }
 
@@ -109,7 +117,7 @@ class PersonListViewModel(
     }
 
     fun clearFilters() {
-        _state.update { it.copy(query = PersonQuery()) }
+        _state.update { it.copy(query = PersonQuery(), filterLabel = null) }
         load()
     }
 
@@ -229,8 +237,27 @@ fun PersonListScreen(
                         androidx.compose.material3.TextButton(onClick = vm::clearFilters) { Text("重置") }
                     }
                 }
+                // 筛完必须让人**看得见筛了什么**：从「低保对象 62 人」点进来却只看到
+                // 「共 62 人」，使用者会怀疑是漏了人，而不是意识到当前是筛选结果
+                state.filterLabel?.let { label ->
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(
+                            selected = true,
+                            onClick = vm::clearFilters,
+                            label = { Text("重点人群：$label") },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Filled.Clear,
+                                    contentDescription = "取消该筛选",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                        )
+                    }
+                }
                 Text(
-                    "共 ${state.total} 人",
+                    "共 ${state.total} 人" + (state.filterLabel?.let { "（已按「$it」筛选）" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

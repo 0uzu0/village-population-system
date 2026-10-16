@@ -57,11 +57,16 @@ data class VillageDto(
 /**
  * 快捷分组。`byAge = true` 表示这一组是按年龄算的（老年 ≥60、未成年 <18），
  * 与是否打过标签无关——筛选时要换成 minAge/maxAge 参数，不能当成 tagIds 用。
+ *
+ * ⚠️ 身份类人群**不能只用 `code` 去筛**：`code` 只是族群编码，比如「党员」是
+ * PARTY_MEMBER，但该人群实际由 `tagCodes` 里的全部标签构成（含预备党员）。
+ * 用 code 筛会少一截人，与卡片上的数字对不上。见 FocusGroupQuery。
  */
 @Serializable
 data class QuickGroupDto(
     val label: String = "",
     val code: String = "",
+    val tagCodes: List<String> = emptyList(),
     val count: Int = 0,
     val color: String? = null,
     val byAge: Boolean = false,
@@ -73,6 +78,19 @@ data class QuickGroupDto(
 data class QuickGroupData(
     val list: List<QuickGroupDto> = emptyList(),
     val note: String? = null,
+)
+
+/**
+ * 标签定义。来自 GET /api/tags/definitions，同样是**原始 SQL 行**（`td.*`），
+ * 所以字段名按数据库列名写。这里只需要「按 code 找 id」这一个用途，
+ * 因此只声明真正会用到的列。
+ */
+@Serializable
+data class TagDto(
+    val id: Int = 0,
+    val name: String = "",
+    val code: String = "",
+    val color: String? = null,
 )
 
 // ---------------------------------------------------------------------------

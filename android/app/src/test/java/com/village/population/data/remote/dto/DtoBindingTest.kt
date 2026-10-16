@@ -3,6 +3,7 @@ package com.village.population.data.remote.dto
 import com.village.population.data.remote.AppJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -130,6 +131,39 @@ class DtoBindingTest {
         assertEquals(61, d.partyCount)
         assertEquals(88, d.lowIncomePersonCount)
         assertEquals(40, d.lowIncomeFamilyCount)
+    }
+
+    /**
+     * GET /api/key-groups/quick。
+     * 重点在 `tagCodes`：它是「点卡片跳人员列表」时唯一能用来正确筛选的东西。
+     * 少了它，客户端只能拿 `code` 去匹配标签——「党员」会漏掉预备党员。
+     */
+    @Test
+    fun `重点人群快捷分组带上构成该族群的标签编码`() {
+        val json = """
+            {
+              "list": [
+                {"label":"党员","code":"PARTY_MEMBER",
+                 "tagCodes":["PARTY_MEMBER","PARTY_PROBATIONARY"],
+                 "count":61,"color":"#E5484D","byAge":false,"minAge":null,"maxAge":null},
+                {"label":"老年人（≥60岁）","code":"ELDERLY","tagCodes":[],
+                 "count":702,"color":"#3978F6","byAge":true,"minAge":60,"maxAge":null}
+              ],
+              "note": "口径说明"
+            }
+        """.trimIndent()
+
+        val data = AppJson.decodeFromString<QuickGroupData>(json)
+
+        assertEquals(2, data.list.size)
+        val party = data.list.first { it.code == "PARTY_MEMBER" }
+        assertEquals(listOf("PARTY_MEMBER", "PARTY_PROBATIONARY"), party.tagCodes)
+        assertTrue(!party.byAge)
+
+        val elderly = data.list.first { it.code == "ELDERLY" }
+        assertTrue(elderly.byAge)
+        assertEquals(60, elderly.minAge)
+        assertTrue("年龄类没有标签", elderly.tagCodes.isEmpty())
     }
 
     /** GET /api/pending —— 原始行，且带 operator_name 等移动端不用的附加列 */
