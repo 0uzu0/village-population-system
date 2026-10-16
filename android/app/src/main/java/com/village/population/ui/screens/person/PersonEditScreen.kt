@@ -1,6 +1,7 @@
 package com.village.population.ui.screens.person
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -233,6 +234,10 @@ class PersonEditViewModel(
     }
 }
 
+// FlowRow（人口标签那排 chip 用它自动换行）目前仍是实验性 API。
+// 项目没有开全局 -opt-in，因此按既有做法在使用处单独标注
+// （同 PersonDetailScreen / PersonListScreen 的处理方式）
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
     val vm: PersonEditViewModel = com.village.population.ui.containerViewModel {
