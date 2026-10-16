@@ -17,7 +17,7 @@ val apiBaseUrl: String = (project.findProperty("apiBaseUrl") as String?) ?: "htt
 
 /** 版本号由 CI 注入（run_number / tag），本地构建用默认值 */
 val appVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val appVersionName: String = (project.findProperty("versionName") as String?) ?: "1.0.6"
+val appVersionName: String = (project.findProperty("versionName") as String?) ?: "1.0.7"
 
 /**
  * 正式包签名从环境变量读取（CI 用 secrets 注入）。
