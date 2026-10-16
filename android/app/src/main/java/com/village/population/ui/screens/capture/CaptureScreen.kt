@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -476,10 +478,10 @@ private fun PersonPickerDialog(
                         Text("没有匹配的在册人员", color = tokens.ink3)
                     }
 
-                    else -> androidx.compose.foundation.lazy.LazyColumn(
+                    else -> LazyColumn(
                         Modifier.height((results.size.coerceIn(1, 6) * 62 + 8).dp)
                     ) {
-                        androidx.compose.foundation.lazy.items(results, key = { it.id }) { item ->
+                        items(results, key = { it.id }) { item ->
                             Column(
                                 Modifier
                                     .fillMaxWidth()
