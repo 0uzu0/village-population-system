@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { query, queryOne, execute } from '../../config/db';
-import { requirePermission, buildGridFilter } from '../../middleware/rbac';
+import { requirePermission } from '../../middleware/rbac';
 import { ok, AppError } from '../../utils/response';
 import { buildAgeFilter } from '../../utils/tagQuery';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../../utils/disability';
@@ -130,12 +130,6 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     params.push(body.status);
   } else if (body.activeOnly !== false) {
     where.push(activeSql('p'));
-  }
-
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) {
-    where.push(gridFilter.where.replace(/^ AND /, ''));
-    params.push(...gridFilter.params);
   }
 
   // 年龄与标签筛选复用 tagQuery 的构建器，与人口档案列表保持同一口径

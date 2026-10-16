@@ -83,10 +83,13 @@ describe('保存接口 PUT /grids/villages/contact', () => {
     expect(gridSrc).toContain('DELETE FROM village_contact WHERE village_name = ?');
   });
 
-  it('村庄必须仍存在于人员档案且在当前用户数据范围内', () => {
+  it('村庄必须仍存在于人员档案（不再按所谓的「数据范围」过滤——那个机制已整体删除）', () => {
     expect(gridSrc).toContain('VILLAGE_NOT_FOUND');
     const putIdx = gridSrc.indexOf("router.put('/villages/contact'");
-    expect(gridSrc.slice(putIdx).includes("buildGridFilter(req, 'p.grid_id')")).toBe(true);
+    expect(putIdx).toBeGreaterThan(-1);
+    // 反向断言：网格员数据范围机制已彻底删除，不能再有残留
+    expect(gridSrc.includes('buildGridFilter')).toBe(false);
+    expect(gridSrc.slice(putIdx)).toContain('SELECT 1 AS ok FROM person p WHERE');
   });
 });
 

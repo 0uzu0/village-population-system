@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne, execute, withTransaction } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
-import { requirePermission, buildGridFilter } from '../middleware/rbac';
+import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
@@ -143,12 +143,6 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
     where.push('(g.name LIKE ? OR g.grid_no LIKE ?)');
     params.push(`%${q.keyword}%`, `%${q.keyword}%`);
   }
-  const gridFilter = buildGridFilter(req, 'g.id');
-  if (gridFilter.where) {
-    where.push(gridFilter.where.replace(/^ AND /, ''));
-    params.push(...gridFilter.params);
-  }
-
   const whereSql = where.join(' AND ');
   const totalRow = await queryOne<any>(`SELECT COUNT(*) AS cnt FROM grid g WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
@@ -198,11 +192,6 @@ router.get('/villages', requirePermission('grid:view'), async (req: Request, res
   if (q.keyword) {
     villageConds.push('p.village LIKE ?');
     villageParams.push(`%${q.keyword}%`);
-  }
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) {
-    villageConds.push(gridFilter.where.replace(/^ AND /, ''));
-    villageParams.push(...gridFilter.params);
   }
   const villageWhere = villageConds.join(' AND ');
   const activeWhere = `${villageWhere} AND ${activeSql('p')}`;
@@ -299,13 +288,8 @@ router.put('/villages/contact', requirePermission('grid:manage'), async (req: Re
 
   const conds: string[] = ['p.village = ?'];
   const params: any[] = [village];
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) {
-    conds.push(gridFilter.where.replace(/^ AND /, ''));
-    params.push(...gridFilter.params);
-  }
   const exists = await queryOne<any>(`SELECT 1 AS ok FROM person p WHERE ${conds.join(' AND ')} LIMIT 1`, params);
-  if (!exists) throw new AppError('村庄不存在或不在你的数据范围内', 404, 'VILLAGE_NOT_FOUND');
+  if (!exists) throw new AppError('村庄不存在或没有对应的人员档案', 404, 'VILLAGE_NOT_FOUND');
 
   if (!manager && !phone) {
     await execute('DELETE FROM village_contact WHERE village_name = ?', [village]);

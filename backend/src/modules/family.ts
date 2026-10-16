@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne, execute, withTransaction } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
-import { requirePermission, buildGridFilter } from '../middleware/rbac';
+import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { buildFamilyTagFilter } from '../utils/tagQuery';
@@ -36,11 +36,6 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
   if (q.gridId) {
     where.push('f.grid_id = ?');
     params.push(q.gridId);
-  }
-  const gridFilter = buildGridFilter(req, 'f.grid_id');
-  if (gridFilter.where) {
-    where.push(gridFilter.where.replace(/^ AND /, ''));
-    params.push(...gridFilter.params);
   }
 
   if (q.tagIds) {

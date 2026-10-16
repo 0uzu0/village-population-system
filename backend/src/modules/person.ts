@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne, execute, withTransaction, pool } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
-import { requirePermission, buildGridFilter } from '../middleware/rbac';
+import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
@@ -151,13 +151,6 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
     params.push(q.status);
   } else if (q.activeOnly !== 'false') {
     where.push(activeSql('p'));
-  }
-
-  // 网格数据范围（已简化为全部数据，恒不过滤）
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) {
-    where.push(gridFilter.where.replace(/^ AND /, ''));
-    params.push(...gridFilter.params);
   }
 
   // 年龄区间

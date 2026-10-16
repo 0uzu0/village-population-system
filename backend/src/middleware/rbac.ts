@@ -27,12 +27,3 @@ export function hasAnyPermission(req: Request, codes: string[]): boolean {
   if (user.isAdmin) return true;
   return codes.some((c) => user.permissions.has(c));
 }
-
-/**
- * 网格数据范围过滤。
- * 已简化为「管理员/普通用户均可查看全部数据」，恒返回不过滤。
- * 保留该函数以兼容各模块调用点。
- */
-export function buildGridFilter(_req: Request, _alias = 'grid_id'): { where: string; params: number[] } {
-  return { where: '', params: [] };
-}

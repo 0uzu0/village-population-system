@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
-import { requirePermission, buildGridFilter } from '../middleware/rbac';
+import { requirePermission } from '../middleware/rbac';
 import { ok } from '../utils/response';
 import { markStaleImportTasks } from '../services/importTask';
 import { activeSql } from '../utils/personStatus';
@@ -22,27 +22,17 @@ router.use(authMiddleware);
 
 /** 工作台统计卡片 */
 router.get('/dashboard', requirePermission('dashboard:view'), async (req: Request, res: Response) => {
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  const scope = gridFilter.where; // 形如 " AND p.grid_id IN (...)"
-  const scopeParams = gridFilter.params;
-  // 家庭/网格维度复用同一数据范围，仅换别名
-  const familyScope = scope.replace(/p\.grid_id/g, 'f.grid_id');
-  const gridScope = scope.replace(/p\.grid_id/g, 'g.id');
-
   const [total, personTagCounts, familyTagCounts] = await Promise.all([
     queryOne<any>(
       `SELECT
-        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}) AS total_population,
-        (SELECT COUNT(*) FROM family f WHERE f.status = 1 ${familyScope}) AS family_count,
-        (SELECT COUNT(*) FROM grid g WHERE g.status = 1 ${gridScope}) AS grid_count,
-        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}
-          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}) AS total_population,
+        (SELECT COUNT(*) FROM family f WHERE f.status = 1) AS family_count,
+        (SELECT COUNT(*) FROM grid g WHERE g.status = 1) AS grid_count,
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('HUKOU_POP'))) AS hukou_count,
-        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}
-          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('RESIDENT_POP'))) AS resident_count
       `,
-      scopeParams
     ),
     // 个人类标签：只数在册人员。死亡/迁出的档案保留标签可追溯，但不计入当前服务名单。
     // 编码列表统一取自 utils/focusGroups.ts（原先在各模块里各写一遍 IN 列表）。
@@ -51,18 +41,16 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
          (SELECT COUNT(*) FROM person_tag pt
            WHERE pt.tag_id = td.id AND pt.status='ACTIVE'
              AND EXISTS (SELECT 1 FROM person p
-               WHERE p.id = pt.person_id AND ${activeSql('p')} ${scope})) AS cnt
+               WHERE p.id = pt.person_id AND ${activeSql('p')})) AS cnt
        FROM tag_definition td WHERE td.code IN (${allFocusTagCodes().map(() => '?').join(',')})`,
-      // 占位符顺序：子查询里的数据范围占位符在前，IN 列表在后
-      [...scopeParams, ...allFocusTagCodes()]
+      allFocusTagCodes()
     ),
     // 家庭类标签：认定对象是家庭，走 family_tag；家庭无死亡概念，户主去世家庭仍在册
     query<any>(
       `SELECT td.code,
          (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
-           WHERE ft.tag_id = td.id AND ft.status='ACTIVE' AND f.status = 1 ${familyScope}) AS cnt
-       FROM tag_definition td WHERE td.code = 'LOW_INCOME_FAMILY'`,
-      scopeParams
+           WHERE ft.tag_id = td.id AND ft.status='ACTIVE' AND f.status = 1) AS cnt
+       FROM tag_definition td WHERE td.code = 'LOW_INCOME_FAMILY'`
     ),
   ]);
 
@@ -89,9 +77,6 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
 
 /** 分布统计：年龄、性别、网格、标签 */
 router.get('/distributions', requirePermission('statistics:view'), async (req: Request, res: Response) => {
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  const scope = gridFilter.where;
-
   const age = await query<any>(
     `SELECT
        CASE
@@ -101,12 +86,11 @@ router.get('/distributions', requirePermission('statistics:view'), async (req: R
          WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 60 AND 79 THEN '60-79岁'
          ELSE '80岁及以上'
        END AS band, COUNT(*) AS cnt
-     FROM person p WHERE ${activeSql('p')} AND birth_date IS NOT NULL ${scope}
-     GROUP BY band ORDER BY FIELD(band,'0-17岁','18-35岁','36-59岁','60-79岁','80岁及以上')`
+     FROM person p WHERE ${activeSql('p')} AND birth_date IS NOT NULL     GROUP BY band ORDER BY FIELD(band,'0-17岁','18-35岁','36-59岁','60-79岁','80岁及以上')`
   );
 
   const gender = await query<any>(
-    `SELECT gender, COUNT(*) AS cnt FROM person p WHERE ${activeSql('p')} ${scope} GROUP BY gender`
+    `SELECT gender, COUNT(*) AS cnt FROM person p WHERE ${activeSql('p')} GROUP BY gender`
   );
 
   const grids = await query<any>(

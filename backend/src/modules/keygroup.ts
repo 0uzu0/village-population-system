@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
-import { requirePermission, buildGridFilter } from '../middleware/rbac';
+import { requirePermission } from '../middleware/rbac';
 import { ok, PageResult } from '../utils/response';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
@@ -127,8 +127,6 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
 
   if (q.keyword) { where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)'); params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`); conditions.push(`姓名/身份证号/手机号含「${q.keyword}」`); }
 
-  const gridFilter = buildGridFilter(req, 'p.grid_id');
-  if (gridFilter.where) { where.push(gridFilter.where.replace(/^ AND /, '')); params.push(...gridFilter.params); }
   if (q.gridId) {
     where.push('p.grid_id = ?'); params.push(q.gridId);
     const g = await queryOne<any>('SELECT name FROM grid WHERE id = ?', [q.gridId]);
