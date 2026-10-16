@@ -9,6 +9,7 @@ import { formatDate } from '../utils/date';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
 import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { z } from 'zod';
+import { queryEnum } from '../utils/schema';
 
 const router = Router();
 router.use(authMiddleware);
@@ -82,7 +83,7 @@ const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
+  tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
   familyTagIds: z.string().optional(),
   gridId: z.coerce.number().optional(),
   minAge: z.coerce.number().optional(),

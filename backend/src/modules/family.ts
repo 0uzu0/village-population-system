@@ -296,7 +296,7 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
 });
 
 const familySchema = z.object({
-  address: z.string().max(255).optional().or(z.literal('')),
+  address: z.string().max(255).nullable().optional(),
   gridId: z.coerce.number().nullable().optional(),
   headPersonId: z.coerce.number().nullable().optional(),
 });
@@ -428,8 +428,8 @@ router.post('/:id/head', requirePermission('family:manage'), async (req: Request
 
 const familyTagSchema = z.object({
   tagId: z.coerce.number(),
-  effectDate: z.string().optional().or(z.literal('')),
-  basis: z.string().max(500).optional().or(z.literal('')),
+  effectDate: z.string().nullable().optional(),
+  basis: z.string().max(500).nullable().optional(),
 });
 
 /** 家庭添加标签 */

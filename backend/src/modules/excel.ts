@@ -24,6 +24,7 @@ import {
 import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
 import { env } from '../config/env';
 import { z } from 'zod';
+import { queryEnum } from '../utils/schema';
 
 const router = Router();
 router.use(authMiddleware);
@@ -688,7 +689,7 @@ router.post('/import', requirePermission('excel:import'), upload.single('file'),
 });
 
 const keyGroupSchema = z.object({
-  defaultCode: z.string().optional().or(z.literal('')),
+  defaultCode: z.string().nullable().optional(),
   applyMode: z.enum(['ACTIVE', 'AUDIT']).default('ACTIVE'),
 });
 
@@ -1257,7 +1258,7 @@ const exportSchema = z.object({
   gender: z.string().optional(),
   status: z.string().optional(),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
+  tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   /** 只看在册（默认开启），与人员列表口径一致；传 false 可导出含已迁出/死亡的历史档案 */

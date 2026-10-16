@@ -31,9 +31,9 @@ router.get('/', requirePermission('user:view'), async (req: Request, res: Respon
 const userSchema = z.object({
   username: z.string().min(1).max(64),
   realName: z.string().min(1).max(64),
-  password: z.string().min(8).max(64).optional().or(z.literal('')),
-  phone: z.string().max(20).optional().or(z.literal('')),
-  email: z.string().max(128).optional().or(z.literal('')),
+  password: z.string().min(8).max(64).nullable().optional(),
+  phone: z.string().max(20).nullable().optional(),
+  email: z.string().max(128).nullable().optional(),
   isAdmin: z.coerce.number().min(0).max(1).default(0),
 });
 

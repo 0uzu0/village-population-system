@@ -216,9 +216,9 @@ router.get('/:id', requirePermission('grid:view'), async (req: Request, res: Res
 const gridSchema = z.object({
   gridNo: z.string().min(1, '网格编号必填').max(64),
   name: z.string().min(1, '网格名称必填').max(128),
-  manager: z.string().max(64).optional().or(z.literal('')),
-  staff: z.string().max(255).optional().or(z.literal('')),
-  description: z.string().max(500).optional().or(z.literal('')),
+  manager: z.string().max(64).nullable().optional(),
+  staff: z.string().max(255).nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
   status: z.coerce.number().min(0).max(1).optional(),
 });
 
@@ -249,7 +249,7 @@ router.put('/:id', requirePermission('grid:manage'), async (req: Request, res: R
 const transferSchema = z.object({
   personIds: z.array(z.number()).min(1),
   targetGridId: z.coerce.number(),
-  reason: z.string().max(255).optional().or(z.literal('')),
+  reason: z.string().max(255).nullable().optional(),
 });
 
 /** 跨网格人员转移（记录原网格、新网格、操作时间、操作人） */

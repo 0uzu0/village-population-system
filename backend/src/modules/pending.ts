@@ -81,17 +81,17 @@ router.get('/:id', requirePermission('excel:import'), async (req: Request, res: 
 const updateSchema = z.object({
   name: z.string().min(1).max(64).optional(),
   gender: z.enum(['MALE', 'FEMALE']).nullable().optional(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().or(z.literal('')),
-  idCard: z.string().nullable().optional().or(z.literal('')),
-  phone: z.string().nullable().optional().or(z.literal('')),
-  phoneBackup: z.string().nullable().optional().or(z.literal('')),
-  hukouAddress: z.string().max(255).nullable().optional().or(z.literal('')),
-  liveAddress: z.string().max(255).nullable().optional().or(z.literal('')),
-  village: z.string().max(128).nullable().optional().or(z.literal('')),
-  gridNo: z.string().nullable().optional().or(z.literal('')),
-  familyNo: z.string().nullable().optional().or(z.literal('')),
-  relation: z.string().nullable().optional().or(z.literal('')),
-  handleNote: z.string().max(255).nullable().optional().or(z.literal('')),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  idCard: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  phoneBackup: z.string().nullable().optional(),
+  hukouAddress: z.string().max(255).nullable().optional(),
+  liveAddress: z.string().max(255).nullable().optional(),
+  village: z.string().max(128).nullable().optional(),
+  gridNo: z.string().nullable().optional(),
+  familyNo: z.string().nullable().optional(),
+  relation: z.string().nullable().optional(),
+  handleNote: z.string().max(255).nullable().optional(),
 });
 
 /** 编辑 / 补录（允许先存非法身份证，正式入库时再校验） */

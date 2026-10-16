@@ -17,6 +17,7 @@ import {
   isInactiveStatus,
 } from '../utils/personStatus';
 import { z } from 'zod';
+import { queryEnum } from '../utils/schema';
 
 const router = Router();
 router.use(authMiddleware);
@@ -111,9 +112,9 @@ const listQuerySchema = z.object({
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   tagIds: z.string().optional(),
-  tagMode: z.enum(['ANY', 'ALL']).or(z.literal('')).default('ANY'),
+  tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
   sortBy: z.string().optional(),
-  sortOrder: z.enum(['asc', 'desc']).or(z.literal('')).default('asc'),
+  sortOrder: queryEnum(['asc', 'desc'], 'asc'),
 });
 
 /** 人员列表（分页 + 多条件筛选 + 标签筛选） */
@@ -333,39 +334,39 @@ async function saveDisability(
 
 const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
-  formerName: z.string().max(64).optional().or(z.literal('')),
+  formerName: z.string().max(64).nullable().optional(),
   gender: z.enum(['MALE', 'FEMALE'], { message: '性别不正确' }).optional(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '出生日期格式应为 YYYY-MM-DD').optional().or(z.literal('')),
-  idCard: z.string().optional().or(z.literal('')),
-  phone: z.string().optional().or(z.literal('')),
-  phoneBackup: z.string().optional().or(z.literal('')),
-  hukouAddress: z.string().max(255).optional().or(z.literal('')),
-  liveAddress: z.string().max(255).optional().or(z.literal('')),
-  village: z.string().max(128).optional().or(z.literal('')),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '出生日期格式应为 YYYY-MM-DD').nullable().optional(),
+  idCard: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  phoneBackup: z.string().nullable().optional(),
+  hukouAddress: z.string().max(255).nullable().optional(),
+  liveAddress: z.string().max(255).nullable().optional(),
+  village: z.string().max(128).nullable().optional(),
   gridId: z.coerce.number().nullable().optional(),
   familyId: z.coerce.number().nullable().optional(),
-  relation: z.string().optional().or(z.literal('')),
+  relation: z.string().nullable().optional(),
   /**
    * 必须是合法状态枚举。此前用 z.string() 可写入任意脏值（含 V007 已废弃的
    * CANCELLED），这类值不在在册白名单里，该人会静默从所有人口统计中消失。
    * 日常变更状态请走 POST /persons/:id/status（带留痕），这里仅用于建档时初始状态。
    */
 status: z.enum(PERSON_STATUSES).optional(),
-  remark: z.string().max(500).optional().or(z.literal('')),
-  changeReason: z.string().max(255).optional().or(z.literal('')),
+  remark: z.string().max(500).nullable().optional(),
+  changeReason: z.string().max(255).nullable().optional(),
   /** 重点人群服务台账：银行账号 / 当前应发金额 / 家庭情况 / 身体评估 */
-  bankAccount: z.string().max(32).optional().or(z.literal('')),
+  bankAccount: z.string().max(32).nullable().optional(),
   subsidyAmount: z.coerce.number().min(0, '发放金额不能为负').max(999999.99, '发放金额过大').nullable().optional(),
-  familyCondition: z.string().max(1000).optional().or(z.literal('')),
-  healthAssessment: z.string().max(1000).optional().or(z.literal('')),
+  familyCondition: z.string().max(1000).nullable().optional(),
+  healthAssessment: z.string().max(1000).nullable().optional(),
   /** 残疾专项档案（person_disability，与人员一对一） */
   disability: z.object({
-    disabilityType: z.string().max(64).optional().or(z.literal('')),
-    disabilityLevel: z.enum(DISABILITY_LEVELS).optional().or(z.literal('')),
-    disabilityCard: z.string().max(64).optional().or(z.literal('')),
-    guardianName: z.string().max(64).optional().or(z.literal('')),
-    guardianPhone: z.string().max(20).optional().or(z.literal('')),
-    remark: z.string().max(500).optional().or(z.literal('')),
+    disabilityType: z.string().max(64).nullable().optional(),
+    disabilityLevel: z.enum(DISABILITY_LEVELS).nullable().optional(),
+    disabilityCard: z.string().max(64).nullable().optional(),
+    guardianName: z.string().max(64).nullable().optional(),
+    guardianPhone: z.string().max(20).nullable().optional(),
+    remark: z.string().max(500).nullable().optional(),
   }).optional(),
 });
 
@@ -543,7 +544,7 @@ const statusSchema = z.object({
   status: z.enum(PERSON_STATUSES),
   /** 状态生效日期：死亡记死亡日期、迁出记迁出日期；改回在册时前端传 null 清空 */
   statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
-  reason: z.string().max(255).optional().or(z.literal('')),
+  reason: z.string().max(255).nullable().optional(),
 });
 
 /**
@@ -596,7 +597,7 @@ const batchStatusSchema = z.object({
   personIds: z.array(z.number().int().positive()).min(1).max(500),
   status: z.enum(PERSON_STATUSES),
   statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
-  reason: z.string().max(255).optional().or(z.literal('')),
+  reason: z.string().max(255).nullable().optional(),
 });
 
 /**
@@ -659,9 +660,9 @@ router.post('/:id/tags', requirePermission('tag:manage'), async (req: Request, r
   const id = Number(req.params.id);
   const schema = z.object({
     tagId: z.coerce.number(),
-    effectDate: z.string().optional().or(z.literal('')),
-    expireDate: z.string().optional().or(z.literal('')),
-    basis: z.string().max(500).optional().or(z.literal('')),
+    effectDate: z.string().nullable().optional(),
+    expireDate: z.string().nullable().optional(),
+    basis: z.string().max(500).nullable().optional(),
   });
   const body = schema.parse(req.body);
   const tag = await queryOne<any>('SELECT * FROM tag_definition WHERE id = ? AND object_type = \'PERSON\'', [body.tagId]);
@@ -706,7 +707,7 @@ const batchTagSchema = z.object({
   personIds: z.array(z.number()).min(1, '请选择人员'),
   tagIds: z.array(z.number()).min(1, '请选择标签'),
   action: z.enum(['ADD', 'REMOVE']),
-  basis: z.string().max(500).optional().or(z.literal('')),
+  basis: z.string().max(500).nullable().optional(),
 });
 
 /** 批量打标签/移除标签（二次确认在前端） */

@@ -86,9 +86,9 @@ const defSchema = z.object({
   categoryId: z.coerce.number(),
   name: z.string().min(1).max(64),
   code: z.string().min(1).max(64).regex(/^[A-Z0-9_]+$/, '编码需为大写字母/数字/下划线'),
-  alias: z.string().max(255).optional().or(z.literal('')),
+  alias: z.string().max(255).nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色需为 #RRGGBB').default('#3978F6'),
-  description: z.string().max(500).optional().or(z.literal('')),
+  description: z.string().max(500).nullable().optional(),
   // 写接口：objectType 必填（PERSON/FAMILY），不允许空值落库为 NULL
   objectType: z.enum(['PERSON', 'FAMILY'], { message: 'objectType 只能为 PERSON 或 FAMILY' }),
   allowDuplicate: z.coerce.number().min(0).max(1).default(0),
@@ -164,10 +164,10 @@ router.get('/history', requirePermission('tag:view'), async (req: Request, res: 
   const q = z.object({
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(500).default(20),
-    objectType: z.string().optional().or(z.literal('')),
+    objectType: z.string().nullable().optional(),
     objectId: z.coerce.number().optional(),
     tagId: z.coerce.number().optional(),
-    action: z.string().optional().or(z.literal('')),
+    action: z.string().nullable().optional(),
   }).parse(req.query);
 
   const where: string[] = ['1=1'];
