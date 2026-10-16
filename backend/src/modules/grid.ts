@@ -4,6 +4,8 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
+import { activeSql } from '../utils/personStatus';
+import { FOCUS_GROUPS } from '../utils/focusGroups';
 import { z } from 'zod';
 
 const router = Router();
@@ -16,35 +18,67 @@ const listSchema = z.object({
 });
 
 /**
- * 重点人群统计口径：展示字段 -> 标签编码（编码取自 V002 种子数据的 tag_definition）
- * 党员含正式党员与预备党员；五保沿用现名「特困供养对象」。
+ * 重点人群统计口径：人群定义统一取自 `utils/focusGroups.ts`（唯一来源），
+ * 不再在本文件里另写一份 FOCUS_TAGS —— 原先同一批人群在 keygroup / grid /
+ * statistics / excel 四处各写一遍，改一处要同步四处，极易漏。
  */
-const FOCUS_TAGS: { field: string; codes: string[] }[] = [
-  { field: 'party_count', codes: ['PARTY_MEMBER', 'PARTY_PROBATIONARY'] },
-  { field: 'disabled_count', codes: ['DISABLED_PERSON'] },
-  { field: 'extreme_poverty_count', codes: ['EXTREME_POVERTY_PERSON'] },
-  { field: 'low_income_count', codes: ['LOW_INCOME_PERSON'] },
-  { field: 'veteran_count', codes: ['VETERAN'] },
-  { field: 'preferential_count', codes: ['PREFERENTIAL_OBJECT'] },
-];
-
-const PERSON_ACTIVE = "p_.status IN ('NORMAL','MOVED_IN')";
+const COUNTABLE_FOCUS_GROUPS = FOCUS_GROUPS.filter(
+  (g): g is (typeof FOCUS_GROUPS)[number] & { countField: string } =>
+    !!g.countField && g.tagCodes.length > 0
+);
 
 /**
- * 生成「按标签编码统计人数」的子查询列。
- * 标签编码为代码内常量，直接拼入 SQL，不使用占位符，避免与主查询参数错位。
+ * 重点人群人数：用「条件聚合」一次算完，替代原先每行 6 个相关子查询。
+ *
+ * 原实现 `focusTagSelects()` 会给结果集每一行拼 6 个
+ * `(SELECT COUNT(DISTINCT pt.person_id) FROM person_tag ... )`，
+ * 村庄/网格列表有 N 行就是 **6N 次** person_tag 扫描。
+ * 现在对同一张 `person ⋈ person_tag(ACTIVE) ⋈ tag_definition` 只做一次
+ * GROUP BY + `COUNT(DISTINCT CASE WHEN ...)`，扫描次数降为 1 次。
+ *
+ * 调用方需保证 FROM 中存在别名 p（person）、pt（person_tag）、td（tag_definition）。
  */
-function focusTagSelects(personMatch: string): string {
-  return FOCUS_TAGS.map(
-    ({ field, codes }) =>
-      `(SELECT COUNT(DISTINCT pt.person_id) FROM person_tag pt
-          JOIN tag_definition td ON td.id = pt.tag_id
-          JOIN person p_ ON p_.id = pt.person_id
-        WHERE td.code IN (${codes.map((c) => `'${c}'`).join(',')})
-          AND pt.status = 'ACTIVE'
-          AND ${personMatch}
-          AND ${PERSON_ACTIVE}) AS ${field}`
-  ).join(', ');
+function focusCountColumns(): string {
+  return COUNTABLE_FOCUS_GROUPS.map(
+    (g) =>
+      `COUNT(DISTINCT CASE WHEN td.code IN (${g.tagCodes.map((c) => `'${c}'`).join(',')}) THEN p.id END) AS ${g.countField}`
+  ).join(',\n         ');
+}
+
+/** 重点人群聚合所需的连接片段（p 必须是 person 的别名） */
+const FOCUS_TAG_JOINS = `
+       LEFT JOIN person_tag pt ON pt.person_id = p.id AND pt.status = 'ACTIVE'
+       LEFT JOIN tag_definition td ON td.id = pt.tag_id`;
+
+/** 某网格没有任何命中时补 0，保证前端表格不会出现 undefined */
+function focusCountsOf(row: any): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const g of COUNTABLE_FOCUS_GROUPS) counts[g.countField] = Number(row?.[g.countField] || 0);
+  return counts;
+}
+
+/**
+ * 一次性算出给定网格集合的重点人群人数。
+ *
+ * 为什么单独发一条查询：标签连接会让 person 行数翻倍，若直接并进分页主查询，
+ * LIMIT 的含义就被破坏（一行网格会变成多行）。所以按「主查询取分页 → 本查询
+ * 按 id 聚合 → 内存里合并」的方式做，两条查询都只扫一遍。
+ */
+async function loadGridFocusCounts(gridIds: number[]): Promise<Map<number, Record<string, number>>> {
+  const map = new Map<number, Record<string, number>>();
+  if (!gridIds.length) return map;
+
+  const rows = await query<any>(
+    `SELECT g.id AS grid_id,
+            ${focusCountColumns()}
+     FROM grid g
+     LEFT JOIN person p ON p.grid_id = g.id AND ${activeSql('p')}${FOCUS_TAG_JOINS}
+     WHERE g.id IN (${gridIds.map(() => '?').join(',')})
+     GROUP BY g.id`,
+    gridIds
+  );
+  for (const row of rows) map.set(row.grid_id, focusCountsOf(row));
+  return map;
 }
 
 /** 网格列表（含人口数、家庭数与重点人群统计） */
@@ -68,13 +102,17 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
 
   const rows = await query<any>(
     `SELECT g.*,
-       (SELECT COUNT(*) FROM person p WHERE p.grid_id = g.id AND p.status IN ('NORMAL','MOVED_IN')) AS person_count,
-       (SELECT COUNT(*) FROM family f WHERE f.grid_id = g.id AND f.status = 1) AS family_count,
-       ${focusTagSelects('p_.grid_id = g.id')}
+       (SELECT COUNT(*) FROM person p WHERE p.grid_id = g.id AND ${activeSql('p')}) AS person_count,
+       (SELECT COUNT(*) FROM family f WHERE f.grid_id = g.id AND f.status = 1) AS family_count
      FROM grid g WHERE ${whereSql} ORDER BY g.id LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
-  const result: PageResult<any> = { list: rows, total, page: q.page, pageSize: q.pageSize };
+
+  // 重点人群人数：对本页网格一次性聚合后合并（见 loadGridFocusCounts 说明）
+  const focusMap = await loadGridFocusCounts(rows.map((r: any) => r.id));
+  const list = rows.map((r: any) => ({ ...r, ...focusCountsOf(focusMap.get(r.id)) }));
+
+  const result: PageResult<any> = { list, total, page: q.page, pageSize: q.pageSize };
   return okPage(res, result);
 });
 
@@ -86,7 +124,11 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
  */
 router.get('/villages', requirePermission('grid:view'), async (req: Request, res: Response) => {
   const q = z.object({ keyword: z.string().optional() }).parse(req.query);
-  const where: string[] = ["p.village IS NOT NULL", "p.village <> ''", "p.status IN ('NORMAL','MOVED_IN')"];
+  const where: string[] = [
+    'p.village IS NOT NULL',
+    "p.village <> ''",
+    activeSql('p'),
+  ];
   const params: any[] = [];
 
   if (q.keyword) {
@@ -100,21 +142,23 @@ router.get('/villages', requirePermission('grid:view'), async (req: Request, res
   }
   const whereSql = where.join(' AND ');
 
+  // 重点人群人数改为「条件聚合」：连接 person_tag 会让每个村庄多出若干行，
+  // 因此 person_count 必须用 COUNT(DISTINCT p.id)，否则会被标签行数放大。
   const rows = await query<any>(
     `SELECT p.village AS name,
        vc.manager,
        vc.phone,
-       COUNT(*) AS person_count,
+       COUNT(DISTINCT p.id) AS person_count,
        (SELECT COUNT(DISTINCT fm.family_id) FROM family_member fm
           JOIN person pf ON pf.id = fm.person_id
-        WHERE pf.village = p.village AND pf.status IN ('NORMAL','MOVED_IN')) AS family_count,
+        WHERE pf.village = p.village AND ${activeSql('pf')}) AS family_count,
        (SELECT GROUP_CONCAT(DISTINCT g.name ORDER BY g.id SEPARATOR '、')
           FROM grid g
          WHERE g.id IN (SELECT DISTINCT pg.grid_id FROM person pg
                          WHERE pg.village = p.village AND pg.grid_id IS NOT NULL)) AS grid_names,
-       ${focusTagSelects('p_.village = p.village')}
+       ${focusCountColumns()}
      FROM person p
-     LEFT JOIN village_contact vc ON vc.village_name = p.village
+     LEFT JOIN village_contact vc ON vc.village_name = p.village${FOCUS_TAG_JOINS}
      WHERE ${whereSql}
      GROUP BY p.village, vc.manager, vc.phone
      ORDER BY person_count DESC, p.village ASC`
@@ -180,7 +224,10 @@ router.delete('/:id', requirePermission('grid:manage'), async (req: Request, res
   if (!grid) throw new AppError('网格不存在', 404, 'NOT_FOUND');
 
   const personCount = Number(
-    (await queryOne<any>("SELECT COUNT(*) AS cnt FROM person WHERE grid_id = ? AND status IN ('NORMAL','MOVED_IN')", [id]))?.cnt || 0
+    (await queryOne<any>(
+      `SELECT COUNT(*) AS cnt FROM person WHERE grid_id = ? AND ${activeSql('person')}`,
+      [id]
+    ))?.cnt || 0
   );
   const familyCount = Number(
     (await queryOne<any>('SELECT COUNT(*) AS cnt FROM family WHERE grid_id = ? AND status = 1', [id]))?.cnt || 0

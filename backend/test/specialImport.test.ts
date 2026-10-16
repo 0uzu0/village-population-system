@@ -63,7 +63,7 @@ describe('专项导入配置', () => {
 
   it('导入任务列表的 taskType 过滤用的是这个枚举，而不是写死的旧枚举', () => {
     const src = fs.readFileSync(
-      path.resolve(__dirname, '../src/modules/excel.ts'),
+      path.resolve(__dirname, '../src/modules/excel/tasks.ts'),
       'utf8'
     );
     expect(src).toContain('z.enum(IMPORT_TASK_TYPES)');

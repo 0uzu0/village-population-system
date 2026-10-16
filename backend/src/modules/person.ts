@@ -12,7 +12,7 @@ import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { DISABILITY_LEVELS, disabilityLevelLabel } from '../utils/disability';
 import {
   PERSON_STATUSES,
-  PERSON_ACTIVE_SQL,
+  activeSql,
   STATUS_LABELS,
   isInactiveStatus,
 } from '../utils/personStatus';
@@ -150,7 +150,7 @@ router.get('/', requirePermission('person:view'), async (req: Request, res: Resp
     where.push('p.status = ?');
     params.push(q.status);
   } else if (q.activeOnly !== 'false') {
-    where.push(PERSON_ACTIVE_SQL);
+    where.push(activeSql('p'));
   }
 
   // 网格数据范围（已简化为全部数据，恒不过滤）

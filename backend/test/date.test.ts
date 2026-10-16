@@ -84,7 +84,7 @@ describe('formatDate', () => {
    * 该写法按 UTC 取年月日，遇到本地零点的时刻对象会退回前一天。
    */
   it('业务代码不得再用 toISOString().slice 取日期', () => {
-    const files = ['modules/person.ts', 'modules/keygroup.ts', 'modules/excel.ts', 'modules/pending.ts', 'modules/family.ts'];
+    const files = ['modules/person.ts', 'modules/keygroup.ts', 'modules/excel/importPerson.ts', 'modules/excel/importSpecial.ts', 'modules/excel/importKeyGroup.ts', 'modules/pending.ts', 'modules/family.ts'];
     for (const f of files) {
       const src = fs.readFileSync(path.join(SRC_DIR, f), 'utf8');
       expect(src.includes('toISOString().slice'), `${f} 又出现了 toISOString().slice，会导致日期少一天`).toBe(false);

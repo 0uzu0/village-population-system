@@ -3,8 +3,9 @@ import { query, queryOne } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission, buildGridFilter } from '../middleware/rbac';
 import { ok } from '../utils/response';
-import { markStaleImportTasks } from './excel';
-import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
+import { markStaleImportTasks } from '../services/importTask';
+import { activeSql } from '../utils/personStatus';
+import { FOCUS_GROUPS, allFocusTagCodes } from '../utils/focusGroups';
 
 const router = Router();
 router.use(authMiddleware);
@@ -31,29 +32,29 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
   const [total, personTagCounts, familyTagCounts] = await Promise.all([
     queryOne<any>(
       `SELECT
-        (SELECT COUNT(*) FROM person p WHERE ${PERSON_ACTIVE_SQL} ${scope}) AS total_population,
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}) AS total_population,
         (SELECT COUNT(*) FROM family f WHERE f.status = 1 ${familyScope}) AS family_count,
         (SELECT COUNT(*) FROM grid g WHERE g.status = 1 ${gridScope}) AS grid_count,
-        (SELECT COUNT(*) FROM person p WHERE ${PERSON_ACTIVE_SQL} ${scope}
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}
           AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('HUKOU_POP'))) AS hukou_count,
-        (SELECT COUNT(*) FROM person p WHERE ${PERSON_ACTIVE_SQL} ${scope}
+        (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')} ${scope}
           AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('RESIDENT_POP'))) AS resident_count
       `,
       scopeParams
     ),
-    // 个人类标签：只数在册人员。死亡/迁出的档案保留标签可追溯，但不计入当前服务名单
+    // 个人类标签：只数在册人员。死亡/迁出的档案保留标签可追溯，但不计入当前服务名单。
+    // 编码列表统一取自 utils/focusGroups.ts（原先在各模块里各写一遍 IN 列表）。
     query<any>(
       `SELECT td.code,
          (SELECT COUNT(*) FROM person_tag pt
            WHERE pt.tag_id = td.id AND pt.status='ACTIVE'
              AND EXISTS (SELECT 1 FROM person p
-               WHERE p.id = pt.person_id AND ${PERSON_ACTIVE_SQL} ${scope})) AS cnt
-       FROM tag_definition td WHERE td.code IN
-         ('PARTY_MEMBER','PARTY_PROBATIONARY','VETERAN','PREFERENTIAL_OBJECT','LOW_INCOME_PERSON',
-          'EXTREME_POVERTY_PERSON','DISABLED_PERSON')`,
-      scopeParams
+               WHERE p.id = pt.person_id AND ${activeSql('p')} ${scope})) AS cnt
+       FROM tag_definition td WHERE td.code IN (${allFocusTagCodes().map(() => '?').join(',')})`,
+      // 占位符顺序：子查询里的数据范围占位符在前，IN 列表在后
+      [...scopeParams, ...allFocusTagCodes()]
     ),
     // 家庭类标签：认定对象是家庭，走 family_tag；家庭无死亡概念，户主去世家庭仍在册
     query<any>(
@@ -68,19 +69,21 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
   const tagMap = new Map<string, number>();
   for (const r of [...personTagCounts, ...familyTagCounts]) tagMap.set(r.code, Number(r.cnt));
 
+  // 重点人群卡片字段由 focusGroups 单一来源推导（党员含正式+预备，与其他统计口径一致）
+  const focusCounts: Record<string, number> = {};
+  for (const g of FOCUS_GROUPS) {
+    if (!g.dashboardField) continue;
+    focusCounts[g.dashboardField] = g.tagCodes.reduce((sum, code) => sum + (tagMap.get(code) || 0), 0);
+  }
+
   return ok(res, {
     totalPopulation: Number(total?.total_population || 0),
     familyCount: Number(total?.family_count || 0),
     gridCount: Number(total?.grid_count || 0),
     hukouCount: Number(total?.hukou_count || 0),
     residentCount: Number(total?.resident_count || 0),
-    partyCount: (tagMap.get('PARTY_MEMBER') || 0) + (tagMap.get('PARTY_PROBATIONARY') || 0),
-    veteranCount: tagMap.get('VETERAN') || 0,
-    preferentialCount: tagMap.get('PREFERENTIAL_OBJECT') || 0,
-    lowIncomePersonCount: tagMap.get('LOW_INCOME_PERSON') || 0,
+    ...focusCounts,
     lowIncomeFamilyCount: tagMap.get('LOW_INCOME_FAMILY') || 0,
-    extremePovertyCount: tagMap.get('EXTREME_POVERTY_PERSON') || 0,
-    disabledCount: tagMap.get('DISABLED_PERSON') || 0,
   });
 });
 
@@ -98,17 +101,17 @@ router.get('/distributions', requirePermission('statistics:view'), async (req: R
          WHEN TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) BETWEEN 60 AND 79 THEN '60-79岁'
          ELSE '80岁及以上'
        END AS band, COUNT(*) AS cnt
-     FROM person p WHERE ${PERSON_ACTIVE_SQL} AND birth_date IS NOT NULL ${scope}
+     FROM person p WHERE ${activeSql('p')} AND birth_date IS NOT NULL ${scope}
      GROUP BY band ORDER BY FIELD(band,'0-17岁','18-35岁','36-59岁','60-79岁','80岁及以上')`
   );
 
   const gender = await query<any>(
-    `SELECT gender, COUNT(*) AS cnt FROM person p WHERE ${PERSON_ACTIVE_SQL} ${scope} GROUP BY gender`
+    `SELECT gender, COUNT(*) AS cnt FROM person p WHERE ${activeSql('p')} ${scope} GROUP BY gender`
   );
 
   const grids = await query<any>(
     `SELECT g.id, g.name, COUNT(p.id) AS cnt
-     FROM grid g LEFT JOIN person p ON p.grid_id = g.id AND ${PERSON_ACTIVE_SQL}
+     FROM grid g LEFT JOIN person p ON p.grid_id = g.id AND ${activeSql('p')}
      WHERE g.status = 1 GROUP BY g.id, g.name ORDER BY g.id`
   );
 
@@ -117,7 +120,7 @@ router.get('/distributions', requirePermission('statistics:view'), async (req: R
     `SELECT td.code, td.name, td.color, COUNT(pt.id) AS cnt
      FROM tag_definition td
      LEFT JOIN person_tag pt ON pt.tag_id = td.id AND pt.status='ACTIVE'
-       AND EXISTS (SELECT 1 FROM person p WHERE p.id = pt.person_id AND ${PERSON_ACTIVE_SQL})
+       AND EXISTS (SELECT 1 FROM person p WHERE p.id = pt.person_id AND ${activeSql('p')})
      WHERE td.object_type='PERSON' GROUP BY td.id ORDER BY cnt DESC LIMIT 15`
   );
 

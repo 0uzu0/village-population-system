@@ -7,7 +7,8 @@ import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../u
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
 import { formatDate } from '../utils/date';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
-import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
+import { activeSql } from '../utils/personStatus';
+import { FOCUS_GROUPS, focusGroupLabel } from '../utils/focusGroups';
 import { z } from 'zod';
 import { queryEnum } from '../utils/schema';
 
@@ -19,17 +20,16 @@ router.use(authMiddleware);
  * 重点人群快捷入口定义。
  * - 身份类（党员/退役军人…）按标签编码统计，需先通过名单导入或手工打标签
  * - 年龄类（老年人/未成年人）按年龄自动判定，无需打标签即可统计
+ *
+ * 定义统一取自 utils/focusGroups.ts（唯一来源），这里只是投影成接口返回结构。
+ * `code` 是对外契约：身份类等于真实 tag_definition.code，前端据此匹配标签做筛选。
  */
-const QUICK_GROUPS: { label: string; code: string; minAge?: number; maxAge?: number }[] = [
-  { label: '党员', code: 'PARTY_MEMBER' },
-  { label: '退役军人', code: 'VETERAN' },
-  { label: '优抚对象', code: 'PREFERENTIAL_OBJECT' },
-  { label: '低保对象', code: 'LOW_INCOME_PERSON' },
-  { label: '特困供养对象', code: 'EXTREME_POVERTY_PERSON' },
-  { label: '残疾人', code: 'DISABLED_PERSON' },
-  { label: `老年人（≥${ELDERLY_MIN_AGE}岁）`, code: 'ELDERLY', minAge: ELDERLY_MIN_AGE },
-  { label: `未成年人（<${MINOR_MAX_AGE + 1}岁）`, code: 'MINOR', maxAge: MINOR_MAX_AGE },
-];
+const QUICK_GROUPS = FOCUS_GROUPS.map((g) => ({
+  label: focusGroupLabel(g),
+  code: g.code,
+  minAge: g.minAge,
+  maxAge: g.maxAge,
+}));
 
 /** 快捷入口统计（身份类按标签人数，年龄类按出生日期推算，均存在交叉、不可相加） */
 router.get('/quick', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
@@ -39,7 +39,7 @@ router.get('/quick', requirePermission('keygroup:view'), async (req: Request, re
        (SELECT COUNT(*) FROM person_tag pt
           JOIN person p2 ON p2.id = pt.person_id
         WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
-          AND p2.status IN ('NORMAL','MOVED_IN')) AS cnt
+          AND ${activeSql('p2')}) AS cnt
      FROM tag_definition td
      WHERE td.code IN (${QUICK_GROUPS.map(() => '?').join(',')})`,
     QUICK_GROUPS.map((g) => g.code)
@@ -55,7 +55,7 @@ router.get('/quick', requirePermission('keygroup:view'), async (req: Request, re
       // 年龄类：直接按出生日期推算，不依赖是否打过标签
       const af = buildAgeFilter(g.minAge ?? null, g.maxAge ?? null, 'p');
       const row = await queryOne<any>(
-        `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND p.status IN ('NORMAL','MOVED_IN')`,
+        `SELECT COUNT(*) AS cnt FROM person p WHERE 1=1 ${af.where} AND ${activeSql('p')}`,
         af.params
       );
       count = Number(row?.cnt || 0);
@@ -124,7 +124,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
 
   // 默认只统计在册人口：死亡/迁出人员已从重点人群服务名单中退出
   if (q.activeOnly !== 'false') {
-    where.push(PERSON_ACTIVE_SQL);
+    where.push(activeSql('p'));
     conditions.push('仅统计在册人员');
   } else {
     conditions.push('含已迁出/死亡的历史档案');

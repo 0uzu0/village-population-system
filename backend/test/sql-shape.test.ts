@@ -149,8 +149,8 @@ describe('INSERT 语句形状校验（列数 = 值数）', () => {
     }
   });
 
-  it('excel.ts 的人员 INSERT 列清单与行模板对齐（本次事故回归）', () => {
-    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/excel.ts'), 'utf8');
+  it('人口导入的人员 INSERT 列清单与行模板对齐（本次事故回归）', () => {
+    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/excel/importPerson.ts'), 'utf8');
     // 批量写入后 VALUES 部分是运行时拼接的，这里分别校验「列清单」与「单行值模板」
     const mCols = src.match(/\bINSERT INTO person \(([\s\S]*?)\)\s*VALUES/);
     expect(mCols, '未找到 person 的 INSERT 列清单').toBeTruthy();
@@ -173,7 +173,11 @@ describe('INSERT 语句形状校验（列数 = 值数）', () => {
   });
 
   it('批量写入的占位符个数与对应列数一致（分片拼接回归）', () => {
-    const src = fs.readFileSync(path.join(SRC_DIR, 'modules/excel.ts'), 'utf8');
+    // 拆分后这两条写入语句分处不同文件：人口导入写 import_pending，名单导入写 person_tag
+    const src = [
+      fs.readFileSync(path.join(SRC_DIR, 'modules/excel/importPerson.ts'), 'utf8'),
+      fs.readFileSync(path.join(SRC_DIR, 'modules/excel/importKeyGroup.ts'), 'utf8'),
+    ].join('\n');
     // import_pending 18 列 → 单行模板 18 个占位符；person_tag 6 列；tag_change_log 6 列
     const cases: { cols: number; re: RegExp }[] = [
       { cols: 18, re: /import_pending \(batch_no[\s\S]*?VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },

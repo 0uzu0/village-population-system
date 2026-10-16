@@ -4,7 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
-import { PERSON_ACTIVE_SQL } from '../utils/personStatus';
+import { activeSql } from '../utils/personStatus';
 import { z } from 'zod';
 
 const router = Router();
@@ -71,7 +71,7 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
        (SELECT COUNT(*) FROM person_tag pt
           WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
             AND EXISTS (SELECT 1 FROM person p
-              WHERE p.id = pt.person_id AND ${PERSON_ACTIVE_SQL})) AS person_count,
+              WHERE p.id = pt.person_id AND ${activeSql('p')})) AS person_count,
        (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
           WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND f.status = 1) AS family_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id

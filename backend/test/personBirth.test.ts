@@ -6,7 +6,7 @@ const SRC = path.resolve(__dirname, '../src');
 const read = (p: string) => fs.readFileSync(path.join(SRC, p), 'utf8');
 
 const personSrc = read('modules/person.ts');
-const excelSrc = read('modules/excel.ts');
+const excelSrc = read('modules/excel/importPerson.ts');
 const pendingSrc = read('modules/pending.ts');
 const migSrc = read('db/migrations/V013__person_birth_from_idcard.sql');
 const pageSrc = fs.readFileSync(

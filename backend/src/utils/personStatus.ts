@@ -13,11 +13,20 @@ export type PersonStatus = (typeof PERSON_STATUSES)[number];
 /** 在册状态：这两类才计入人口统计 */
 export const ACTIVE_STATUSES = ['NORMAL', 'MOVED_IN'] as const;
 
+const ACTIVE_STATUS_SQL_LIST = ACTIVE_STATUSES.map((s) => `'${s}'`).join(',');
+
 /**
- * 在册过滤 SQL 片段（列表别名为 p）。
- * 统计模块用 p_ 等其他别名时不要直接复用这个常量，避免别名错配。
+ * 在册过滤 SQL 片段，**可指定表别名**——项目内的唯一来源，勿再手写 status IN (...)。
+ *
+ * 历史问题：早先这里是个把别名写死为 `p` 的常量，于是统计模块用 `p_`、村庄统计用 `pf`
+ * 时无法复用，只能各自手抄一份字符串（全项目曾散落 8 处），随后多次出现
+ * 「新增统计忘加在册过滤 → 已死亡/迁出的人仍出现在重点人群中」。
+ *
+ * @param alias 表别名，如 'p' / 'p_' / 'pf' / 'person'
  */
-export const PERSON_ACTIVE_SQL = "p.status IN ('NORMAL','MOVED_IN')";
+export function activeSql(alias = 'p'): string {
+  return `${alias}.status IN (${ACTIVE_STATUS_SQL_LIST})`;
+}
 
 export const STATUS_LABELS: Record<string, string> = {
   NORMAL: '正常',
