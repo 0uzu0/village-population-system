@@ -379,22 +379,28 @@ private fun PendingDetailDialog(
                         idCard = cleaned
                         idCardHint = null
                         idCardHintError = false
-                        if (cleaned.length < 15) return@onValueChange
-                        when (val result = IdCard.validate(cleaned)) {
-                            is IdCard.Result.Invalid -> {
-                                idCardHint = result.message
-                                idCardHintError = true
-                            }
-                            is IdCard.Result.Valid -> {
-                                // 校验位合法 ≠ 月日存在（如 02-30）：这种只提示、
-                                // 不动 gender/birthDate，让用户自己核对后手改
-                                idCardHint = if (result.birthDate == null) {
-                                    "号码合法，但其中的出生日期不存在，请手动核对出生日期"
-                                } else {
-                                    "已按证件号带出出生日期与性别"
+                        // 用 if/else 收口，不用 return@：lambda 隐式 label 是调用处
+                        // 函数名 EditableRow，写 @onValueChange（参数名）编译器不认，
+                        // 会报 'return' is prohibited here
+                        if (cleaned.length < 15) {
+                            // 仍在输入中：不动字段、不出错
+                        } else {
+                            when (val result = IdCard.validate(cleaned)) {
+                                is IdCard.Result.Invalid -> {
+                                    idCardHint = result.message
+                                    idCardHintError = true
                                 }
-                                result.gender?.let { gender = it }
-                                result.birthDate?.let { birthDate = it }
+                                is IdCard.Result.Valid -> {
+                                    // 校验位合法 ≠ 月日存在（如 02-30）：这种只提示、
+                                    // 不动 gender/birthDate，让用户自己核对后手改
+                                    idCardHint = if (result.birthDate == null) {
+                                        "号码合法，但其中的出生日期不存在，请手动核对出生日期"
+                                    } else {
+                                        "已按证件号带出出生日期与性别"
+                                    }
+                                    result.gender?.let { gender = it }
+                                    result.birthDate?.let { birthDate = it }
+                                }
                             }
                         }
                     },

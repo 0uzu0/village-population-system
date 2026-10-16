@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -232,9 +234,12 @@ fun PersonListScreen(
                 text = { Text("新增") },
                 containerColor = tokens.brand,
                 contentColor = androidx.compose.ui.graphics.Color.White,
-                // 阴影与卡片同一档（4dp）。默认 6dp 比卡片还重，
-                // 悬浮件比内容层还「糊」不符合层次关系
-                shadowElevation = AppShapes.cardElevation,
+                // 阴影与卡片同一档（4dp）。FAB 没有 shadowElevation 命名参数，
+                // 走 FloatingActionButtonDefaults.elevation（默认 defaultElevation
+                // 6dp 比卡片还重，悬浮件比内容层还「糊」不符合层次关系）
+                elevation = FloatingActionButtonDefaults.elevation(
+                    defaultElevation = AppShapes.cardElevation,
+                ),
             )
         },
     ) { padding ->
