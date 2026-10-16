@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne, execute, withTransaction } from '../config/db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, invalidateAuthCache } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
@@ -87,6 +87,8 @@ router.put('/:id', requirePermission('user:manage'), async (req: Request, res: R
       if (roleId) await conn.query('INSERT IGNORE INTO sys_user_role (user_id, role_id) VALUES (?,?)', [id, roleId]);
     }
   });
+  // 角色/管理员开关变更后必须让权限缓存立即失效，否则最长 1 分钟内仍按旧权限放行
+  if (isAdmin !== undefined) invalidateAuthCache(id);
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'user:edit', request: { id, isAdmin }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id }, '用户已更新');
 });
@@ -99,6 +101,8 @@ router.post('/:id/toggle', requirePermission('user:manage'), async (req: Request
   if (!u) throw new AppError('用户不存在', 404, 'NOT_FOUND');
   const next = u.status ? 0 : 1;
   await execute('UPDATE sys_user SET status = ? WHERE id = ?', [next, id]);
+  // 停用/启用立即生效（authMiddleware 每次请求校验 active）
+  invalidateAuthCache(id);
   return ok(res, { id, status: !!next }, next ? '用户已启用' : '用户已停用');
 });
 

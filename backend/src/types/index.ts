@@ -6,6 +6,8 @@ export interface AuthUser {
   username: string;
   realName: string;
   isAdmin: boolean;
+  /** 账号是否启用（sys_user.status）。停用后即使持有未过期的 token 也应被拒。 */
+  active: boolean;
   roles: string[];
   permissions: Set<string>;
 }

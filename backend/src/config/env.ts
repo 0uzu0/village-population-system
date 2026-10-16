@@ -27,6 +27,15 @@ function req(name: string, fallback?: string): string {
   return v;
 }
 
+/**
+ * 内置开发默认值（源码中公开可见，只能用于本地开发）。
+ * 生产环境若仍在用，启动时会被 assertProductionSafety() 拒绝。
+ */
+export const DEV_DEFAULTS = {
+  jwtSecret: 'dev-secret-change-me-please-32chars-min',
+  adminPassword: 'Admin@123456',
+} as const;
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(req('PORT', '8080'), 10),
@@ -37,13 +46,53 @@ export const env = {
   dbUser: req('DB_USER', 'village'),
   dbPassword: req('DB_PASSWORD', ''),
 
-  jwtSecret: req('JWT_SECRET', 'dev-secret-change-me-please-32chars-min'),
+  jwtSecret: req('JWT_SECRET', DEV_DEFAULTS.jwtSecret),
   jwtExpiresIn: req('JWT_EXPIRES_IN', '12h'),
 
   adminInitUsername: req('ADMIN_INIT_USERNAME', 'admin'),
-  adminInitPassword: req('ADMIN_INIT_PASSWORD', 'Admin@123456'),
+  adminInitPassword: req('ADMIN_INIT_PASSWORD', DEV_DEFAULTS.adminPassword),
   adminInitName: req('ADMIN_INIT_NAME', '系统管理员'),
 
   corsOrigin: req('CORS_ORIGIN', '*'),
   uploadDir: req('UPLOAD_DIR', './uploads'),
 };
+
+/**
+ * 检查生产环境是否仍在用内置开发默认值。
+ * 纯函数，便于单测（不依赖 process.env）。
+ *
+ * 为什么必须拦：JWT_SECRET 是源码里的公开常量，若生产沿用它，
+ * 任何人都能自行签发 `{uid: 1}` 的 token 直接以管理员身份调用全部接口。
+ */
+export function checkProductionSafety(cfg: {
+  nodeEnv: string;
+  jwtSecret: string;
+  /** 仅当本次启动会「新建管理员账号」时才需要校验初始密码 */
+  adminInitPassword?: string;
+  willCreateAdmin?: boolean;
+}): string[] {
+  if (cfg.nodeEnv !== 'production') return [];
+  const problems: string[] = [];
+  if (cfg.jwtSecret === DEV_DEFAULTS.jwtSecret) {
+    problems.push('JWT_SECRET 仍为内置开发默认值（公开常量，可被用于伪造管理员 token）');
+  }
+  if (cfg.willCreateAdmin && cfg.adminInitPassword === DEV_DEFAULTS.adminPassword) {
+    problems.push('ADMIN_INIT_PASSWORD 仍为内置开发默认值（弱口令，且在全网源码中可见）');
+  }
+  return problems;
+}
+
+/** 启动即校验：生产环境配置不合格直接拒绝启动，避免带病上线 */
+export function assertProductionSafety(cfg?: { willCreateAdmin?: boolean }): void {
+  const problems = checkProductionSafety({
+    nodeEnv: env.nodeEnv,
+    jwtSecret: env.jwtSecret,
+    adminInitPassword: env.adminInitPassword,
+    willCreateAdmin: cfg?.willCreateAdmin,
+  });
+  if (problems.length) {
+    throw new Error(
+      `[配置错误] 生产环境禁止使用内置默认值，请在 deploy/.env 中设置后重启：\n  - ${problems.join('\n  - ')}`
+    );
+  }
+}

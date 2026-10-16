@@ -258,24 +258,39 @@ router.post('/transfer-person', requirePermission('person:edit'), async (req: Re
   const target = await queryOne<any>('SELECT id FROM grid WHERE id = ?', [targetGridId]);
   if (!target) throw new AppError('目标网格不存在', 404, 'NOT_FOUND');
 
-  const gridFilter = buildGridFilter(req, 'grid_id');
-  const inClause = personIds.map(() => '?').join(',');
+  // 一次性取回待转移人员的原网格，避免在事务里逐条 SELECT（原实现是 N+1）。
+  // 已在目标网格的人直接跳过，不产生无意义的变更日志。
+  const placeholders = personIds.map(() => '?').join(',');
+  const rows = await query<any>(
+    `SELECT id, grid_id FROM person WHERE id IN (${placeholders})`,
+    personIds
+  );
+  const moving = rows.filter((p) => p.grid_id !== targetGridId);
 
   await withTransaction(async (conn) => {
-    for (const pid of personIds) {
-      const person = await queryOne<any>('SELECT id, grid_id FROM person WHERE id = ?', [pid]);
-      if (!person) continue;
-      await conn.query('UPDATE person SET grid_id = ?, updated_by = ? WHERE id = ?', [targetGridId, req.user!.id, pid]);
+    for (const person of moving) {
+      await conn.query('UPDATE person SET grid_id = ?, updated_by = ? WHERE id = ?', [
+        targetGridId,
+        req.user!.id,
+        person.id,
+      ]);
       await conn.query(
         `INSERT INTO person_change_log (person_id, field_name, old_value, new_value, change_type, reason, operator_id)
          VALUES (?, 'grid_id', ?, ?, 'UPDATE', ?, ?)`,
-        [pid, String(person.grid_id || ''), String(targetGridId), reason || '网格转移', req.user!.id]
+        [person.id, String(person.grid_id || ''), String(targetGridId), reason || '网格转移', req.user!.id]
       );
     }
   });
 
-  await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'grid:transfer_person', request: { personIds: personIds.length, targetGridId }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { transferred: personIds.length }, '人员已转移');
+  await writeAudit({
+    userId: req.user!.id,
+    username: req.user!.username,
+    action: 'grid:transfer_person',
+    request: { personIds: moving.length, targetGridId },
+    result: 'SUCCESS',
+    ip: req.ip,
+  });
+  return ok(res, { transferred: moving.length }, moving.length ? '人员已转移' : '所选人员已在目标网格，无需转移');
 });
 
 export default router;

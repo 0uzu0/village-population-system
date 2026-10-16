@@ -5,6 +5,7 @@ import { signToken, loadAuthContext } from '../middleware/auth';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail, AppError } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
+import { loginRateLimit } from '../middleware/rateLimit';
 import { z } from 'zod';
 
 const router = Router();
@@ -14,8 +15,8 @@ const loginSchema = z.object({
   password: z.string().min(1, '请输入密码'),
 });
 
-/** 登录 */
-router.post('/login', async (req: Request, res: Response) => {
+/** 登录（限流：同 IP 每分钟 10 次，防密码爆破） */
+router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return fail(res, parsed.error.errors[0].message);
   const { username, password } = parsed.data;

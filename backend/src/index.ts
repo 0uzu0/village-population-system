@@ -1,5 +1,5 @@
 import { createApp } from './app';
-import { env } from './config/env';
+import { env, assertProductionSafety } from './config/env';
 import { runMigrations } from './db/migrate';
 import { pool, queryOne, execute, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
@@ -18,6 +18,9 @@ async function bootstrapAdmin(): Promise<void> {
   const admin = await queryOne<any>('SELECT id FROM sys_user WHERE username = ?', [env.adminInitUsername]);
   if (admin) return;
 
+  // 确实要新建管理员时，才校验初始口令不能是内置默认弱口令
+  assertProductionSafety({ willCreateAdmin: true });
+
   await withTransaction(async (conn) => {
     const r: any = await conn.query(
       'INSERT INTO sys_user (username, password_hash, real_name, status, is_admin) VALUES (?,?,?,1,1)',
@@ -34,6 +37,9 @@ async function bootstrapAdmin(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // 生产环境配置自检：仍在用内置默认密钥/弱口令则直接拒绝启动（避免带病上线）
+  assertProductionSafety();
+
   // 数据库迁移（幂等）
   await runMigrations();
 
