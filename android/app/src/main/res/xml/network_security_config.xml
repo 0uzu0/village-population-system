@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      允许明文传输，这是刻意为之，不是漏配。
+
+      村级部署的现实形态：系统跑在村里的 NAS 或一台内网服务器上，走 http://192.168.x.x，
+      服务器地址由各村自己填（打包时无法白名单化），因此没有条件使用 HTTPS。
+      放开的代价由这几件事兜底：只在局域网/政务内网可达、登录接口已限流（同 IP 每分钟 10 次）、
+      密码用 bcrypt 存储、token 有有效期。
+
+      若将来上了 HTTPS 域名，应把 base-config 改成 cleartextTrafficPermitted="false"，
+      只对特定 IP 段开 domain-config。
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

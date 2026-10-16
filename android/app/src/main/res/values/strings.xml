@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  这里**只放清单文件必须用到的字符串**。
+
+  界面上的中文一律直接写在 Compose 代码里，不走 strings.xml：
+    · 本应用只面向中文用户（build.gradle.kts 里 resourceConfigurations 已限定 zh），
+      不存在多语言分支，抽成资源只会让「看界面」和「看代码」两地跳；
+    · 文案与它所在的页面放在一起，改起来不容易漏。
+
+  唯一例外是 app_name：桌面图标名和任务管理器里的名字由系统读取，
+  只能从清单文件的 @string 拿，写不进 Compose。
+-->
+<resources>
+    <string name="app_name">掌上村务</string>
+</resources>

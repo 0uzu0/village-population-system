@@ -1,0 +1,27 @@
+# Gradle
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 签名文件与密钥：一律不提交
+*.jks
+*.keystore
+keystore.properties
+
+# 生成的 release 产物
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# 本机验证用的镜像 init 脚本（只在网络受限的开发机上用，不进仓库）
+local-mirror.init.gradle.kts

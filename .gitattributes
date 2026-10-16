@@ -1,0 +1,32 @@
+# =============================================================
+# 行尾策略
+#
+# 背景：开发机是 Windows，`core.autocrlf=true` 会把检出的文本文件变成 CRLF。
+# 对普通源码无害，但有两类文件一旦被转换就是「直接坏掉」：
+#
+#   · shell 脚本（android/gradlew）：CRLF 会让 Linux/CI 报
+#     "bad interpreter: /bin/sh^M"，而且报错信息完全看不出是行尾问题；
+#   · Windows 批处理（*.bat）：反过来必须是 CRLF，用 LF 会执行异常。
+#
+# 这里只对「行尾会决定能不能运行」的文件做显式声明，**不做全仓库 `* text=auto`**——
+# 那会在下次提交时重排整个仓库的行尾，产生一个几万行的无意义 diff。
+# =============================================================
+
+# shell 脚本一律 LF（含无扩展名的 gradlew）
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Windows 批处理一律 CRLF
+gradlew.bat text eol=crlf
+*.bat text eol=crlf
+
+# 二进制：禁止任何行尾转换（否则文件会被改坏且 git 还认为「有改动」）
+*.jar binary
+*.apk binary
+*.aab binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.pdf binary

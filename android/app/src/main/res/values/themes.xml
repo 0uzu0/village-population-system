@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      只声明一个「光秃秃」的窗口主题：界面全部由 Compose 绘制，
+      因此不需要 AppCompat 主题，也就省掉了 appcompat 依赖。
+    -->
+    <style name="Theme.VillagePopulation" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

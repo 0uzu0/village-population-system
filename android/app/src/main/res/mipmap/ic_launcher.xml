@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 8.0 以下（minSdk 24 的设备）用的图标：普通矢量图，自带底色。
+  放在 mipmap/ 这个不带密度限定的目录里，任何屏幕密度都会回退到这里，
+  这样在只有 anydpi-v26 自适应图标的情况下 API 24/25 也能装得上、有图标。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FF1D6FE0"
+        android:pathData="M16,8 H92 A8,8 0 0 1 100,16 V92 A8,8 0 0 1 92,100 H16 A8,8 0 0 1 8,92 V16 A8,8 0 0 1 16,8 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,24 L86,48 L78,56 L54,38 L30,56 L22,48 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,52 H74 V84 H34 Z" />
+    <path
+        android:fillColor="#FF1D6FE0"
+        android:pathData="M47,84 V68 A7,7 0 0 1 61,68 V84 Z" />
+</vector>

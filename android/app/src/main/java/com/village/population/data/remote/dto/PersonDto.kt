@@ -1,0 +1,142 @@
+package com.village.population.data.remote.dto
+
+import kotlinx.serialization.Serializable
+
+/**
+ * 人员对象。
+ *
+ * 全部字段都给默认值并允许为空，原因有二：
+ *  - 列表接口与详情接口返回的字段并不一致（详情多出 `disability`、`changes`）；
+ *  - 后端是手写 SQL + 动态 SELECT，某列没取到就是缺失字段，模型不该因此整条解析失败。
+ *
+ * 字段名严格用驼峰：后端 toPersonVO() 已经把 snake_case 转过了，
+ * 用下划线（如 person_no）会静默拿到 null —— 这个坑在 PC 端已经踩过两次。
+ */
+@Serializable
+data class PersonDto(
+    val id: Int = 0,
+    val personNo: String? = null,
+    val name: String = "",
+    val formerName: String? = null,
+    val gender: String? = null,
+    val birthDate: String? = null,
+    val age: Int? = null,
+    val idCard: String? = null,
+    val phone: String? = null,
+    val phoneBackup: String? = null,
+    val hukouAddress: String? = null,
+    val liveAddress: String? = null,
+    val village: String? = null,
+    val gridId: Int? = null,
+    val gridName: String? = null,
+    val familyId: Int? = null,
+    val familyName: String? = null,
+    val relation: String? = null,
+    val status: String = "NORMAL",
+    val statusDate: String? = null,
+    val remark: String? = null,
+
+    // 重点人群服务台账
+    val bankAccount: String? = null,
+    val subsidyAmount: Double? = null,
+    val familyCondition: String? = null,
+    val healthAssessment: String? = null,
+
+    // 残疾专项档案：只有建档过的才有对象，没建档是 null
+    val disability: DisabilityDto? = null,
+
+    val dataSource: String? = null,
+    val updatedAt: String? = null,
+    val tags: List<PersonTagDto> = emptyList(),
+    val changes: List<PersonChangeDto> = emptyList(),
+)
+
+/**
+ * 标签。列表接口返回 `{ id, name, code, color }`，
+ * 详情接口多出 `linkId`（解除标签时要用）与生效/失效日期。
+ */
+@Serializable
+data class PersonTagDto(
+    val id: Int = 0,
+    val linkId: Int? = null,
+    val name: String = "",
+    val code: String? = null,
+    val color: String? = null,
+    val effectDate: String? = null,
+    val expireDate: String? = null,
+    val status: String? = null,
+    val basis: String? = null,
+    val createdAt: String? = null,
+)
+
+/** 残疾档案。pd.remark 与 person.remark 同名，后端已取别名 disability_remark 并包成该对象 */
+@Serializable
+data class DisabilityDto(
+    val type: String? = null,
+    val level: String? = null,
+    val levelLabel: String? = null,
+    val card: String? = null,
+    val guardianName: String? = null,
+    val guardianPhone: String? = null,
+    val remark: String? = null,
+)
+
+/** 人员变更历史（字段级留痕） */
+@Serializable
+data class PersonChangeDto(
+    val fieldName: String? = null,
+    val oldValue: String? = null,
+    val newValue: String? = null,
+    val changeType: String? = null,
+    val reason: String? = null,
+    val createdAt: String? = null,
+)
+
+/**
+ * 新增人员请求。
+ *
+ * 只列出移动端采集表单真正会填的字段；其余字段不传，后端按 optional 处理。
+ * 关键：`gender` 后端是 `z.enum(['MALE','FEMALE']).optional()`——**不接受 null**，
+ * 因此 Json 配了 explicitNulls=false，null 字段直接不序列化。
+ *
+ * 另一个关键：出生日期与性别不由用户填，而是从身份证提取后带上（与后端
+ * 「身份证是出生日期/性别的权威来源」口径一致）。服务端还会再算一次并覆盖，
+ * 这里带上只是为了让离线队列里的数据自洽。
+ */
+@Serializable
+data class PersonCreateRequest(
+    val name: String,
+    val gender: String? = null,
+    val birthDate: String? = null,
+    val idCard: String? = null,
+    val phone: String? = null,
+    val phoneBackup: String? = null,
+    val hukouAddress: String? = null,
+    val liveAddress: String? = null,
+    val village: String? = null,
+    val gridId: Int? = null,
+    val familyId: Int? = null,
+    val relation: String? = null,
+    val remark: String? = null,
+)
+
+/**
+ * 给人员打标签。
+ * 注意后端一次只接受**一个** tagId（不是数组）——批量打标是另一个接口
+ * `/persons/batch-tags`，且要求先选中若干人员。移动端按「一次点一个标签」来做，
+ * 与后端的 `allow_duplicate` 校验（已关联则返回 409 DUPLICATE_TAG）也就对得上了。
+ */
+@Serializable
+data class AddTagRequest(
+    val tagId: Int,
+    val effectDate: String? = null,
+    val expireDate: String? = null,
+    val basis: String? = null,
+)
+
+@Serializable
+data class ChangeStatusRequest(
+    val status: String,
+    val statusDate: String? = null,
+    val reason: String? = null,
+)

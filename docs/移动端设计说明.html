@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>掌上村务 · 安卓移动端设计说明</title>
+<style>
+  :root {
+    --brand: #1D6FE0;
+    --brand-strong: #1557B0;
+    --brand-light: #EAF1FE;
+    --brand-faint: #F5F8FE;
+    --ink: #1B1F26;
+    --ink-2: #4A5260;
+    --ink-3: #7A8494;
+    --line: #E2E7EF;
+    --line-2: #EDF1F7;
+    --bg: #F4F6FA;
+    --green: #12A150;
+    --green-bg: #E8F7EE;
+    --amber: #B26B00;
+    --amber-bg: #FDF3E3;
+    --red: #C0261B;
+    --red-bg: #FDECEA;
+    --code-bg: #F1F4F9;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(16, 32, 61, .05), 0 8px 24px rgba(16, 32, 61, .06);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---------- 封面 ---------- */
+  .hero {
+    background: linear-gradient(135deg, #1D6FE0 0%, #1557B0 55%, #0F3F84 100%);
+    color: #fff;
+    padding: 56px 0 48px;
+    margin-bottom: 40px;
+  }
+  .hero .wrap { padding-bottom: 0; }
+  .hero-tag {
+    display: inline-block;
+    padding: 3px 12px;
+    border: 1px solid rgba(255,255,255,.45);
+    border-radius: 999px;
+    font-size: 13px;
+    letter-spacing: .06em;
+    margin-bottom: 18px;
+  }
+  .hero h1 { font-size: 34px; line-height: 1.3; margin: 0 0 12px; font-weight: 700; }
+  .hero p { margin: 0; font-size: 15.5px; color: rgba(255,255,255,.88); max-width: 760px; }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 10px 28px;
+    margin-top: 26px; font-size: 13.5px; color: rgba(255,255,255,.8);
+  }
+  .hero-meta b { color: #fff; font-weight: 600; }
+
+  /* ---------- 目录 ---------- */
+  .toc {
+    background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 22px 26px; margin-bottom: 40px;
+  }
+  .toc h2 { font-size: 15px; margin: 0 0 14px; color: var(--ink-2); font-weight: 600; letter-spacing: .04em; }
+  .toc ol {
+    margin: 0; padding: 0; list-style: none;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px 24px;
+  }
+  .toc a { color: var(--brand); text-decoration: none; font-size: 14.5px; }
+  .toc a:hover { text-decoration: underline; }
+  .toc .n { color: var(--ink-3); font-variant-numeric: tabular-nums; margin-right: 8px; font-size: 13px; }
+
+  /* ---------- 章节 ---------- */
+  section { margin-bottom: 52px; scroll-margin-top: 20px; }
+  h2.sec {
+    font-size: 23px; margin: 0 0 8px; font-weight: 700; letter-spacing: -.01em;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2.sec .idx {
+    font-size: 13px; font-weight: 600; color: var(--brand);
+    background: var(--brand-light); border-radius: 6px;
+    padding: 2px 9px; letter-spacing: .05em; flex: none; position: relative; top: -2px;
+  }
+  .sec-lead { color: var(--ink-2); margin: 0 0 24px; max-width: 860px; }
+  h3 { font-size: 17px; margin: 30px 0 10px; font-weight: 650; }
+  h4 { font-size: 15px; margin: 20px 0 8px; font-weight: 650; color: var(--ink-2); }
+  p { margin: 0 0 12px; }
+
+  /* ---------- 卡片 ---------- */
+  .card {
+    background: #fff; border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 22px; box-shadow: var(--shadow);
+    margin-bottom: 18px;
+  }
+  .card > :last-child { margin-bottom: 0; }
+  .card h4 { margin-top: 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+
+  .kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi .item { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .kpi .item .v { font-size: 24px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .kpi .item .v small { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 3px; }
+  .kpi .item .k { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+
+  /* ---------- 标签 ---------- */
+  .tag {
+    display: inline-block; font-size: 12.5px; line-height: 1.6;
+    padding: 1px 8px; border-radius: 5px; margin: 0 6px 6px 0;
+    background: var(--brand-light); color: var(--brand-strong); white-space: nowrap;
+  }
+  .tag.g { background: var(--green-bg); color: var(--green); }
+  .tag.a { background: var(--amber-bg); color: var(--amber); }
+  .tag.r { background: var(--red-bg); color: var(--red); }
+  .tag.n { background: var(--code-bg); color: var(--ink-2); }
+
+  /* ---------- 表格 ---------- */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  th { background: #F8FAFD; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td code, th code { font-size: 12.5px; }
+  .tbl-wrap table { min-width: 620px; }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+    font-size: 13px; color: #24405F;
+  }
+  pre {
+    background: #F8FAFD; border: 1px solid var(--line); border-left: 3px solid var(--brand);
+    border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+    font-size: 12.8px; line-height: 1.7; margin: 0 0 16px;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: #23405E; }
+
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+  li > ul, li > ol { margin-top: 5px; }
+
+  /* ---------- 提示块 ---------- */
+  .note {
+    border-left: 3px solid var(--brand); background: var(--brand-faint);
+    padding: 13px 18px; border-radius: 0 8px 8px 0; margin: 0 0 16px; font-size: 14.5px;
+  }
+  .note.warn { border-color: #E08A00; background: var(--amber-bg); }
+  .note.bad { border-color: var(--red); background: var(--red-bg); }
+  .note.ok { border-color: var(--green); background: var(--green-bg); }
+  .note > :last-child { margin-bottom: 0; }
+  .note b { font-weight: 650; }
+
+  /* ---------- 手机原型 ---------- */
+  .screens { display: flex; flex-wrap: wrap; gap: 30px; justify-content: flex-start; margin: 6px 0 8px; }
+  .shot { width: 268px; }
+  .shot .cap { margin-top: 12px; font-size: 13.5px; color: var(--ink-2); }
+  .shot .cap b { display: block; color: var(--ink); font-size: 14.5px; font-weight: 650; margin-bottom: 3px; }
+  .shot .cap span { color: var(--ink-3); font-size: 12.5px; }
+
+  .phone {
+    width: 268px; height: 552px;
+    background: #101620; border-radius: 34px; padding: 9px;
+    box-shadow: 0 10px 30px rgba(16, 32, 61, .16), 0 2px 6px rgba(16, 32, 61, .1);
+    position: relative; flex: none;
+  }
+  .phone::after {
+    content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+    width: 88px; height: 18px; background: #101620; border-radius: 0 0 12px 12px; z-index: 5;
+  }
+  .scr {
+    width: 100%; height: 100%; background: #F4F6FA; border-radius: 27px; overflow: hidden;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .sbar {
+    height: 26px; flex: none; display: flex; align-items: flex-end; justify-content: space-between;
+    padding: 0 15px 1px; font-size: 10.5px; color: #fff; font-weight: 600; letter-spacing: .02em;
+    background: var(--brand);
+  }
+  .sbar.light { color: var(--ink-2); background: #fff; }
+  .body { flex: 1; overflow: hidden; padding: 12px; }
+  .nav {
+    flex: none; height: 50px; background: #fff; border-top: 1px solid var(--line-2);
+    display: flex; align-items: center; justify-content: space-around;
+  }
+  .nav .it { text-align: center; font-size: 9.5px; color: var(--ink-3); line-height: 1.3; flex: 1; }
+  .nav .it .ic { display: block; font-size: 15px; line-height: 1.1; margin-bottom: 1px; }
+  .nav .it.on { color: var(--brand); font-weight: 650; }
+  .nav .it .bdg {
+    display: inline-block; min-width: 14px; height: 14px; line-height: 14px; padding: 0 4px;
+    background: var(--red); color: #fff; border-radius: 7px; font-size: 9px; font-weight: 700;
+    position: relative; top: -9px; left: 3px;
+  }
+
+  /* 原型内部通用零件 */
+  .bar {
+    height: 42px; flex: none; background: var(--brand); color: #fff;
+    display: flex; align-items: center; gap: 8px; padding: 0 14px; font-size: 15px; font-weight: 600;
+  }
+  .bar .bk { font-size: 17px; opacity: .95; }
+  .bar .rt { margin-left: auto; font-size: 12px; font-weight: 500; opacity: .92; }
+
+  .fld {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 12px; font-size: 12.5px; color: var(--ink-3); margin-bottom: 9px;
+  }
+  .fld.focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(29,111,224,.12); color: var(--ink); }
+  .fld .lab { display: block; font-size: 10.5px; color: var(--ink-3); margin-bottom: 1px; }
+  .fld .val { color: var(--ink); font-size: 13px; }
+
+  .btn {
+    background: var(--brand); color: #fff; border-radius: 10px; text-align: center;
+    padding: 10px; font-size: 14px; font-weight: 600; margin-top: 4px;
+  }
+  .btn.ghost { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+  .btn.sm { padding: 6px 12px; font-size: 12.5px; display: inline-block; margin: 0; }
+
+  .scard { background: #fff; border-radius: 12px; padding: 11px 13px; margin-bottom: 9px; }
+  .scard .t {
+    font-size: 12.5px; font-weight: 650; color: var(--ink); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .scard .t::before { content: ""; width: 3px; height: 12px; background: var(--brand); border-radius: 2px; }
+  .muted { color: var(--ink-3); font-size: 11px; line-height: 1.6; }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  .stat {
+    background: var(--brand-faint); border-radius: 10px; padding: 9px 10px; text-align: center;
+  }
+  .stat .v { font-size: 17px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 10.5px; color: var(--ink-2); margin-top: 1px; }
+  .stat.q { background: #F8FAFD; }
+  .stat.q .v { color: var(--ink-2); }
+
+  .qa { background: var(--brand-faint); border-radius: 11px; padding: 12px 6px; text-align: center; }
+  .qa .ic { font-size: 19px; }
+  .qa .k { font-size: 11px; color: var(--ink-2); margin-top: 4px; }
+
+  .grow { background: #fff; border-radius: 11px; padding: 10px 12px; margin-bottom: 7px; display: flex; align-items: center; gap: 9px; }
+  .grow .dt { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .grow .nm { font-size: 12.5px; color: var(--ink); flex: 1; }
+  .grow .ct { font-size: 13.5px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; }
+
+  .pitem { background: #fff; border-radius: 11px; padding: 11px 12px; margin-bottom: 8px; }
+  .pitem .l1 { display: flex; align-items: baseline; gap: 7px; }
+  .pitem .nm { font-size: 14.5px; font-weight: 650; }
+  .pitem .l2 { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+  .pitem .l3 { margin-top: 6px; }
+  .pitem .l3 .tag { font-size: 10.5px; padding: 0 6px; margin: 0 4px 0 0; }
+
+  .chips { display: flex; gap: 6px; margin-bottom: 9px; overflow: hidden; }
+  .chip {
+    font-size: 11.5px; padding: 3px 10px; border-radius: 999px;
+    background: #fff; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap;
+  }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+
+  .kvs { display: grid; grid-template-columns: 68px 1fr; gap: 5px 8px; font-size: 12px; }
+  .kvs .k { color: var(--ink-3); }
+  .kvs .v { color: var(--ink); }
+
+  .banner {
+    background: var(--amber-bg); border: 1px solid #F0DDB8; color: var(--amber);
+    border-radius: 9px; padding: 8px 11px; font-size: 11px; line-height: 1.6; margin-bottom: 10px;
+  }
+
+  .qcard { background: #fff; border-radius: 11px; padding: 11px 12px; margin-bottom: 8px; border-left: 3px solid var(--amber); }
+  .qcard .nm { font-size: 14px; font-weight: 650; }
+  .qcard .why { font-size: 11px; color: var(--ink-3); margin-top: 3px; line-height: 1.55; }
+  .qcard .acts { display: flex; gap: 7px; margin-top: 8px; }
+  .qcard .acts .b { font-size: 11.5px; padding: 3px 12px; border-radius: 7px; border: 1px solid var(--brand); color: var(--brand); }
+  .qcard .acts .b.p { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  .fab {
+    position: absolute; right: 14px; bottom: 18px;
+    background: var(--brand); color: #fff; border-radius: 999px;
+    padding: 9px 15px; font-size: 12.5px; font-weight: 600;
+    box-shadow: 0 4px 12px rgba(29,111,224,.4);
+  }
+
+  /* ---------- 降级阶梯 ---------- */
+  .ladder { display: grid; gap: 12px; margin-bottom: 18px; }
+  .step {
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 18px; display: flex; gap: 16px; align-items: flex-start;
+  }
+  .step .lv {
+    flex: none; width: 62px; text-align: center; font-size: 11px; font-weight: 700;
+    border-radius: 8px; padding: 5px 0; letter-spacing: .04em;
+  }
+  .step .lv.l1 { background: var(--green-bg); color: var(--green); }
+  .step .lv.l2 { background: var(--amber-bg); color: var(--amber); }
+  .step .lv.l3 { background: var(--red-bg); color: var(--red); }
+  .step .tx { flex: 1; }
+  .step .tx b { display: block; margin-bottom: 2px; }
+  .step .tx span { font-size: 13.5px; color: var(--ink-2); }
+
+  /* ---------- 流程图 ---------- */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .fl {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 14px; font-size: 13.5px; box-shadow: 0 1px 2px rgba(16,32,61,.04);
+  }
+  .fl.p { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+  .fl.sec { background: #F8FAFD; color: var(--ink-2); }
+  .ar { color: var(--ink-3); font-size: 15px; }
+  .ar.down { display: block; width: 100%; text-align: center; transform: rotate(90deg); }
+
+  footer {
+    margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--ink-3);
+  }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 25px; }
+    .hero { padding: 36px 0 32px; }
+    .wrap { padding: 0 16px 64px; }
+    .screens { gap: 20px; }
+  }
+  @media print {
+    .hero { background: #1557B0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .phone { box-shadow: none; }
+    section { page-break-inside: avoid; }
+    .shot { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="hero-tag">移 动 端 设 计 说 明</div>
+    <h1>掌上村务 · 安卓 App</h1>
+    <p>
+      面向村级网格员的外勤作业端。它复用现有后端 <code>/api</code> 接口与同一套权限体系，
+      在不新增任何服务端接口的前提下，把「上门走访」这条链路搬到手机上，
+      并针对村里信号时断时续的现实做了完整的离线设计。
+    </p>
+    <div class="hero-meta">
+      <span>包名 <b>com.village.population</b></span>
+      <span>最低系统 <b>Android 7.0（API 24）</b></span>
+      <span>技术栈 <b>Kotlin + Jetpack Compose</b></span>
+      <span>自动打包 <b>GitHub Actions</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <h2>目 录</h2>
+    <ol>
+      <li><a href="#s1"><span class="n">01</span>为什么做移动端</a></li>
+      <li><a href="#s2"><span class="n">02</span>职责边界：做什么，不做什么</a></li>
+      <li><a href="#s3"><span class="n">03</span>信息架构与导航</a></li>
+      <li><a href="#s4"><span class="n">04</span>界面原型</a></li>
+      <li><a href="#s5"><span class="n">05</span>接口映射</a></li>
+      <li><a href="#s6"><span class="n">06</span>离线设计</a></li>
+      <li><a href="#s7"><span class="n">07</span>技术选型与理由</a></li>
+      <li><a href="#s8"><span class="n">08</span>安全设计</a></li>
+      <li><a href="#s9"><span class="n">09</span>打包与发布</a></li>
+      <li><a href="#s10"><span class="n">10</span>测试与验证</a></li>
+      <li><a href="#s11"><span class="n">11</span>已知取舍与后续</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============ 01 ============ -->
+  <section id="s1">
+    <h2 class="sec"><span class="idx">01</span>为什么做移动端</h2>
+    <p class="sec-lead">
+      现有系统是「坐在村委电脑前，对着大表格录入和核对」的形态，这件事它做得很好。
+      但村级工作里有一大块时间是在**外面**的：入户走访、上门登记、现场核查、拍照留痕。
+      这部分工作目前只能先记在纸上或手机备忘录里，回来再补录——于是要么漏，要么错，
+      要么补录时已经想不起当时的情况。
+    </p>
+
+    <div class="grid3">
+      <div class="card">
+        <h4>问题一：信息在现场，录入在办公室</h4>
+        <p class="muted" style="font-size:13.5px">
+          走访时对方报的身份证号、电话号码、家庭情况，当时的准确率最高。
+          等到回办公室再录，靠的是记忆和潦草的手写笔记。
+        </p>
+      </div>
+      <div class="card">
+        <h4>问题二：照片拍在手机里，没进系统</h4>
+        <p class="muted" style="font-size:13.5px">
+          现场照片留在个人手机相册里，既不是系统的证据链，也不受权限管控，
+          人员调动后这些材料就散了。
+        </p>
+      </div>
+      <div class="card">
+        <h4>问题三：台账是事后补的</h4>
+        <p class="muted" style="font-size:13.5px">
+          水利、民政、卫健这些条口的日常工作量，往往是月底集中回忆着填报，
+          数据质量和可信度都不高。
+        </p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>设计目标不是「把电脑端的页面塞进手机」。</b>
+      手机屏幕小、输入慢、还经常没信号，硬搬只会得到一个谁都不用的 App。
+      目标是：<b>把「必须在外勤现场完成」的动作做顺</b>，其余一律留在电脑端。
+    </div>
+  </section>
+
+  <!-- ============ 02 ============ -->
+  <section id="s2">
+    <h2 class="sec"><span class="idx">02</span>职责边界：做什么，不做什么</h2>
+    <p class="sec-lead">
+      这条线是本次设计里最重要的一个决定。功能范围靠「这件事能不能站着、用一只手、
+      在可能没网的院子里做完」来划，而不是靠「技术上能不能实现」。
+    </p>
+
+    <div class="grid2">
+      <div class="card" style="border-left:3px solid var(--green)">
+        <h4 style="color:var(--green)">✓ 移动端承担</h4>
+        <ul style="font-size:14px; margin-bottom:0">
+          <li><b>查人</b>：按姓名 / 身份证号 / 手机号搜，按村庄、人群筛</li>
+          <li><b>看人</b>：基本信息、重点人群标签、残疾档案、联系方式、变更历史</li>
+          <li><b>登记</b>：新增人员（身份证号自动带出出生日期与性别）</li>
+          <li><b>改状态</b>：迁入 / 迁出 / 死亡（只改状态，不删人）</li>
+          <li><b>打标签</b>：重点人群标签的加与减</li>
+          <li><b>拍照留痕</b>：现场照片直接进系统文件库，关联到人</li>
+          <li><b>台账速记</b>：条口工作量的现场即时录入 + 附件</li>
+          <li><b>待核查处理</b>：逐条补齐或忽略导入时身份证号有问题的记录</li>
+          <li><b>看板</b>：在册人口、各重点人群数量（含缓存兜底）</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--ink-3)">
+        <h4 style="color:var(--ink-2)">✗ 刻意不做（留在电脑端）</h4>
+        <ul style="font-size:14px; margin-bottom:0">
+          <li><b>Excel 导入导出</b>——要在大屏幕上核对表头、看失败行明细</li>
+          <li><b>用户 / 角色 / 权限管理</b>——这是管理员的事，且有误操作风险</li>
+          <li><b>标签字典维护</b>——低频、影响面大，手机上改容易出事</li>
+          <li><b>审计日志</b>——只适合查询和翻页浏览</li>
+          <li><b>家庭批量按门牌号归户</b>——需要横向比对整张表</li>
+          <li><b>统计报表</b>——图表在 5 吋屏上读不出信息量</li>
+        </ul>
+        <p class="muted" style="margin-top:10px; margin-bottom:0">
+          这些不做，不是没时间，是<b>做不好</b>。留一个功能不完整但好用的手机端，
+          比做一个什么都有但处处别扭的要强。
+        </p>
+      </div>
+    </div>
+
+    <div class="note ok">
+      <b>权限零新增。</b>App 只调用后端<b>已有的</b> <code>/api</code> 接口，走同一个鉴权中间件、
+      同一套权限码（<code>person:view</code> / <code>person:manage</code> / <code>ledger:manage</code> …）。
+      服务端<b>没有为移动端开任何后门或旁路</b>——所以不可能出现「手机能绕过权限」的问题，
+      权限调整也只需在一处改。
+    </div>
+  </section>
+
+  <!-- ============ 03 ============ -->
+  <section id="s3">
+    <h2 class="sec"><span class="idx">03</span>信息架构与导航</h2>
+    <p class="sec-lead">
+      四个底部 Tab，顺序按「实际使用频次」排：查人最多，其次是看板，
+      再次是待核查，最后才是「我的」。刻意压到 4 个，不用汉堡菜单——
+      目标用户里不少人不熟悉侧滑抽屉这类交互。
+    </p>
+
+    <div class="flow">
+      <span class="fl p">工作台</span><span class="ar">·</span>
+      <span class="fl p">人口</span><span class="ar">·</span>
+      <span class="fl p">待核查 <span class="tag r" style="margin:0 0 0 4px; font-size:11px">角标</span></span><span class="ar">·</span>
+      <span class="fl p">我的</span>
+    </div>
+
+    <h3>页面流转</h3>
+    <div class="flow">
+      <span class="fl sec">启动</span><span class="ar">→</span>
+      <span class="fl sec">读服务器地址 + Token</span><span class="ar">→</span>
+      <span class="fl">登录</span><span class="ar">→</span>
+      <span class="fl p">工作台</span>
+    </div>
+    <div class="flow">
+      <span class="fl p">工作台</span><span class="ar">→</span>
+      <span class="fl">重点人群卡（带筛选条件）</span><span class="ar">→</span>
+      <span class="fl">人口列表</span><span class="ar">→</span>
+      <span class="fl">人员详情</span><span class="ar">→</span>
+      <span class="fl">编辑 / 拍照</span>
+    </div>
+    <div class="flow">
+      <span class="fl p">工作台</span><span class="ar">→</span>
+      <span class="fl">台账速记</span><span class="ar">→</span>
+      <span class="fl">（附现场照片）</span><span class="ar">→</span>
+      <span class="fl sec">保存</span>
+    </div>
+
+    <h3>两个非功能性约定</h3>
+    <div class="grid2">
+      <div class="card">
+        <h4>字号整体比 Material 默认大一号</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          标题 22sp、正文 17sp。使用者是村干部和网格员，相当一部分人戴老花镜。
+          在「看起来精致」和「看得清」之间，这个应用的排版只守一条硬规则：<b>选看得清</b>。
+        </p>
+      </div>
+      <div class="card">
+        <h4>登录失效不做静默跳转</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          Token 过期时弹一个确认框，写明原因，并明确告知「未上传的走访记录仍保存在本机，
+          重新登录后可继续同步」。最糟的处理是用户正在填表单时被无声弹回登录页——
+          他会以为数据丢了，然后放弃使用。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 ============ -->
+  <section id="s4">
+    <h2 class="sec"><span class="idx">04</span>界面原型</h2>
+    <p class="sec-lead">
+      以下八个界面按实际实现绘制（含真实文案与字段口径）。原型为静态示意，
+      真实界面由 Jetpack Compose 渲染，支持深色模式与系统字号缩放。
+    </p>
+
+    <div class="screens">
+
+      <!-- 1 登录 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="body" style="padding:0">
+            <div style="background:linear-gradient(150deg,#1D6FE0,#1557B0); padding:34px 20px 26px; color:#fff">
+              <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:23px;margin-bottom:12px">🏠</div>
+              <div style="font-size:20px;font-weight:700;letter-spacing:.02em">掌上村务</div>
+              <div style="font-size:11.5px;color:rgba(255,255,255,.85);margin-top:3px">村级人口与重点人群精细化管理系统</div>
+            </div>
+            <div style="padding:18px 16px">
+              <div class="fld"><span class="lab">账号</span><span class="val">wangjianguo</span></div>
+              <div class="fld focus"><span class="lab">密码</span><span class="val">••••••••</span></div>
+              <div class="fld" style="background:#F8FAFD">
+                <span class="lab">服务器地址 ▾</span>
+                <span class="val" style="font-size:12px">http://192.168.1.100:8080/</span>
+              </div>
+              <div class="btn">登 录</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="cap"><b>登录</b><span>服务器地址可折叠修改，无需重新打包</span></div>
+      </div>
+
+      <!-- 2 工作台 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="body">
+            <div style="font-size:16px;font-weight:650;margin-bottom:3px">你好，王建国</div>
+            <div class="muted" style="margin-bottom:10px">数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；各人群之间存在交叉，不可相加。</div>
+
+            <div class="scard">
+              <div class="t">快捷操作</div>
+              <div class="row">
+                <div class="qa"><div class="ic">👤</div><div class="k">上门登记</div></div>
+                <div class="qa"><div class="ic">📷</div><div class="k">拍照留痕</div></div>
+                <div class="qa"><div class="ic">📋</div><div class="k">台账速记</div></div>
+              </div>
+            </div>
+
+            <div class="scard">
+              <div class="t">人口概况</div>
+              <div class="row" style="margin-bottom:8px">
+                <div class="stat"><div class="v">2,847</div><div class="k">在册人口</div></div>
+                <div class="stat" style="background:#E8F7EE"><div class="v" style="color:#12A150">1,206</div><div class="k">家庭户数</div></div>
+              </div>
+              <div class="row">
+                <div class="stat q"><div class="v">3,021</div><div class="k">户籍人口</div></div>
+                <div class="stat q"><div class="v">2,650</div><div class="k">常住人口</div></div>
+              </div>
+            </div>
+
+            <div style="font-size:12.5px;font-weight:650;margin:12px 0 7px">重点人群</div>
+            <div class="grow"><span class="dt" style="background:#D93025"></span><span class="nm">党员</span><span class="ct">86</span></div>
+            <div class="grow"><span class="dt" style="background:#1D6FE0"></span><span class="nm">残疾人</span><span class="ct">142</span></div>
+            <div class="grow"><span class="dt" style="background:#E08A00"></span><span class="nm">五保户</span><span class="ct">23</span></div>
+            <div class="grow"><span class="dt" style="background:#7A5AF8"></span><span class="nm">低保户</span><span class="ct">178</span></div>
+          </div>
+          <div class="nav">
+            <div class="it on"><span class="ic">🏠</span>工作台</div>
+            <div class="it"><span class="ic">🔍</span>人口</div>
+            <div class="it"><span class="ic">✓</span>待核查<span class="bdg">12</span></div>
+            <div class="it"><span class="ic">👤</span>我的</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>工作台</b><span>口径说明常驻；点人群卡带着筛选条件跳到列表</span></div>
+      </div>
+
+      <!-- 3 人口列表 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="bar"><span>人口查询</span><span class="rt">共 2,847 人</span></div>
+          <div class="body">
+            <div class="banner">⚠ 当前显示的是本地缓存数据（2 小时前），只可作为参考，上报口径请以联网结果为准。</div>
+            <div class="fld" style="margin-bottom:9px">🔍 搜姓名 / 身份证号 / 手机号</div>
+            <div class="chips">
+              <span class="chip on">全部</span>
+              <span class="chip">老年人</span>
+              <span class="chip">残疾人</span>
+              <span class="chip">低保户</span>
+            </div>
+            <div class="pitem">
+              <div class="l1"><span class="nm">张秀兰</span><span class="tag n" style="margin:0">女 · 78 岁</span></div>
+              <div class="l2">XXXXXX1948****0026 · 红星村</div>
+              <div class="l3"><span class="tag">老年人</span><span class="tag a">低保户</span><span class="tag">残疾人</span></div>
+            </div>
+            <div class="pitem">
+              <div class="l1"><span class="nm">李长明</span><span class="tag n" style="margin:0">男 · 65 岁</span></div>
+              <div class="l2">XXXXXX1961****1017 · 红星村</div>
+              <div class="l3"><span class="tag">老年人</span><span class="tag g">退役军人</span></div>
+            </div>
+            <div class="pitem">
+              <div class="l1"><span class="nm">王小雨</span><span class="tag n" style="margin:0">女 · 9 岁</span></div>
+              <div class="l2">XXXXXX2017****2244 · 和平村</div>
+              <div class="l3"><span class="tag n">未成年人</span></div>
+            </div>
+          </div>
+          <div class="fab">＋ 新增</div>
+          <div class="nav">
+            <div class="it"><span class="ic">🏠</span>工作台</div>
+            <div class="it on"><span class="ic">🔍</span>人口</div>
+            <div class="it"><span class="ic">✓</span>待核查<span class="bdg">12</span></div>
+            <div class="it"><span class="ic">👤</span>我的</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>人口列表</b><span>缓存兜底有醒目横幅；下拉分页</span></div>
+      </div>
+
+      <!-- 4 人员详情 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="bar"><span class="bk">‹</span><span>人员详情</span><span class="rt">编辑</span></div>
+          <div class="body">
+            <div class="scard" style="display:flex;gap:11px;align-items:center">
+              <div style="width:44px;height:44px;border-radius:22px;background:#EAF1FE;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">👩</div>
+              <div>
+                <div style="font-size:16px;font-weight:650">张秀兰 <span class="tag g" style="margin-left:4px">在册</span></div>
+                <div class="muted">女 · 78 岁 · 红星村 · 3 组</div>
+              </div>
+            </div>
+            <div class="scard">
+              <div class="t">基本信息</div>
+              <div class="kvs">
+                <span class="k">身份证号</span><span class="v">XXXXXX1948****0026</span>
+                <span class="k">联系电话</span><span class="v">138****6021</span>
+                <span class="k">出生日期</span><span class="v">1948-02-14</span>
+                <span class="k">所属网格</span><span class="v">红星村第一网格</span>
+              </div>
+            </div>
+            <div class="scard">
+              <div class="t">重点人群</div>
+              <div><span class="tag">老年人</span><span class="tag a">低保户</span><span class="tag">残疾人</span></div>
+            </div>
+            <div class="scard">
+              <div class="t">残疾档案</div>
+              <div class="kvs">
+                <span class="k">残疾类别</span><span class="v">肢体残疾</span>
+                <span class="k">残疾等级</span><span class="v">二级</span>
+                <span class="k">监护人</span><span class="v">张建国 · 139****8842</span>
+              </div>
+            </div>
+          </div>
+          <div class="nav" style="justify-content:space-around">
+            <div class="it" style="color:var(--brand)"><span class="ic">📞</span>打电话</div>
+            <div class="it" style="color:var(--brand)"><span class="ic">📷</span>拍照留痕</div>
+            <div class="it" style="color:var(--brand)"><span class="ic">✎</span>编辑资料</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>人员详情</b><span>分区卡片；操作栏固定底部</span></div>
+      </div>
+
+      <!-- 5 待核查 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="bar"><span>待核查人员</span><span class="rt">批量忽略</span></div>
+          <div class="body">
+            <div class="muted" style="margin-bottom:9px">共 12 条待处理 · 来源：导入时身份证号为空或非法，需逐条补齐或忽略。</div>
+            <div class="qcard">
+              <div class="nm">张秀花</div>
+              <div class="why">身份证号为空 · 来源：2026年户籍导出表 · 批次 #38</div>
+              <div class="acts"><span class="b p">补齐入库</span><span class="b">忽略</span></div>
+            </div>
+            <div class="qcard">
+              <div class="nm">李长鸣</div>
+              <div class="why">身份证号校验位错误（共 18 位，末位校验不通过）· 批次 #38</div>
+              <div class="acts"><span class="b p">补齐入库</span><span class="b">忽略</span></div>
+            </div>
+            <div class="qcard">
+              <div class="nm">王小雨</div>
+              <div class="why">身份证号仅 14 位（疑似脱敏号，末 4 位已抹掉）· 批次 #37</div>
+              <div class="acts"><span class="b p">补齐入库</span><span class="b">忽略</span></div>
+            </div>
+          </div>
+          <div class="nav">
+            <div class="it"><span class="ic">🏠</span>工作台</div>
+            <div class="it"><span class="ic">🔍</span>人口</div>
+            <div class="it on"><span class="ic">✓</span>待核查<span class="bdg">12</span></div>
+            <div class="it"><span class="ic">👤</span>我的</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>待核查</b><span>写操作必须联网，失败原因逐条写明</span></div>
+      </div>
+
+      <!-- 6 台账速记 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="bar"><span class="bk">‹</span><span>台账速记</span></div>
+          <div class="body">
+            <div class="scard">
+              <div class="t">条口与类型</div>
+              <div class="chips" style="margin-bottom:7px">
+                <span class="chip on">水利</span><span class="chip">民政</span><span class="chip">卫健</span>
+              </div>
+              <div class="fld" style="margin-bottom:0"><span class="val">河道清淤 ▾</span></div>
+            </div>
+            <div class="scard">
+              <div class="t">工作量</div>
+              <div class="row" style="margin-bottom:8px">
+                <div class="fld" style="margin-bottom:0"><span class="lab">发生日期</span><span class="val">2026-10-16</span></div>
+                <div class="fld" style="margin-bottom:0"><span class="lab">劳务费（元）</span><span class="val">1,280.00</span></div>
+              </div>
+              <div class="row">
+                <div class="fld" style="margin-bottom:0"><span class="lab">发票金额（元）</span><span class="val">3,600.00</span></div>
+                <div class="fld" style="margin-bottom:0"><span class="lab">责任人</span><span class="val">王建国</span></div>
+              </div>
+            </div>
+            <div class="scard">
+              <div class="t">现场附件</div>
+              <div style="display:flex;gap:7px">
+                <div style="width:52px;height:52px;border-radius:9px;background:#EDF1F7;display:flex;align-items:center;justify-content:center;font-size:19px">🖼</div>
+                <div style="width:52px;height:52px;border-radius:9px;border:1px dashed #C6CDD8;display:flex;align-items:center;justify-content:center;font-size:19px;color:#7A8494">＋</div>
+              </div>
+              <div class="muted" style="margin-top:6px">支持 .pdf / .jpg / .png / .webp，不限大小</div>
+            </div>
+          </div>
+          <div class="nav" style="padding:0 12px">
+            <div class="btn" style="width:100%">保存台账</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>台账速记</b><span>条口/类型由后端配置下发，不写死</span></div>
+      </div>
+
+      <!-- 7 拍照留痕 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="bar"><span class="bk">‹</span><span>拍照留痕</span></div>
+          <div class="body">
+            <div class="scard" style="text-align:center; padding:24px 14px">
+              <div style="font-size:38px;margin-bottom:8px">📷</div>
+              <div style="font-size:14px;font-weight:600;margin-bottom:4px">拍照或从相册选择</div>
+              <div class="muted">不需要申请相机与存储权限<br>照片经系统相机 / 文件选择器授权写入</div>
+            </div>
+            <div class="row" style="margin-bottom:12px">
+              <div class="btn" style="margin:0">拍照</div>
+              <div class="btn ghost" style="margin:0">从相册选</div>
+            </div>
+            <div class="scard">
+              <div class="t">关联人员</div>
+              <div class="fld" style="margin-bottom:0"><span class="val">张秀兰（红星村）</span></div>
+            </div>
+            <div class="banner" style="background:#FDF3E3">
+              上传失败（通常是没信号）时会自动暂存，本地文件保留，联网后自动重传。
+            </div>
+          </div>
+          <div class="nav" style="padding:0 12px">
+            <div class="btn">上传</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>拍照留痕</b><span>照片直接进系统文件库并挂到人</span></div>
+      </div>
+
+      <!-- 8 我的 -->
+      <div class="shot">
+        <div class="phone"><div class="scr">
+          <div class="sbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+          <div class="body" style="padding:0">
+            <div style="background:linear-gradient(150deg,#1D6FE0,#1557B0);padding:26px 18px 22px;color:#fff">
+              <div style="width:44px;height:44px;border-radius:22px;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:9px">👤</div>
+              <div style="font-size:17px;font-weight:650">王建国</div>
+              <div style="font-size:12px;color:rgba(255,255,255,.85);margin-top:2px">网格员 · 红星村第一网格</div>
+            </div>
+            <div style="padding:12px 14px">
+              <div class="scard" style="padding:0;overflow:hidden">
+                <div style="padding:11px 13px;border-bottom:1px solid #EDF1F7;display:flex;align-items:center;gap:9px">
+                  <span style="font-size:14px">🌐</span>
+                  <div style="flex:1">
+                    <div style="font-size:13px">服务器地址</div>
+                    <div class="muted">http://192.168.1.100:8080/</div>
+                  </div>
+                  <span style="color:#7A8494">›</span>
+                </div>
+                <div style="padding:11px 13px;border-bottom:1px solid #EDF1F7;display:flex;align-items:center;gap:9px">
+                  <span style="font-size:14px">☁</span>
+                  <div style="flex:1">
+                    <div style="font-size:13px">待同步记录</div>
+                    <div class="muted">3 条待上传 · 最近失败：网络不可用</div>
+                  </div>
+                  <span style="color:#1D6FE0;font-weight:650;font-size:13px">3</span>
+                  <span style="color:#7A8494">›</span>
+                </div>
+                <div style="padding:11px 13px;display:flex;align-items:center;gap:9px">
+                  <span style="font-size:14px">🔒</span>
+                  <div style="flex:1"><div style="font-size:13px">修改密码</div></div>
+                  <span style="color:#7A8494">›</span>
+                </div>
+              </div>
+              <div class="btn ghost" style="margin-top:6px">退出登录</div>
+              <div class="muted" style="text-align:center;margin-top:9px">版本 1.0.42 · 未上传数据不会因退出登录丢失</div>
+            </div>
+          </div>
+          <div class="nav">
+            <div class="it"><span class="ic">🏠</span>工作台</div>
+            <div class="it"><span class="ic">🔍</span>人口</div>
+            <div class="it"><span class="ic">✓</span>待核查<span class="bdg">12</span></div>
+            <div class="it on"><span class="ic">👤</span>我的</div>
+          </div>
+        </div></div>
+        <div class="cap"><b>我的</b><span>服务器地址与离线队列明细都在这里</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ 05 ============ -->
+  <section id="s5">
+    <h2 class="sec"><span class="idx">05</span>接口映射</h2>
+    <p class="sec-lead">
+      全部为后端已有接口，未新增任何端点。列出的第二个用途是「这一行最容易踩的坑」，
+      这些坑都是从现有实现里读出来并逐一处理的。
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>页面 / 动作</th><th>接口</th><th>关键约定与坑</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>登录</td><td><code>POST /api/auth/login</code></td><td>返回 token 与权限码数组；后端对登录<b>有频率限制</b>，失败文案要原样展示</td></tr>
+          <tr><td>身份校验 / 角色</td><td><code>GET /api/auth/me</code></td><td>冷启动用它确认 token 是否还有效</td></tr>
+          <tr><td>修改密码</td><td><code>PUT /api/auth/password</code></td><td>无返回体</td></tr>
+          <tr><td>人口列表</td><td><code>GET /api/persons</code></td><td><code>activeOnly</code> 是<b>字符串</b> <code>"true"</code>（后端为 <code>z.enum</code>），传布尔会 400</td></tr>
+          <tr><td>人员详情</td><td><code>GET /api/persons/{id}</code></td><td>详情才带残疾档案与变更历史；列表行<b>不含</b>这些</td></tr>
+          <tr><td>新增 / 编辑</td><td><code>POST / PUT /api/persons</code></td><td>编辑时出生日期由身份证号派生并覆盖表单旧值；<code>null</code> 字段不参与序列化</td></tr>
+          <tr><td>加 / 减标签</td><td><code>POST /api/persons/{id}/tags</code><br><code>DELETE /api/persons/{id}/tags/{linkId}</code></td><td>加标签一次只收<b>一个</b> <code>tagId</code>（不是数组）</td></tr>
+          <tr><td>村庄下拉</td><td><code>GET /api/grids/villages</code></td><td>返回 <code>{list,total}</code>，<b>没有</b> page/pageSize；村庄负责人/电话由该接口一并带出</td></tr>
+          <tr><td>重点人群卡片</td><td><code>GET /api/key-groups/quick</code></td><td>返回 <code>byAge/minAge/maxAge</code>；年龄类按区间筛、身份类按标签筛，<b>两者不能混</b></td></tr>
+          <tr><td>首页看板</td><td><code>GET /api/statistics/dashboard</code></td><td>只统计在册人口（正常 / 迁入）</td></tr>
+          <tr><td>待核查列表 / 汇总</td><td><code>GET /api/pending</code><br><code>GET /api/pending/summary</code></td><td>角标数字取自 summary</td></tr>
+          <tr><td>确认 / 忽略</td><td><code>POST /api/pending/{id}/confirm</code><br><code>POST /api/pending/{id}/ignore</code><br><code>POST /api/pending/batch-ignore</code></td><td>确认入库要求身份证号合法；<b>不做离线排队</b>（见 06 节）</td></tr>
+          <tr><td>台账表单配置</td><td><code>GET /api/ledgers/meta</code></td><td>条口与工作类型由后端配置下发，客户端<b>不写死</b>编码</td></tr>
+          <tr><td>台账列表 / 新建</td><td><code>GET / POST /api/ledgers/records</code></td><td>宽表：类别 / 类型 / 日期 / 劳务费 / 发票金额 / 发票号 / 责任人 / 地点 / 标题 / 备注</td></tr>
+          <tr><td>上传附件</td><td><code>POST /api/files/upload</code></td><td>返回<b>单个对象</b>（不是数组）；类型白名单 <code>.pdf/.jpg/.jpeg/.png/.webp</code>，<b>不限大小</b></td></tr>
+          <tr><td>预览 / 下载附件</td><td><code>GET /api/files/{id}</code></td><td>需要 Bearer 头，<b>不能把 URL 直接丢给图片控件</b>——必须取字节流再由客户端渲染</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <b>统一响应信封。</b>所有接口返回 <code>{ code, message, data, errorCode }</code>，
+      <code>code == 0</code> 才是成功；失败时后端把 HTTP 状态码写进 <code>code</code>。
+      客户端把「HTTP 200 但 code≠0」和「真 HTTP 4xx/5xx」两种情况收敛成同一个异常类型，
+      避免出现「业务错误被当成功、页面莫名其妙是空的」。
+    </div>
+  </section>
+
+  <!-- ============ 06 ============ -->
+  <section id="s6">
+    <h2 class="sec"><span class="idx">06</span>离线设计</h2>
+    <p class="sec-lead">
+      这是整个移动端最核心的部分。村里的网络不是「快和慢」的区别，而是
+      「有和没有」的区别——院墙厚一点、走到村东头，信号就没了。
+      所以这里做的不是「加载失败给个重试按钮」，而是分级降级 + 写操作排队。
+    </p>
+
+    <h3>读：三级降级</h3>
+    <div class="ladder">
+      <div class="step">
+        <div class="lv l1">第 1 级</div>
+        <div class="tx">
+          <b>直接请求服务端</b>
+          <span>网络正常时总是走这一条，数据最新。</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="lv l2">第 2 级</div>
+        <div class="tx">
+          <b>落到本地缓存，并在页面顶部显示醒目横幅</b>
+          <span>
+            缓存按查询条件分别落盘（一个查询一个文件），命中率高。
+            横幅写明「这是本地缓存数据（2 小时前），只可作为参考，上报口径请以联网结果为准」——
+            <b>绝不让缓存数据看起来像实时数据</b>，这是最容易造成「数据不准」投诉的坑。
+          </span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="lv l3">第 3 级</div>
+        <div class="tx">
+          <b>无缓存可用时，明确报错并提供重试</b>
+          <span>不显示空白页、不复用别的查询条件的数据。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>只有「网络类异常」才降级。</b>业务错误（权限不足、参数非法、登录失效）必须原样抛出来，
+      不能被缓存兜住——否则用户会看着一份旧数据、以为操作成功了，
+      这是比「打不开」严重得多的问题。
+    </div>
+
+    <h3>写：离线队列</h3>
+    <p>
+      写操作失败（且失败原因是网络）时，这次操作不会丢，而是序列化成一条记录落到本地队列，
+      同时给用户明确反馈「已暂存，联网后自动上传」。
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>设计点</th><th>做法</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td>存储形式</td><td>一个操作一个 JSON 文件</td><td>损坏只影响一条；不需要引入数据库与注解处理器</td></tr>
+          <tr><td>执行顺序</td><td>严格先进先出</td><td>同一条走访路线上先采的人先入库，避免「家庭成员引用了还没建的人」</td></tr>
+          <tr><td>重试上限</td><td>5 次</td><td>到顶后保留在列表里并写明原因，由人工处理，不再自动重试</td></tr>
+          <tr><td>网络不通</td><td><b>立刻中止整轮</b></td><td>不逐条重试到底——村里信号时有时无，连续重试只耗电。剩余重试次数留给下一次系统调度</td></tr>
+          <tr><td>业务性失败</td><td>一次到位标记「重试到底」</td><td>身份证重复、校验位错误这类错误重试一万次结果一样，只会让队列看起来永远同步不完</td></tr>
+          <tr><td>登录失效</td><td>停止并通知界面</td><td>继续重试只会反复 401</td></tr>
+          <tr><td>触发时机</td><td>冷启动、进入前台、手动下拉，以及 6 小时定期兜底</td><td>系统级后台调度不保证准时，定期任务只是保底</td></tr>
+          <tr><td>退出登录</td><td><b>保留</b>未上传队列</td><td>退出登录或 token 过期不该让现场采集的数据消失</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note ok">
+      <b>本地缓存与离线队列是两个目录，互不干扰。</b>
+      清理缓存绝不能碰到未上传的数据——这个约束靠目录分离来保证，而不是靠代码里的调用顺序。
+    </div>
+
+    <div class="note warn">
+      <b>「待核查确认入库」不做离线排队，必须联网。</b>
+      因为它的前置条件是身份证号要合法，而合法性校验依赖服务端对唯一性的判断；
+      在本地排队等于放一个可能永远失败的操作用户却看不到。这一条是刻意的例外。
+    </div>
+  </section>
+
+  <!-- ============ 07 ============ -->
+  <section id="s7">
+    <h2 class="sec"><span class="idx">07</span>技术选型与理由</h2>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>选择</th><th>理由</th><th>放弃了什么</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Kotlin + Jetpack Compose</b></td>
+            <td>声明式 UI 写表单和列表更快；与现有技术栈一样可以只用一套语言；Compose 的表单状态管理比 XML + ViewBinding 少一半样板代码</td>
+            <td>放弃 XML 布局的成熟插件生态</td>
+          </tr>
+          <tr>
+            <td><b>手写依赖装配</b><br><span class="tag n">不用 Hilt / Koin</span></td>
+            <td>全应用只有一个单例容器。手写装配比引入注解处理器更省编译时间，也少一层「看不懂的魔法」，出问题能直接读代码定位</td>
+            <td>依赖多了以后要手工维护构造函数</td>
+          </tr>
+          <tr>
+            <td><b>文件式 JSON 缓存</b><br><span class="tag n">不用 Room</span></td>
+            <td>缓存的数据形态就是「查询条件 → 一坨 JSON」，不需要关联查询和事务。更关键的是：<b>不用 Room 就不用 KSP</b>，CI 少一个易出错环节、注解处理时间归零</td>
+            <td>失去类型安全的查询和自动迁移</td>
+          </tr>
+          <tr>
+            <td><b>kotlinx.serialization</b></td>
+            <td>与 Kotlin 同为 JetBrains 出品，编译期生成序列化器，无需反射；对 <code>null</code> 的处理可以精确控制</td>
+            <td>相比 Gson 需显式标注</td>
+          </tr>
+          <tr>
+            <td><b>Retrofit + OkHttp</b></td>
+            <td>拦截器机制正好用来解决「服务器地址运行时可改」这个刚需；连接/读写超时可分别放宽（上传大图需要 120s 写超时）</td>
+            <td>无</td>
+          </tr>
+          <tr>
+            <td><b>WorkManager</b></td>
+            <td>系统级后台调度，带网络约束与指数退避，被杀后系统会重新拉起；比自己写 Service 可靠</td>
+            <td>精确执行时间不可控（因此另有 6 小时定期兜底）</td>
+          </tr>
+          <tr>
+            <td><b>DataStore</b></td>
+            <td>存 token 与服务器地址，替代已废弃的 SharedPreferences</td>
+            <td>异步读取不适合拦截器，故另有内存镜像（见下）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>一个必须解释的设计：服务器地址为什么放在拦截器里</h3>
+    <p>
+      本项目有一个别处不常见的约束：<b>同一个 APK 要分发给几十个村，各村的 NAS 地址不一样</b>。
+      如果服务器地址在编译期写死，就得给每个村单独打一个包。
+    </p>
+    <p>
+      所以 Base URL 只在打包时作为<b>默认值</b>注入，真值存在本地、可在 App 内随时修改。
+      但这里遇到一个技术冲突：
+    </p>
+    <div class="note warn">
+      <b>OkHttp 的拦截器是同步的，而 DataStore 只能异步读取</b>——在拦截器里
+      <code>runBlocking</code> 读 DataStore 会卡住网络线程并可能死锁。
+      <br><br>
+      解法：token 与服务器地址在启动时读一次进内存，拦截器只读这个内存镜像；
+      修改地址时同步更新镜像。代价是<b>冷启动必须先完成这一步然后才能发请求</b>，
+      所以启动时会显示「正在启动…」，而不是先发一个注定打到占位地址的请求。
+    </div>
+
+    <h3>UI 层的两个对应处理</h3>
+    <ul>
+      <li><b>「HTTP 200 + code≠0」当失败抛异常</b>——后端大量业务错误是这个形态
+        （比如「账号或密码错误」）。只 catch HTTP 异常的话，这类错误会被当成功，
+        页面莫名其妙是空的，而且没人知道为什么。</li>
+      <li><b>异常信息要翻译成人话</b>。宁可说「网络不可用，请检查网络或服务器地址」，
+        也不要把 <code>Expected URL scheme 'http' or 'https'</code> 这种英文栈信息甩给网格员。</li>
+    </ul>
+  </section>
+
+  <!-- ============ 08 ============ -->
+  <section id="s8">
+    <h2 class="sec"><span class="idx">08</span>安全设计</h2>
+
+    <div class="grid2">
+      <div class="card">
+        <h4>权限：零新增、零旁路</h4>
+        <p style="font-size:14px">
+          App 调用的全部是后端已有接口，走同一套鉴权中间件与权限码。
+          客户端还按登录返回的权限码决定菜单与按钮是否可见——
+          但这只是<b>体验优化</b>，真正的拦截始终在服务端。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>Token 不入日志</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          debug 构建会打网络日志，但 <code>Authorization</code> 头被显式脱敏。
+          原因很实际：logcat 在真机上别的应用也能读。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>权限只要该要的</h4>
+        <p style="font-size:14px">
+          清单里<b>没有</b> <code>CAMERA</code>、没有存储权限、没有定位权限，只有
+          <code>INTERNET</code> 与 <code>ACCESS_NETWORK_STATE</code>。做法是：
+        </p>
+        <ul style="font-size:13.5px; margin-bottom:0">
+          <li>拍照走系统相机的 <code>ACTION_IMAGE_CAPTURE</code>，把应用私有目录里的临时文件通过 FileProvider 授权给它</li>
+          <li>选图走系统文件选择器（SAF），由系统把 URI 授权给本应用</li>
+          <li>打电话用 <code>ACTION_DIAL</code>（只是跳到拨号盘）而不是 <code>ACTION_CALL</code>（直接拨出）</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>明文 HTTP：为什么允许，边界在哪</h4>
+        <p style="font-size:14px">
+          后端部署在村委内网 NAS 上，<b>没有可用的 HTTPS 证书</b>，
+          强行要求 HTTPS 等于这个 App 根本连不上。
+        </p>
+        <p style="font-size:14px; margin-bottom:0">
+          做法是在网络安全配置里放行明文，并把这条理由写在配置文件里，
+          而不是简单地在清单上开 <code>usesCleartextTraffic</code> 一了百了。
+          同时明确：<b>这不是给公网部署用的方案</b>——若要上公网，后端必须先上 HTTPS。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>不在客户端做数据裁剪</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          「这个人该不该被当前用户看到」由服务端按数据范围决定。
+          客户端不做「拉全量再过滤」——那等于把不该看的数据下载到了手机上。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>身份证号的显示</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          列表与详情按脱敏形式显示（保留前 6 后 4）；
+          但<b>校验逻辑用完整值</b>——客户端实现的是与后端
+          <code>backend/src/utils/idcard.ts</code> 同口径的校验算法
+          （15 位升 18 位、校验位、不存在的月日如 02-30 判为非法）。
+        </p>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <b>年龄口径在两端必须一致。</b>客户端实现了一份服务端口径的镜像：出生日期以身份证号为权威来源，
+      年龄用「年月日三元组比较」而不是「毫秒差除以 365」——后者在闰年和生日当天都会差一岁。
+      「60 岁及以上」与「18 岁以下」是重点人群的判定线，差一岁就是名单里多一个人或少一个人。
+    </div>
+  </section>
+
+  <!-- ============ 09 ============ -->
+  <section id="s9">
+    <h2 class="sec"><span class="idx">09</span>打包与发布</h2>
+    <p class="sec-lead">
+      用 GitHub Actions 自动打包，不再依赖任何一台开发机。三条触发路径覆盖全部场景。
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>触发</th><th>产出</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>push 到 <code>main</code>（且改动涉及 <code>android/**</code>）</td>
+            <td><code>掌上村务-debug-&lt;sha7&gt;.apk</code></td>
+            <td>每次提交都出一个能装机的包，供测试机安装</td>
+          </tr>
+          <tr>
+            <td>Pull Request 到 <code>main</code></td>
+            <td>单元测试报告 + debug APK</td>
+            <td>合并前拦住回归；测试报告失败时也上传，便于定位</td>
+          </tr>
+          <tr>
+            <td>打 <code>v*</code> 标签</td>
+            <td><code>掌上村务-&lt;版本&gt;.apk</code>（release）</td>
+            <td>作为正式版本发布到 GitHub Release 页面</td>
+          </tr>
+          <tr>
+            <td>手动触发（workflow_dispatch）</td>
+            <td>release APK，可指定服务器地址</td>
+            <td>需要临时给某个村出一个指向特定地址的包时用</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>几个关键决定</h3>
+
+    <div class="grid2">
+      <div class="card">
+        <h4>路径过滤 + 标签推送</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          只有动了 <code>android/**</code> 才跑，避免改前端、后端也白烧几分钟 CI。
+          但 GitHub 官方明确<b>路径过滤器不对标签推送生效</b>，
+          所以打 <code>v*</code> 标签时一定会出包——这正好是我们想要的行为。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>签名缺失时回退 debug 签名</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          仓库里不放签名文件。若配置了 4 个签名相关的仓库密钥，release 包用正式签名；
+          否则自动回退到 debug 签名，并在日志里明确提示。
+          <b>目的是保证流水线永远给出一个「能装上、能跑」的 APK</b>，
+          而不是一个谁也装不了的 unsigned 包。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>R8 暂不开启</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          kotlinx.serialization 靠「编译期生成的序列化器 + 反射查找 Companion」工作，
+          混淆规则写不对的典型症状是「能装上、一进页面就崩」——
+          而这类问题只有真机冒烟才能发现，<b>CI 编译通过不代表没问题</b>。
+          所以先用不混淆的 release 包把链路跑通，规则已提前写好，真机验证后再打开。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>debug / release 可共存</h4>
+        <p style="font-size:14px; margin-bottom:0">
+          debug 包的应用 id 带 <code>.debug</code> 后缀、版本名带 <code>-debug</code>，
+          两个包能同时装在一台手机上——现场排查问题时这一点很有用。
+        </p>
+      </div>
+    </div>
+
+    <h3>需要的仓库密钥（可选）</h3>
+    <pre><code>ANDROID_KEYSTORE_BASE64     keystore 文件的 base64（base64 -w0 release.jks &gt; keystore.txt）
+ANDROID_KEYSTORE_PASSWORD   keystore 口令
+ANDROID_KEY_ALIAS           密钥别名
+ANDROID_KEY_PASSWORD        密钥口令</code></pre>
+
+    <h3>注入打包参数</h3>
+    <pre><code>./gradlew assembleRelease \
+  -PversionCode=&lt;CI run number&gt; \
+  -PversionName=&lt;标签去掉 v，如 1.2.3&gt; \
+  -PapiBaseUrl=http://192.168.1.100:8080/</code></pre>
+    <p class="muted" style="font-size:13.5px">
+      服务器地址只是<b>默认值</b>，装到手机上还能在「我的 → 服务器地址」里改，
+      所以同一个包可以发给多个村。
+    </p>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  <section id="s10">
+    <h2 class="sec"><span class="idx">10</span>测试与验证</h2>
+    <p class="sec-lead">
+      单元测试的重点放在「平时不会走、一出问题就难查」的路径上，
+      而不是为了覆盖率去测 getter。
+    </p>
+
+    <div class="kpi">
+      <div class="item"><div class="v">53</div><div class="k">单元测试用例</div></div>
+      <div class="item"><div class="v">0</div><div class="k">失败 / 错误</div></div>
+      <div class="item"><div class="v">18.7<small>MB</small></div><div class="k">debug APK</div></div>
+      <div class="item"><div class="v">12.3<small>MB</small></div><div class="k">release APK</div></div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>测试类</th><th>用例数</th><th>钉住的行为</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>IdCardTest</code></td><td>10</td>
+            <td>校验位算法、15 位升 18 位、末位小写 x、不存在的月日（02-30）、闰年</td>
+          </tr>
+          <tr>
+            <td><code>DateTextTest</code></td><td>8</td>
+            <td>年龄边界：生日未到 / 生日当天 / 生日前一天；非法日期不抛异常而是明确返回</td>
+          </tr>
+          <tr>
+            <td><code>PersonQueryTest</code></td><td>8</td>
+            <td><code>activeOnly</code> 是字符串；「18 岁以下」传 <code>maxAge=17</code>（闭区间）；缓存键的稳定性与区分度</td>
+          </tr>
+          <tr>
+            <td><code>OfflineQueueTest</code></td><td>7</td>
+            <td>先进先出、跨进程持久化、到顶记录、成功后删除本地文件、损坏文件只跳过不阻塞</td>
+          </tr>
+          <tr>
+            <td><code>ApiEnvelopeTest</code></td><td>8</td>
+            <td>
+              用 MockWebServer 真跑一遍网络：<b>嵌套泛型 <code>ApiEnvelope&lt;PageData&lt;PersonDto&gt;&gt;</code>
+              能在运行时正确反序列化</b>（这是编译期看不出来的风险）、未知字段被忽略、
+              「200 + code≠0」判为失败、错误体里的中文提示被提取出来
+            </td>
+          </tr>
+          <tr>
+            <td><code>SyncEngineTest</code></td><td>12</td>
+            <td>第六节的整套失败策略：网络不通中止整轮、业务性失败一次到位、401 停止、成功连文件一起删、令牌正确带上</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>构建验证结果</h3>
+    <pre><code>$ ./gradlew testDebugUnitTest assembleDebug
+BUILD SUCCESSFUL
+53 tests completed, 0 failed
+
+$ ./gradlew assembleRelease -PversionCode=42 -PversionName=1.0.42
+BUILD SUCCESSFUL
+app-release.apk  12.3 MB   versionCode=42  versionName=1.0.42</code></pre>
+
+    <div class="note ok">
+      <b>本地实测已通过。</b>debug 包 18.7 MB、release 包 12.3 MB 均构建成功，
+      注入的服务器地址与版本号已在产物元数据中核对无误。
+      release 包在未配置签名密钥时回退 debug 签名，实测可正常签名通过。
+    </div>
+
+    <div class="note warn">
+      <b>还没有做的事：真机冒烟测试。</b>
+      单元测试只能证明「逻辑对、能装上」，证明不了「在村里的手机上跑得顺」。
+      上线前至少要在<b>一台真实设备</b>上走完整流程：登录 → 查人 → 新增 →
+      拍照 → 断网 → 恢复网络 → 确认队列自动上传成功。
+      这一步不做，<b>不建议把这个包发给村里用</b>。
+    </div>
+  </section>
+
+  <!-- ============ 11 ============ -->
+  <section id="s11">
+    <h2 class="sec"><span class="idx">11</span>已知取舍与后续</h2>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>取舍 / 缺口</th><th>现状</th><th>后续怎么做</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>R8 未开启</td>
+            <td>release 包未混淆，体积 12.3 MB</td>
+            <td>真机验证后打开 <code>isMinifyEnabled</code>；规则已备好，预计可再瘦 2–3 MB</td>
+          </tr>
+          <tr>
+            <td>无真机测试</td>
+            <td>只做了编译 + 单元测试</td>
+            <td>补一台真机的冒烟流程（见 10 节）；之后考虑加 Compose UI 测试</td>
+          </tr>
+          <tr>
+            <td>离线冲突未处理</td>
+            <td>队列只按时间顺序重放，不检测「服务端已被别人改过」</td>
+            <td>可加乐观锁（<code>updated_at</code> 比对），冲突时提示用户保留哪一份</td>
+          </tr>
+          <tr>
+            <td>缓存不过期</td>
+            <td>有缓存就直接用，只显示「多久之前」</td>
+            <td>可加「超过 N 天的缓存不参与降级」，避免长期离线看到过时数据</td>
+          </tr>
+          <tr>
+            <td>家庭管理未接入</td>
+            <td>手机上只看家庭户数，不做按门牌号归户</td>
+            <td>刻意不做。若将来需要，应做「查看家庭成员」而非「归户操作」</td>
+          </tr>
+          <tr>
+            <td>无崩溃上报</td>
+            <td>崩溃只能靠用户口述</td>
+            <td>村级内网环境不适合接第三方服务；可在本机落崩溃日志，由用户手动导出</td>
+          </tr>
+          <tr>
+            <td>定位能力未用</td>
+            <td>没有申请定位权限</td>
+            <td>这是<b>刻意</b>的：走访留痕靠照片和时间，采集定位会显著增加权限阻力与合规成本</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>一句话总结这次设计的取舍原则：</b>
+      凡是「在手机上做会比在电脑上做更差」的功能，一律不做；
+      凡是「只能在外勤现场做」的功能，哪怕技术上有难度（离线队列、运行时服务器地址、
+      不申请权限的拍照）也要做扎实。
+    </div>
+  </section>
+
+  <footer>
+    <p style="margin-bottom:4px">
+      <b>掌上村务 · 安卓移动端设计说明</b> — 配套代码位于仓库 <code>android/</code> 目录，
+      自动打包工作流为 <code>.github/workflows/android.yml</code>。
+    </p>
+    <p style="margin-bottom:0">
+      本文档中的界面原型按实际实现绘制，字段口径与 <code>backend/src/utils/</code> 下的既有实现保持一致。
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>

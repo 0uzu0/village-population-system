@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标前景层：108x108 画布，安全区为中心 66x66 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 屋顶 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,22 L88,48 L80,57 L54,37 L28,57 L20,48 Z" />
+    <!-- 墙体 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M33,53 H75 V86 H33 Z" />
+    <!-- 门洞（挖空成背景色，表达"入户"） -->
+    <path
+        android:fillColor="#FF1D6FE0"
+        android:pathData="M47,86 V69 A7,7 0 0 1 61,69 V86 Z" />
+</vector>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 拍照临时文件：写到应用私有目录，再经 FileProvider 授权给相机 -->
+    <cache-path
+        name="captures"
+        path="captures/" />
+    <cache-path
+        name="images"
+        path="images/" />
+    <files-path
+        name="offline"
+        path="offline/" />
+</paths>

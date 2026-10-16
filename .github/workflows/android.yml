@@ -1,0 +1,198 @@
+name: android
+
+# =============================================================
+# 安卓端自动打包
+#
+# 产物：
+#   · push 到 main / PR（改动涉及 android/**）→ app-debug.apk（可直接装机测试）
+#   · push v* 标签                            → 另外构建 app-release.apk，并挂到 GitHub Release
+#
+# 注意：标签推送**不受 paths 过滤**（GitHub 官方行为），所以打 v* 一定出包。
+#
+# 关于签名（重要）：
+#   仓库里**不放签名文件**。若配置了以下仓库密钥，release 包会用正式签名；
+#   否则自动回退到 debug 签名 —— 目的是保证流水线永远能给出一个「能装上、能跑」
+#   的 APK，而不是一个谁也装不了的 unsigned 包。
+#
+#     ANDROID_KEYSTORE_BASE64   keystore 文件的 base64
+#     ANDROID_KEYSTORE_PASSWORD keystore 口令
+#     ANDROID_KEY_ALIAS         密钥别名
+#     ANDROID_KEY_PASSWORD      密钥口令
+#
+#   生成 base64：base64 -w0 release.jks > keystore.txt
+#
+# 关于服务器地址：
+#   打包时通过 -PapiBaseUrl 注入默认地址，安装后仍可在 App 内「我的 → 服务器地址」修改。
+#   同一个 APK 会分发给多个村，所以各村的地址不必在打包时区分。
+# =============================================================
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    # 只有动了安卓端（或本工作流）才跑，避免改前端/后端也白烧几分钟 CI。
+    # 注意：GitHub 官方明确「路径过滤器不对标签推送生效」——
+    # 所以打 v* 标签时一定出包，不会被这个 paths 挡住，这正是我们要的行为。
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: '默认服务器地址（如 http://192.168.1.100:8080/）'
+        required: false
+        default: 'http://192.168.1.100:8080/'
+
+permissions:
+  contents: write
+
+concurrency:
+  # 同一分支/标签只保留最后一次构建，避免连续 push 排队等待
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # AGP 8.7 要求 JDK 17 及以上；用 17 可以覆盖到旧一些的 Gradle 插件
+      - name: 准备 JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 官方 Gradle Action：托管 Gradle 用户目录与依赖缓存。
+      # Gradle 版本以仓库里提交的 wrapper 为准（gradle-wrapper.properties），
+      # 这里不再指定 gradle-version，避免「Action 装的版本」和「wrapper 声明的版本」两处打架。
+      # PR 构建只读缓存：外部贡献者的构建不应该往缓存里写东西。
+      - name: 准备 Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: 安装 Android SDK 组件
+        run: |
+          # runner 镜像自带 sdkmanager 与 ANDROID_HOME；显式装一遍保证可复现。
+          # 万一日后镜像不带 sdkmanager，也不让流水线直接挂：
+          # AGP 默认会自己下载缺失的 platform（前提是许可已接受），这里留个退路。
+          if command -v sdkmanager > /dev/null 2>&1; then
+            yes | sdkmanager --licenses > /dev/null 2>&1 || true
+            sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
+          else
+            echo "未找到 sdkmanager，交由 AGP 自动下载缺失的 SDK 组件"
+          fi
+
+      # wrapper 已随仓库提交，这里只补执行位（Windows 上提交时容易丢）
+      - name: 检查 Gradle Wrapper
+        run: chmod +x ./gradlew && ./gradlew --version
+
+      # 单元测试：覆盖身份证解析、年龄口径、查询条件拼装、
+      # 以及「离线队列重放」这条平时走不到、出问题却最要命的路径
+      - name: 单元测试
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: 测试报告（失败时也上传，便于定位）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
+      # ---------------- debug 包：每次 push 都出，供测试机安装 ----------------
+      - name: 构建 Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: 重命名 Debug APK
+        run: |
+          # debug 与 release 分目录存放：打标签时两者都会构建，
+          # 混在同一个 out/ 里会导致「app-debug」这个附件里也混进 release 包
+          mkdir -p out/debug
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "out/debug/掌上村务-debug-${GITHUB_SHA::7}.apk"
+
+      - name: 上传 Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/out/debug/*.apk
+          if-no-files-found: error
+
+      # ---------------- release 包：仅在打标签或手动触发时构建 ----------------
+      - name: 解码签名密钥
+        id: keystore
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "未配置 ANDROID_KEYSTORE_BASE64，release 包将使用 debug 签名（可安装，但不能上架）"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: 构建 Release APK
+        id: release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # 版本号取自标签（v1.2.3 → 1.2.3），非标签触发时用 run_number
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then VERSION_NAME="0.0.${GITHUB_RUN_NUMBER}"; fi
+          VERSION_CODE="${GITHUB_RUN_NUMBER}"
+
+          ./gradlew assembleRelease --stacktrace \
+            -PversionCode="$VERSION_CODE" \
+            -PversionName="$VERSION_NAME" \
+            -PapiBaseUrl="${{ github.event.inputs.api_base_url || 'http://192.168.1.100:8080/' }}"
+
+          mkdir -p out/release
+          cp app/build/outputs/apk/release/app-release.apk "out/release/掌上村务-${VERSION_NAME}.apk"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: 上传 Release APK
+        if: steps.release.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: android/out/release/*.apk
+          if-no-files-found: error
+
+      # 用 gh CLI 而不是第三方 action 发布：runner 自带，不存在 action 版本失效的风险
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && steps.release.outcome == 'success'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="掌上村务桌面端之外的移动端安装包。
+
+          版本：${TAG}
+          最低系统：Android 7.0（API 24）
+          默认服务器地址可在 App 内「我的 → 服务器地址」修改。
+
+          Debug 包与 Release 包的区别：应用 id 后缀 / 签名方式不同，可同时安装在一台设备上。"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" android/out/release/*.apk --clobber
+          else
+            gh release create "$TAG" android/out/release/*.apk --title "$TAG" --notes "$NOTES"
+          fi
