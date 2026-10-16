@@ -18,8 +18,11 @@ export const STATUS_LABELS: Record<string, string> = {
   DEAD: '死亡',
 };
 
+/** Element Plus el-tag 的 type 取值（写死联合类型，避免退回宽泛的 string） */
+export type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger';
+
 /** Element Plus tag 类型：正常=绿、迁入=蓝、迁出=橙、死亡=红 */
-export const STATUS_TAG_TYPES: Record<string, string> = {
+export const STATUS_TAG_TYPES: Record<string, TagType> = {
   NORMAL: 'success',
   MOVED_IN: 'primary',
   MOVED_OUT: 'warning',
@@ -30,7 +33,7 @@ export function statusLabel(s?: string): string {
   return STATUS_LABELS[s || ''] || s || '—';
 }
 
-export function statusTagType(s?: string): string {
+export function statusTagType(s?: string): TagType {
   return STATUS_TAG_TYPES[s || ''] || 'info';
 }
 
