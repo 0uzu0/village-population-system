@@ -51,6 +51,8 @@ class PersonEditViewModelTest {
     private companion object {
         const val PATH_VILLAGES = "/api/grids/villages"
         const val PATH_PERSON = "/api/persons/"
+        /** 「人口标签」多选项：新增/编辑都要拉一次标签定义 */
+        const val PATH_TAGS = "/api/tags/definitions"
     }
 
     /** 后端 GET /api/persons/:id 的真实响应形状（字段名取自 toPersonVO） */
@@ -156,9 +158,22 @@ class PersonEditViewModelTest {
 
     private fun personDetail(delayMs: Long = 0) = { json(detailJson, delayMs = delayMs) }
 
+    /**
+     * 个人标签定义列表。
+     * 其中 id=8 与 detailJson 里该人员已挂的标签一致，便于断言「编辑时回填」。
+     */
+    private val okTags = {
+        json(
+            """{"code":0,"message":"success","data":{"list":[
+             {"id":8,"name":"低保对象","code":"LOW_INCOME_PERSON","color":"#F76B15"},
+             {"id":9,"name":"残疾人","code":"DISABLED_PERSON","color":"#0E7C6B"}
+           ],"total":2}}"""
+        )
+    }
+
     @Test
     fun `打开编辑页时表单会被既有档案填满`() {
-        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail())
+        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail(), PATH_TAGS to okTags)
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 7)
         assertTrue("personId>0 应判定为编辑", vm.isEdit)
@@ -181,12 +196,17 @@ class PersonEditViewModelTest {
         assertEquals("户主", s.relation)
         assertEquals("行动不便", s.remark)
         assertEquals(1, s.villages.size)
+        // 标签：选项要拉全，已挂的标签要回填。
+        // 「回填」这条尤其关键——tagIds 是**全量覆盖**语义，忘了回填的话
+        // 用户只是改个手机号，保存时就会把该人员原有的标签全部清空。
+        assertEquals(2, s.personTags.size)
+        assertEquals(listOf(8), s.tagIds)
     }
 
     @Test
     fun `读取档案期间不给表单_读完才放开保存`() {
-        // 让详情慢 1 秒，模拟村里信号很差的情况；村庄仍是即时的
-        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail(delayMs = 1_000))
+        // 让详情慢 1 秒，模拟村里信号很差的情况；村庄与标签仍是即时的
+        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail(delayMs = 1_000), PATH_TAGS to okTags)
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 7)
         vm.init()
@@ -204,6 +224,7 @@ class PersonEditViewModelTest {
         // 详情接口挂 500，村庄列表正常返回——两件事互不干扰，靠路径区分而非排队顺序
         respondWith(
             PATH_VILLAGES to okVillages,
+            PATH_TAGS to okTags,
             PATH_PERSON to {
                 json("""{"code":500,"message":"数据库连接失败","data":null,"errorCode":"INTERNAL"}""", code = 500)
             }
@@ -223,12 +244,12 @@ class PersonEditViewModelTest {
         vm.save { saved = true }
         assertTrue("不应提交", !saved)
         assertTrue(vm.state.value.error != null)
-        assertEquals("只应发生村庄 + 详情两个请求，不该有写请求", 2, server.requestCount)
+        assertEquals("只应发生村庄 + 标签 + 详情三个请求，不该有写请求", 3, server.requestCount)
     }
 
     @Test
     fun `新增人员时不去调详情接口`() {
-        respondWith(PATH_VILLAGES to okVillages)
+        respondWith(PATH_VILLAGES to okVillages, PATH_TAGS to okTags)
 
         val vm = PersonEditViewModel(personRepo, metaRepo, 0)
         assertTrue("personId=0 是新增", !vm.isEdit)
@@ -237,7 +258,10 @@ class PersonEditViewModelTest {
         awaitUntil { vm.state.value.villages.isNotEmpty() }
 
         assertEquals("", vm.state.value.name)
-        // 只应发生一次请求（村庄列表）；新增时多打一次详情接口说明判断写错了
-        assertEquals(1, server.requestCount)
+        // 只应发生两次请求（村庄列表 + 标签定义）；新增时多打一次详情接口说明判断写错了
+        assertEquals(2, server.requestCount)
+        // 新增时标签选项要拉全（否则表单里没得选），但不该有预选中的标签
+        assertEquals(2, vm.state.value.personTags.size)
+        assertTrue("新增时不应有预选标签", vm.state.value.tagIds.isEmpty())
     }
 }
