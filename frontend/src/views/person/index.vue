@@ -166,8 +166,26 @@
               <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="form.name" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="曾用名"><el-input v-model="form.formerName" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="性别"><el-radio-group v-model="form.gender"><el-radio value="MALE">男</el-radio><el-radio value="FEMALE">女</el-radio></el-radio-group></el-form-item></el-col>
-              <el-col :span="12"><el-form-item label="出生日期"><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-              <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item></el-col>
+              <el-col :span="12">
+                <el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="选填，自动校验" /></el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="出生日期">
+                  <div style="width: 100%">
+                    <el-date-picker
+                      v-model="form.birthDate"
+                      type="date"
+                      value-format="YYYY-MM-DD"
+                      style="width: 100%"
+                      :disabled="!!idCardBirth"
+                      placeholder="无身份证时手动填写"
+                    />
+                    <div class="hint">
+                      {{ idCardBirth ? '以身份证号为准，自动带出' : '填写身份证号后自动带出（年龄按身份证号计算）' }}
+                    </div>
+                  </div>
+                </el-form-item>
+              </el-col>
               <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="备用手机号"><el-input v-model="form.phoneBackup" placeholder="家属/第二联系人" /></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item></el-col>
@@ -303,7 +321,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, tagApi, gridApi, excelApi } from '@/api';
@@ -311,6 +329,7 @@ import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
 import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
 import { DISABILITY_LEVELS, DISABILITY_TYPES } from '@/utils/disability';
+import { birthFromIdCard, genderFromIdCard } from '@/utils/idcard';
 import TagPill from '@/components/TagPill.vue';
 import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
@@ -428,6 +447,21 @@ const emptyForm = () => ({
   guardianName: '', guardianPhone: '', disabilityRemark: '',
 });
 const form = reactive<any>(emptyForm());
+
+/**
+ * 身份证号派生出的出生日期（年龄口径以身份证为准，与后端规则一致）。
+ * 有值 = 该身份证能解析出合法出生日期，此时出生日期不可手改，且会即时覆盖表单值；
+ * 无身份证 / 号码日期不合法时为空，可手动填写。
+ */
+const idCardBirth = ref<string | null>(null);
+
+watch(() => form.idCard, (val: string) => {
+  const birth = birthFromIdCard(val || '');
+  idCardBirth.value = birth;
+  if (birth) form.birthDate = birth;
+  const g = genderFromIdCard(val || '');
+  if (g) form.gender = g;
+});
 
 const tagVisible = ref(false);
 const tagTarget = ref<any>(null);

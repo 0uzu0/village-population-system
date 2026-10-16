@@ -32,6 +32,28 @@ describe('身份证校验', () => {
     expect(birthFromIdCard('11010519491231002X')).toBe('1949-12-31');
   });
 
+  it('15 位旧版按 19 开头补全年份', () => {
+    expect(birthFromIdCard('110105491231002')).toBe('1949-12-31');
+  });
+
+  it('月日不存在的号码返回 null（不把假日期写进档案）', () => {
+    // 校验位合法 ≠ 日期真实存在
+    expect(birthFromIdCard('11010519490230002X')).toBeNull(); // 2 月没有 30 日
+    expect(birthFromIdCard('11010519491301002X')).toBeNull(); // 没有 13 月
+    expect(birthFromIdCard('11010519491200002X')).toBeNull(); // 没有 0 日
+    expect(birthFromIdCard('11010519491232002X')).toBeNull(); // 12 月只有 31 天
+  });
+
+  it('闰年 2 月 29 日有效，平年无效', () => {
+    expect(birthFromIdCard('11010520000229002X')).toBe('2000-02-29');
+    expect(birthFromIdCard('11010519000229002X')).toBeNull();
+  });
+
+  it('长度不对时返回 null', () => {
+    expect(birthFromIdCard('1101051949123100')).toBeNull();
+    expect(birthFromIdCard('')).toBeNull();
+  });
+
   it('从身份证提取性别', () => {
     // 第17位 2 为偶数 → 女
     expect(genderFromIdCard('11010519491231002X')).toBe('FEMALE');

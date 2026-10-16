@@ -366,7 +366,8 @@ async function validateImportRow(row: Record<string, any>, rowNo: number, gridMa
     familyId = familyMap.get(familyNo)!;
   }
 
-  const birthDate = row['出生日期'] || (idCardNormalized ? birthFromIdCard(idCardNormalized) : null);
+  // 出生日期以身份证为准（决定年龄口径）；证上日期不存在时回退到表格里的出生日期列
+  const birthDate = (idCardNormalized ? birthFromIdCard(idCardNormalized) : null) || row['出生日期'] || null;
   const genderFinal = gender || (idCardNormalized ? genderFromIdCard(idCardNormalized) : 'MALE');
 
   return {

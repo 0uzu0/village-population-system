@@ -45,12 +45,37 @@ function normalizeChecksum(prefix17: string): string {
   return prefix17 + CHECK_CODES[sum % 11];
 }
 
-/** 从身份证提取出生日期（YYYY-MM-DD） */
+/**
+ * 从身份证提取出生日期（YYYY-MM-DD）。
+ * 校验位合法只说明「号码格式对」，不代表月日真实存在——如某号段出现 02-30。
+ * 这类情况返回 null，交由调用方回退到其它来源（报表出生日期/手填值），
+ * 避免把不存在的日期写进 birth_date（年龄会因此算错）。
+ */
 export function birthFromIdCard(id: string): string | null {
   const value = (id || '').trim();
-  if (value.length === 18) return `${value.slice(6, 10)}-${value.slice(10, 12)}-${value.slice(12, 14)}`;
-  if (value.length === 15) return `19${value.slice(6, 8)}-${value.slice(8, 10)}-${value.slice(10, 12)}`;
-  return null;
+  let y: string;
+  let m: string;
+  let d: string;
+  if (value.length === 18) {
+    y = value.slice(6, 10);
+    m = value.slice(10, 12);
+    d = value.slice(12, 14);
+  } else if (value.length === 15) {
+    y = `19${value.slice(6, 8)}`;
+    m = value.slice(8, 10);
+    d = value.slice(10, 12);
+  } else {
+    return null;
+  }
+  const yi = Number(y);
+  const mi = Number(m);
+  const di = Number(d);
+  if (!/^\d{4}$/.test(y) || !/^\d{2}$/.test(m) || !/^\d{2}$/.test(d)) return null;
+  if (yi < 1900 || yi > 2100 || mi < 1 || mi > 12 || di < 1) return null;
+  // 该月实际天数（含闰年 2 月）
+  const daysInMonth = new Date(Date.UTC(yi, mi, 0)).getUTCDate();
+  if (di > daysInMonth) return null;
+  return `${y}-${m}-${d}`;
 }
 
 /** 从身份证提取性别：MALE / FEMALE */

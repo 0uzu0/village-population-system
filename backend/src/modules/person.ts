@@ -21,7 +21,10 @@ import { z } from 'zod';
 const router = Router();
 router.use(authMiddleware);
 
-/** 处理身份证/手机号：校验 + 提取出生日期/性别（明文存储） */
+/**
+ * 处理身份证/手机号：校验 + 提取出生日期/性别（明文存储）。
+ * 身份证是出生日期与性别的权威来源：提取不到（无证/日期不合法）时才由调用方回退到表单值。
+ */
 function prepareIdentity(body: any) {
   const result: Record<string, string | null> = {};
   if (body.idCard) {
@@ -29,8 +32,10 @@ function prepareIdentity(body: any) {
     if (!check.valid) throw new AppError(`身份证号：${check.message}`);
     const normalized = check.normalized!;
     result.id_card = normalized;
-    if (!body.birthDate) result.birth_date = birthFromIdCard(normalized)!;
-    if (!body.gender) result.gender = genderFromIdCard(normalized)!;
+    const birth = birthFromIdCard(normalized);
+    if (birth) result.birth_date = birth;
+    const gender = genderFromIdCard(normalized);
+    if (gender) result.gender = gender;
   }
   if (body.phone) {
     result.phone = body.phone;
@@ -385,7 +390,8 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         personNo, body.name, body.formerName || null, body.gender || identity.gender || 'MALE',
-        body.birthDate || identity.birth_date || null,
+        // 出生日期以身份证为准（年龄口径），无身份证时才用表单填写的值
+        identity.birth_date || body.birthDate || null,
         identity.id_card || null, identity.phone || null, identity.phone_backup || null,
         body.hukouAddress || null, body.liveAddress || null,
         body.bankAccount || null, body.subsidyAmount ?? null, body.village || null,
@@ -444,7 +450,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   const sets: string[] = [];
   const params: any[] = [];
   const fieldMap: Record<string, string> = {
-    name: 'name', formerName: 'former_name', gender: 'gender', birthDate: 'birth_date',
+    name: 'name', formerName: 'former_name', gender: 'gender',
     phone: 'phone', phoneBackup: 'phone_backup', idCard: 'id_card',
     hukouAddress: 'hukou_address', liveAddress: 'live_address', village: 'village',
     gridId: 'grid_id', familyId: 'family_id', relation: 'relation', remark: 'remark', changeReason: 'change_reason',
@@ -456,10 +462,21 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
       params.push((body as any)[key] === '' ? null : (body as any)[key]);
     }
   }
-  // id_card / phone / phone_backup 已在 fieldMap 中统一处理（含清空场景），
-  // 这里只补 prepareIdentity 从身份证派生出来的值，避免重复写同名列
+  /**
+   * 出生日期（决定年龄）以身份证为权威来源，单独处理、不放进 fieldMap：
+   * 只要提交的身份证能解析出出生日期，就重算覆盖表单里的旧值——
+   * 此前「表单值优先」会让改了身份证号的人年龄仍旧不变。
+   * 没有身份证（或日期不合法）时才采用表单填写的值。
+   */
+  if (identity.birth_date !== undefined) {
+    sets.push('birth_date = ?');
+    params.push(identity.birth_date);
+  } else if (body.birthDate !== undefined) {
+    sets.push('birth_date = ?');
+    params.push(body.birthDate === '' ? null : body.birthDate);
+  }
+  // id_card / phone / phone_backup 已在 fieldMap 中统一处理（含清空场景）
   if (identity.gender !== undefined && body.gender === undefined) { sets.push('gender = ?'); params.push(identity.gender); }
-  if (identity.birth_date !== undefined && body.birthDate === undefined) { sets.push('birth_date = ?'); params.push(identity.birth_date); }
   // 发放金额：0 是合法值（享受但金额为 0），故用 ?? 而非 || 判断
   if (body.subsidyAmount !== undefined) { sets.push('subsidy_amount = ?'); params.push(body.subsidyAmount ?? null); }
 

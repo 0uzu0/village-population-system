@@ -151,9 +151,10 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
   }
 
   const relation = p.relation === '户主' ? 'HEAD' : p.relation || null;
-  // 注意：这里会把结果写回 birth_date，日期差一天会直接污染出生日期，
-  // 因此必须用按本地时区取值的 formatDate，不能用 toISOString()
-  const birthDate = formatDate(p.birth_date) || birthFromIdCard(idCard);
+  // 出生日期以身份证为准（年龄口径）：确认入库前已校验身份证合法，优先按证上日期；
+  // 证上日期不存在（如 02-30）时才回退到原表登记值。
+  // 注意：回退写入 birth_date 时必须用按本地时区取值的 formatDate，不能用 toISOString()
+  const birthDate = birthFromIdCard(idCard) || formatDate(p.birth_date);
   const gender = p.gender || genderFromIdCard(idCard) || 'MALE';
 
   const personNo = `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
