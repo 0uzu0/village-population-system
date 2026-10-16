@@ -115,17 +115,27 @@
           <div v-for="p in photos" :key="p.id" class="photo">
             <!-- 图片接口要 Bearer 头，不能把直链给 img（必然 401），
                  这里用的是页面加载时取回的 blob URL -->
-            <img
-              v-if="photoUrls[p.id]"
-              :src="photoUrls[p.id]"
-              :alt="p.fileName || '现场照片'"
-              @click="previewPhoto(p)"
-            />
-            <div v-else class="photo-loading">加载中…</div>
+            <div class="photo-frame" @click="openViewer(p)">
+              <img v-if="photoUrls[p.id]" :src="photoUrls[p.id]" :alt="p.fileName || '现场照片'" />
+              <div v-else class="photo-loading">加载中…</div>
+              <!--
+                删除做成图片角上的悬浮按钮。
+                以前它是缩略图下面一行里的一个文字链，与文件名、拍摄时间同处 160px 的格子，
+                三者互相挤宽度——名字被截断、时间看不全、删除键还常常点不准。
+              -->
+              <button
+                v-if="canRemovePhoto"
+                type="button"
+                class="photo-del"
+                :title="`删除「${p.fileName || '现场照片'}」`"
+                @click.stop="removePhoto(p)"
+              >
+                <el-icon><Delete /></el-icon>
+              </button>
+            </div>
             <div class="photo-meta">
-              <span class="photo-name" :title="p.fileName">{{ p.fileName || '现场照片' }}</span>
-              <span class="photo-time">{{ photoTimeLabel(p) }}</span>
-              <el-button link type="danger" size="small" @click="removePhoto(p)">删除</el-button>
+              <span class="photo-name" :title="photoNameFull(p)">{{ photoNameFull(p) }}</span>
+              <span class="photo-time" :title="photoTimeFull(p)">{{ photoTimeLabel(p) }}</span>
             </div>
           </div>
         </div>
@@ -158,11 +168,38 @@
       :persons="person ? [{ id: person.id, name: person.name, status: person.status }] : []"
       @done="reload"
     />
+
+    <!--
+      大图预览。用 Teleport 挂到 body：详情整页套着 v-loading 遮罩与 card 容器，
+      留在原地会被它们的层级和 overflow 裁掉。
+      预览里直接带删除按钮——「放大看清这张能不能用」和「决定删掉它」是同一个动作，
+      不该让用户在预览和缩略图之间来回找那张卡片。
+    -->
+    <Teleport to="body">
+      <div v-if="viewing" class="photo-viewer" role="dialog" aria-modal="true" @click.self="closeViewer">
+        <div class="viewer-bar">
+          <div class="viewer-meta">
+            <span class="viewer-name">{{ photoNameFull(viewing) }}</span>
+            <span class="viewer-time">{{ photoTimeFull(viewing) }}</span>
+          </div>
+          <div class="viewer-actions">
+            <el-button v-if="canRemovePhoto" type="danger" plain @click="removePhoto(viewing)">
+              <el-icon><Delete /></el-icon>删除这张
+            </el-button>
+            <el-button circle title="关闭（Esc）" @click="closeViewer">
+              <el-icon><Close /></el-icon>
+            </el-button>
+          </div>
+        </div>
+        <img v-if="photoUrls[viewing.id]" class="viewer-img" :src="photoUrls[viewing.id]" :alt="photoNameFull(viewing)" />
+        <div v-else class="viewer-img viewer-img--empty">这张照片没能加载出来</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, h } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi, fileApi } from '@/api';
@@ -183,6 +220,17 @@ const statusVisible = ref(false);
 /** 现场照片与其 blob URL。照片是取证材料，必须能看到原件，所以要真取回字节而不是给个链接 */
 const photos = ref<any[]>([]);
 const photoUrls = ref<Record<number, string>>({});
+/** 正在放大查看的那一张 */
+const viewing = ref<any>(null);
+
+/**
+ * 能不能删。后端对人员附件的删除要求 `person:edit` 或 `ledger:manage`，
+ * 这里先按同一条口径把按钮藏起来：点了再被告知没权限，体验是「先给了希望又收回去」。
+ *（后端还有一道「只能删自己上传的」限制，那是按记录判的，前端无从预知。）
+ */
+const canRemovePhoto = computed(
+  () => auth.hasPermission('person:edit') || auth.hasPermission('ledger:manage')
+);
 
 /** 来源页：从人口档案/重点人群等页面进来，返回时原样退回（含筛选条件） */
 const back = computed(() => parseFrom(route));
@@ -212,14 +260,45 @@ const extremePovertyMode = computed(() => {
 function typeLabel(t: string) { return { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' }[t] || t; }
 
 /**
- * 照片时间。优先显示**拍摄时间**（capturedAt，移动端上报），
- * 没有才退回上传时间（PC 传的合同/发票没有拍摄时间这个概念）——
- * 离线补传时两者能差好几天，标清楚是哪一个，看的人才知道该信哪个。
+ * 照片上的时间。
+ *
+ * ## 这条曾经是错的
+ * 后端 DATETIME 经 JSON 序列化出来是 **UTC 的 ISO 串**（13:00 拍的照片是
+ * `2026-10-16T05:00:00.000Z`），早先这里直接 `.replace('T',' ').slice(0,16)`，
+ * 于是 13:00 显示成 05:00——整整少 8 小时。现场照片的时间是取证材料的一部分，
+ * 差 8 小时足以让人对不上「什么时候去的」。
+ *
+ * 现在的时间由后端 `dateTimeCN` 统一成**北京时间文本**下发（`2026-10-16 13:00:00`），
+ * 前端只做展示、不再做任何时区换算——换算放在两处就一定会有一处算错。
  */
-function photoTimeLabel(p: any): string {
-  const t = p.capturedAt || p.createdAt;
+function photoTimeText(p: any): { prefix: string; text: string } | null {
+  // 优先显示拍摄时间（capturedAt，移动端拍照时上报），没有才退回上传时间：
+  // 离线补传时两者能差好几天，标清楚是哪一个，看的人才知道该信哪个。
+  const isCaptured = !!p.capturedAt;
+  const raw = isCaptured ? p.capturedAt : p.createdAt;
+  if (!raw) return null;
+  // 后端已给的是北京时间朴素文本；万一拿到的还是 ISO 串（旧后台/旁路接口），
+  // 也不要再去猜时区，原样显示总比显示成一个「看起来正常但错 8 小时」的时间安全。
+  return { prefix: isCaptured ? '拍摄' : '上传', text: String(raw) };
+}
+
+/** 完整时间（悬浮/预览里用，带秒：同一分钟连拍的照片靠秒才能分清） */
+function photoTimeFull(p: any): string {
+  const t = photoTimeText(p);
   if (!t) return '时间未知';
-  return (p.capturedAt ? '拍摄 ' : '上传 ') + String(t).replace('T', ' ').slice(0, 16);
+  return `${t.prefix} ${t.text}`;
+}
+
+/** 缩略图下方的短标签：省掉秒数，格子才放得下 */
+function photoTimeLabel(p: any): string {
+  const t = photoTimeText(p);
+  if (!t) return '时间未知';
+  // 后端文本形如 2026-10-16 13:00:00，只取到分钟
+  return `${t.prefix} ${t.text.slice(0, 16)}`;
+}
+
+function photoNameFull(p: any): string {
+  return p.fileName || '现场照片';
 }
 
 async function loadPhotos() {
@@ -243,28 +322,60 @@ async function loadPhotos() {
   }
 }
 
-function previewPhoto(p: any) {
-  const url = photoUrls.value[p.id];
-  if (!url) return;
-  window.open(url, '_blank');
+function openViewer(p: any) {
+  viewing.value = p;
+  document.addEventListener('keydown', onViewerKeydown);
+}
+function closeViewer() {
+  viewing.value = null;
+  document.removeEventListener('keydown', onViewerKeydown);
+}
+/** Esc 关预览：村里不少人习惯键盘操作，而预览是全屏遮罩，没有退出口就只能关页面 */
+function onViewerKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeViewer();
 }
 
+/**
+ * 删除一张现场照片。
+ *
+ * 确认框必须写明「不可恢复」：后端删库的同时会删掉磁盘上的文件，
+ * 删完既不能在界面上找回，也不能去上传目录里捞回来。
+ * 文件名用 h() 渲染而不是 dangerouslyUseHTMLString——文件名来自上传端，
+ * 拼进 HTML 就是一个存储型 XSS。
+ */
 async function removePhoto(p: any) {
-  try {
-    await ElMessageBox.confirm(`确定删除这张现场照片？\n${p.fileName || ''}`, '删除确认', { type: 'warning' });
-  } catch {
-    return; // 用户取消
-  }
+  const confirmed = await ElMessageBox.confirm(
+    h(
+      'div',
+      { style: 'white-space: pre-wrap; word-break: break-all; line-height: 1.6' },
+      `删除后无法恢复，确定删除这张现场照片？\n\n${photoNameFull(p)}\n${photoTimeFull(p)}`
+    ),
+    '删除现场照片',
+    {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    }
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!confirmed) return; // 用户取消，与「删除失败」要区分开
+
   try {
     await fileApi.remove(p.id);
   } catch (e: any) {
-    // 后端只允许「本人上传」或管理员删除，权限说明直接透传比「删除失败」有用
+    // 后端只允许「本人上传」或管理员删除，权限说明直接透传比一句「删除失败」有用
     ElMessage.error(e?.response?.data?.message || '删除失败');
     return;
   }
+
   if (photoUrls.value[p.id]) URL.revokeObjectURL(photoUrls.value[p.id]);
   delete photoUrls.value[p.id];
   photos.value = photos.value.filter((x) => x.id !== p.id);
+  // 从预览里删的话，预览本身也该跟着关掉——否则会停在一张已经不存在的照片上
+  if (viewing.value?.id === p.id) closeViewer();
+  ElMessage.success('已删除');
 }
 
 async function reload() {
@@ -284,9 +395,11 @@ onMounted(async () => {
   }
 });
 
-// blob URL 不会自己释放，离开页面必须逐个 revoke，否则反复进出详情页会一直占着内存
+// blob URL 不会自己释放，离开页面必须逐个 revoke，否则反复进出详情页会一直占着内存。
+// 预览的键盘监听同理：监听器挂在 document 上，不摘掉会一直跟着页面留着。
 onUnmounted(() => {
   Object.values(photoUrls.value).forEach((u) => URL.revokeObjectURL(u));
+  document.removeEventListener('keydown', onViewerKeydown);
 });
 </script>
 
@@ -360,13 +473,20 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.photo img {
+/* 定位上下文给悬浮的删除按钮用；cursor 声明在这层，图片还在加载时点上去的手型一致 */
+.photo-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 120px;
+  background: var(--color-bg-subtle);
+  cursor: zoom-in;
+}
+.photo-frame img {
   display: block;
   width: 100%;
   height: 120px;
   object-fit: cover;
-  cursor: zoom-in;
-  background: var(--color-bg-subtle);
 }
 .photo-loading {
   display: flex;
@@ -377,6 +497,39 @@ onUnmounted(() => {
   font-size: var(--font-size-xs);
   color: var(--color-text-placeholder);
   background: var(--color-bg-subtle);
+}
+/*
+  删除按钮：默认隐去、悬浮/聚焦时才出现。
+  为什么不全天候显示——照片是主体内容，一个常驻的红色按钮会抢视线，
+  也会让人误以为这张卡片本身处于「待处理」状态。
+  但它必须压在图片上而不是放进下面的小字行：160px 的格子里三样东西已经互相挤位了，
+  再塞一个按钮只会让「想删的时候点不准」继续发生。
+*/
+.photo-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  /* 悬浮按钮压在照片上，底下是深色的半透明底，图标固定用白色，不参与主题变量 */
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.photo:hover .photo-del,
+.photo-del:focus-visible {
+  opacity: 1;
+}
+.photo-del:hover {
+  background: var(--color-danger);
 }
 .photo-meta {
   display: flex;
@@ -395,5 +548,56 @@ onUnmounted(() => {
 .photo-time {
   color: var(--color-text-placeholder);
   white-space: nowrap;
+}
+
+/* 大图预览：Teleport 到 body，铺满视口 */
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.72);
+}
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  color: #fff;
+}
+.viewer-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.viewer-name {
+  font-size: var(--font-size-base);
+  word-break: break-all;
+}
+.viewer-time {
+  font-size: var(--font-size-xs);
+  color: rgba(255, 255, 255, 0.7);
+}
+.viewer-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+/* contain 而不是 cover：预览的目的是看清原图，裁切掉的门牌/人脸恰恰是最要紧的部分 */
+.viewer-img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+}
+.viewer-img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: var(--font-size-sm);
 }
 </style>
