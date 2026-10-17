@@ -115,7 +115,7 @@ class DtoBindingTest {
         val json = """
             {
               "totalPopulation": 3850, "familyCount": 1320, "gridCount": 9,
-              "hukouCount": 3610, "residentCount": 2980,
+              "hukouCount": 3610, "floatingCount": 2980,
               "partyCount": 61, "veteranCount": 55, "preferentialCount": 21,
               "lowIncomePersonCount": 88, "extremePovertyCount": 12,
               "disabledCount": 47, "lowIncomeFamilyCount": 40
@@ -126,7 +126,7 @@ class DtoBindingTest {
 
         assertEquals(3850, d.totalPopulation)
         assertEquals(3610, d.hukouCount)
-        assertEquals(2980, d.residentCount)
+        assertEquals(2980, d.floatingCount)
         // 这两个最容易被写错：党员不是 partyMemberCount，低保对象不是 lowIncomeCount
         assertEquals(61, d.partyCount)
         assertEquals(88, d.lowIncomePersonCount)

@@ -1,5 +1,7 @@
 package com.village.population.ui.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -242,6 +244,19 @@ fun AppRoot() {
             NavHost(
                 navController = navController,
                 startDestination = if (signedIn) Routes.HOME else Routes.LOGIN,
+                // 换页**不接动画**（微信式瞬时切换），一举解决两个问题：
+                //  1. 「人口→工作台手快点空白误入人员详情」的点击穿透。Navigation
+                //     Compose 默认是几百毫秒的交叉淡入，动画期间新旧两个目的地同时
+                //     在组合树里且都可交互——旧屏（人口列表）在淡出时仍能收到点击，
+                //     空白处的手指事件就落在它同坐标的行上。v2.0.1 的「点击盾」只
+                //     拦得住旧屏在新屏之下时的事件，旧屏 z 序在上时无能为力；无动画
+                //     则旧屏立即出组合树，穿透窗口物理上归零。
+                //  2. 「跳转生硬 / 视觉延迟」的观感来源就是这层长淡入淡出——内容
+                //     半透明地慢慢浮现。瞬时切换后新屏立即完整呈现、立即可操作。
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None },
             ) {
                 composable(Routes.LOGIN) {
                     Box(Modifier.fillMaxSize().shieldClickThrough()) {

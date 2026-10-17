@@ -61,12 +61,13 @@ const changes = ref<any[]>([]);
 
 const statCards = computed(() => {
   const d = dash.value;
-  // 「总人口」口径 = 户籍人口 + 常住人口（二者有交叉，按需求直接相加作为默认口径）。
-  // 户籍/常住各自也单列一块，方便核对总人口的构成。
+  // 「总人口」口径 = 户籍人口 + 流动人口（2026-10 口径调整：原「常住人口」
+  // 更名为「流动人口」，标签编码 RESIDENT_POP → FLOATING_POP）。
+  // 户籍/流动各自也单列一块（移动端），方便核对总人口的构成。
   const hukou = d.hukouCount ?? 0;
-  const resident = d.residentCount ?? 0;
+  const floating = d.floatingCount ?? 0;
   return [
-    { label: '总人口', value: hukou + resident, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
+    { label: '总人口', value: hukou + floating, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
     { label: '户籍人口', value: hukou, icon: 'UserFilled', color: '#3978F6', bg: '#EAF1FE' },
     { label: '家庭总数', value: d.familyCount ?? 0, icon: 'House', color: '#0E7C6B', bg: '#E4F4F0' },
     { label: '网格总数', value: d.gridCount ?? 0, icon: 'Grid', color: '#5B5BD6', bg: '#ECECFA' },

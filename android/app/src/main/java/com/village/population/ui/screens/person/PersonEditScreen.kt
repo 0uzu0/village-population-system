@@ -459,7 +459,16 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                     onClick = {
                         vm.save { result ->
                             when (result) {
-                                is SubmitResult.Sent -> onDone()
+                                is SubmitResult.Sent -> {
+                                    if (result.personId == 0) {
+                                        // 后端把无身份证的建档转入了待核查：没有生成
+                                        // 正式档案，留在本页说明去向，避免用户回到列表
+                                        // 找不到人以为数据丢了
+                                        resultMessage = "未填写身份证号，已转入待核查人员；在「待核查」页补录身份证后可确认入库"
+                                    } else {
+                                        onDone()
+                                    }
+                                }
                                 is SubmitResult.Queued -> {
                                     // 明确告诉用户「数据没丢」，否则他会以为保存失败而反复点
                                     resultMessage = "当前无网络，${result.label} 已暂存本机，联网后会自动上传"

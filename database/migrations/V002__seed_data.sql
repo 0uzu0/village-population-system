@@ -108,7 +108,7 @@ INSERT INTO `tag_definition`
 (11,6,'老年人','ELDERLY',NULL,'#3978F6','60周岁及以上老年人','PERSON',0,0,0,1),
 (12,6,'高龄老人','SENIOR_ELDERLY',NULL,'#5B5BD6','80周岁及以上高龄老人','PERSON',0,0,0,1),
 (13,6,'未成年人','MINOR',NULL,'#2F9E44','未满18周岁','PERSON',0,0,0,1),
-(14,7,'常住人口','RESIDENT_POP',NULL,'#3978F6','本村常住人口','PERSON',0,0,0,1),
+(14,7,'流动人口','FLOATING_POP',NULL,'#3978F6','本村流动人口（总人口口径=户籍人口+流动人口）','PERSON',0,0,0,1),
 (15,7,'户籍人口','HUKOU_POP',NULL,'#0E7C6B','本村户籍人口','PERSON',0,0,0,1),
 (16,7,'流动人口','FLOATING_POP',NULL,'#8A8F98','流入/流出流动人口','PERSON',0,0,0,1),
 (17,7,'迁入人员','MOVED_IN_PERSON',NULL,'#F76B15','近期迁入人员','PERSON',0,0,0,1),

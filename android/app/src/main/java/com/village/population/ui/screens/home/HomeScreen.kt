@@ -253,25 +253,25 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                     SectionCard(title = "人口概况") {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatCard(
-                                "总人口", "${d.hukouCount + d.residentCount}",
+                                "总人口", "${d.hukouCount + d.floatingCount}",
                                 Modifier.weight(1f), StatTone.Primary,
                                 onClick = { onNavigate(Routes.PERSONS) },
                             )
-                            // 家庭户数与户籍/常住同为参照数字，统一安静灰底（设计稿 v3）：
+                            // 家庭户数与户籍/流动同为参照数字，统一安静灰底（设计稿 v3）：
                             // 四张卡三种底色会把平级数字读出主次
                             StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard("常住人口", "${d.residentCount}", Modifier.weight(1f), StatTone.Quiet)
+                            StatCard("流动人口", "${d.floatingCount}", Modifier.weight(1f), StatTone.Quiet)
                             StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
-                        // 总人口是「户籍 + 常住」直接相加，而一个人可以既是户籍人口
-                        // 又是常住人口（两个口径有交叉）。不写这句，看到三个数对不上
+                        // 总人口是「户籍 + 流动」直接相加，而一个人可以既是户籍人口
+                        // 又是流动人口（两个口径有交叉）。不写这句，看到三个数对不上
                         // 会以为是算错了，实际是有意按需求采用的默认口径。
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "总人口 = 户籍人口 + 常住人口（两者存在交叉，相加为默认统计口径）",
+                            "总人口 = 户籍人口 + 流动人口（两者存在交叉，相加为默认统计口径）",
                             style = MaterialTheme.typography.bodySmall,
                             color = AppTheme.tokens.ink3,
                         )

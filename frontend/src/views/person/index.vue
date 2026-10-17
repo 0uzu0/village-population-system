@@ -619,22 +619,32 @@ async function saveForm() {
   if (!form.name) { ElMessage.warning('请填写姓名'); return; }
   saving.value = true;
   try {
-    // 残疾信息作为嵌套对象提交；全空时后端按「非残疾人」处理并清除档案
+    // 残疾信息作为嵌套对象提交；全空时后端按「非残疾人」处理并清除档案。
+    // 等级未选时是空串——后端 z.enum 不接受 ''，必须转 null（语义：未填）
     const payload = {
       ...form,
       subsidyAmount: form.subsidyAmount ?? null,
       disability: {
-        disabilityType: form.disabilityType,
-        disabilityLevel: form.disabilityLevel,
-        disabilityCard: form.disabilityCard,
-        guardianName: form.guardianName,
-        guardianPhone: form.guardianPhone,
-        remark: form.disabilityRemark,
+        disabilityType: form.disabilityType || null,
+        disabilityLevel: form.disabilityLevel || null,
+        disabilityCard: form.disabilityCard || null,
+        guardianName: form.guardianName || null,
+        guardianPhone: form.guardianPhone || null,
+        remark: form.disabilityRemark || null,
       },
     };
-    if (form.id) await personApi.update(form.id, payload);
-    else await personApi.create(payload);
-    ElMessage.success('保存成功');
+    if (form.id) {
+      await personApi.update(form.id, payload);
+      ElMessage.success('保存成功');
+    } else {
+      const res: any = await personApi.create(payload);
+      // 未填身份证号时后端不建正式档案，把这个人转入「待核查」待补录
+      if (res?.data?.pending) {
+        ElMessage.warning('未填写身份证号，已转入待核查人员；补录身份证后可确认入库');
+      } else {
+        ElMessage.success('保存成功');
+      }
+    }
     formVisible.value = false;
     load();
   } finally { saving.value = false; }

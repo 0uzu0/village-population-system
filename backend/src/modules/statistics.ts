@@ -14,7 +14,7 @@ router.use(authMiddleware);
  * 统计口径说明（V007 起与列表/重点人群/导出保持一致）：
  * - 总人口 = 状态为「正常」或「迁入」的档案数（迁出/死亡不计入，档案保留可追溯）
  * - 各标签人数 = 有效标签关联的在册去重人数，存在交叉，不可相加为总人口
- * - 个人标签（党员/退役/优抚/低保对象/特困/残疾/户籍/常住）：只数在册人员，
+ * - 个人标签（党员/退役/优抚/低保对象/特困/残疾/户籍/流动）：只数在册人员，
  *   已死亡/迁出的档案标签保留，但不计入当前服务名单
  * - 家庭标签（低保家庭）：家庭维度认定，与户主个人状态无关，家庭在册即计数
  * - 低保 = 家庭级「低保家庭」数 + 个人级「低保对象」人数，二者口径不同
@@ -31,7 +31,7 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('HUKOU_POP'))) AS hukou_count,
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
-            WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('RESIDENT_POP'))) AS resident_count
+            WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code IN ('FLOATING_POP'))) AS floating_count
       `,
     ),
     // 个人类标签：只数在册人员。死亡/迁出的档案保留标签可追溯，但不计入当前服务名单。
@@ -62,7 +62,7 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
     familyCount: Number(total?.family_count || 0),
     gridCount: Number(total?.grid_count || 0),
     hukouCount: Number(total?.hukou_count || 0),
-    residentCount: Number(total?.resident_count || 0),
+    floatingCount: Number(total?.floating_count || 0),
     ...focusCounts,
   });
 });

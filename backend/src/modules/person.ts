@@ -407,10 +407,15 @@ status: z.enum(PERSON_STATUSES).optional(),
   subsidyAmount: z.coerce.number().min(0, '发放金额不能为负').max(999999.99, '发放金额过大').nullable().optional(),
   familyCondition: z.string().max(1000).nullable().optional(),
   healthAssessment: z.string().max(1000).nullable().optional(),
-  /** 残疾专项档案（person_disability，与人员一对一） */
+    /** 残疾专项档案（person_disability，与人员一对一） */
   disability: z.object({
     disabilityType: z.string().max(64).nullable().optional(),
-    disabilityLevel: z.enum(DISABILITY_LEVELS).nullable().optional(),
+    // PC 表单未选择等级时提交的是空串而非 null，z.enum 会直接拒绝
+    // （Invalid enum value ... received ''）。空串按「未填」语义转 null。
+    disabilityLevel: z.preprocess(
+      (v) => (v === '' ? null : v),
+      z.enum(DISABILITY_LEVELS).nullable().optional(),
+    ),
     disabilityCard: z.string().max(64).nullable().optional(),
     guardianName: z.string().max(64).nullable().optional(),
     guardianPhone: z.string().max(20).nullable().optional(),
@@ -435,6 +440,44 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
   if (identity.id_card) {
     const dup = await queryOne<any>('SELECT id FROM person WHERE id_card = ?', [identity.id_card]);
     if (dup) throw new AppError('该身份证号已存在于档案中', 409, 'DUPLICATE_ID_CARD');
+  }
+
+  // 未填身份证：不进正式档案，转入待核查（与 Excel 导入同一口径——身份证是
+  // 确认身份的唯一凭证，缺失即「待核查」，补录后经「确认入库」正式建档）。
+  // 这样正式档案里不会出现一份没有身份证、出生日期性别都只能靠猜的记录。
+  if (!identity.id_card) {
+    const batchNo = `MANUAL-${Date.now().toString(36).toUpperCase()}`;
+    // 表单里拿的是网格/家庭 id，待核查表存的是编号原样（与导入对齐），先换算
+    let gridNo: string | null = null;
+    if (body.gridId) {
+      const g = await queryOne<any>('SELECT grid_no FROM grid WHERE id = ?', [body.gridId]);
+      gridNo = g?.grid_no || null;
+    }
+    let familyNo: string | null = null;
+    if (body.familyId) {
+      const f = await queryOne<any>('SELECT family_no FROM family WHERE id = ?', [body.familyId]);
+      familyNo = f?.family_no || null;
+    }
+    const pendingId = await withTransaction(async (conn) => {
+      const [r] = (await conn.query(
+        `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date,
+           id_card, phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation,
+           raw_data, created_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          batchNo, null, 'ID_CARD_MISSING', '人工新增人口未填写身份证号，需补录后确认入库',
+          body.name, body.gender || null, body.birthDate || null, null,
+          identity.phone || null, identity.phone_backup || null,
+          body.hukouAddress || null, body.liveAddress || null, body.village || null,
+          gridNo, familyNo, body.relation || null,
+          JSON.stringify({ source: 'MANUAL', form: req.body }),
+          req.user!.id,
+        ]
+      )) as any[];
+      return Number((r as any).insertId);
+    });
+    await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:create_pending', request: { pendingId, name: body.name }, result: 'SUCCESS', ip: req.ip });
+    return ok(res, { pending: true, pendingId }, '未填写身份证号，已转入待核查人员');
   }
 
   const personNo = genPersonNo();

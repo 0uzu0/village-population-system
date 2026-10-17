@@ -111,7 +111,8 @@ data class DashboardDto(
     val familyCount: Int = 0,
     val gridCount: Int = 0,
     val hukouCount: Int = 0,
-    val residentCount: Int = 0,
+    /** 流动人口（2026-10 口径调整：原「常住人口」residentCount 更名而来） */
+    val floatingCount: Int = 0,
     // 身份类重点人群：字段名 = focusGroups.ts 的 dashboardField
     val partyCount: Int = 0,
     val disabledCount: Int = 0,
