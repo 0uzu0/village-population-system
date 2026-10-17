@@ -326,6 +326,63 @@ async function saveDisability(
 }
 
 /**
+ * 户籍/流动口径互斥（2026-10 v2.1.0）：
+ * 流动人口 = 户籍不在本村、暂住本村的人员；总人口 = 户籍人口 + 流动人口，
+ * 两个口径**不存在交叉**，因此一人身上两个标签不允许同时生效。
+ *
+ * 冲突时的裁决规则是「户籍优先」：户籍是事实属性、流动是暂态，
+ * 同时声明两类时保留户籍、停用流动。
+ */
+
+/** 增量打标签后，按「户籍优先」停用该人对侧的生效标签并留痕。
+ *  db 为 mysql2 风格连接（pool / 事务 conn 均可，query 返回 [rows, fields]）。
+ *  用于 POST /:id/tags（单加）与 /batch-tags（批量 ADD）；
+ *  全量覆盖语义的 syncPersonTags 靠 next 过滤天然互斥，不走这里。 */
+async function deactivateHukouFloatingCounterpart(
+  db: { query: (sql: string, params?: any[]) => Promise<any> },
+  personId: number,
+  addedTagIds: number[],
+  userId: number
+) {
+  const defRes = await db.query(
+    `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
+  );
+  const defRows: any[] = Array.isArray(defRes[0]) ? defRes[0] : defRes;
+  const hukouIds = new Set<number>();
+  const floatingIds = new Set<number>();
+  for (const r of defRows) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
+
+  // 户籍优先：同一批同时声明两类时只保留户籍（前端漏拦时的兜底）
+  const addedHukou = addedTagIds.some((id) => hukouIds.has(id));
+  if (addedHukou) addedTagIds = addedTagIds.filter((id) => !floatingIds.has(id));
+  const addedFloating = addedTagIds.some((id) => floatingIds.has(id));
+
+  const counterpart = addedHukou ? floatingIds : addedFloating ? hukouIds : null;
+  if (!counterpart || counterpart.size === 0) return;
+
+  const ids = [...counterpart];
+  const ph = ids.map(() => '?').join(',');
+  const selRes = await db.query(
+    `SELECT id, tag_id FROM person_tag WHERE person_id = ? AND tag_id IN (${ph}) AND status = 'ACTIVE'`,
+    [personId, ...ids]
+  );
+  const rows: any[] = Array.isArray(selRes[0]) ? selRes[0] : selRes;
+  if (!rows?.length) return;
+  await db.query(
+    `UPDATE person_tag SET status = 'INACTIVE', expire_date = CURDATE()
+     WHERE person_id = ? AND tag_id IN (${ph}) AND status = 'ACTIVE'`,
+    [personId, ...ids]
+  );
+  for (const r of rows) {
+    await db.query(
+      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)
+       VALUES ('PERSON', ?, ?, 'REMOVE', ?, ?)`,
+      [personId, r.tag_id, userId, '户籍/流动口径互斥，自动移除']
+    );
+  }
+}
+
+/**
  * 把人员的标签同步成给定的 tagIds —— **全量覆盖**语义。
  *
  * 传 `[]` 表示清空标签，未传该字段（undefined）才表示「不动标签」，
@@ -349,6 +406,19 @@ async function syncPersonTags(
   )) as any[];
   const current = new Set<number>((curRows || []).map((r: any) => Number(r.tag_id)));
   const next = new Set<number>(tagIds);
+
+  // 户籍/流动互斥：全量覆盖下「不在 next 里的一律停用」本身就保证了互斥，
+  // 唯一要处理的是新集合同时声明两类 —— 按户籍优先剔除流动标签
+  // （被剔除的流动标签从未写入，无需留痕）。
+  const [defRows] = (await conn.query(
+    `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
+  )) as any[];
+  const hukouIds = new Set<number>();
+  const floatingIds = new Set<number>();
+  for (const r of defRows || []) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
+  if (tagIds.some((id) => hukouIds.has(id))) {
+    for (const fid of floatingIds) next.delete(fid);
+  }
 
   // 移除：当前有、新列表里没有 → 置为 INACTIVE（保留历史，不物理删除）
   for (const tagId of current) {
@@ -383,8 +453,13 @@ async function syncPersonTags(
 const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
   formerName: z.string().max(64).nullable().optional(),
-  gender: z.enum(['MALE', 'FEMALE'], { message: '性别不正确' }).optional(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '出生日期格式应为 YYYY-MM-DD').nullable().optional(),
+  gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['MALE', 'FEMALE'], { message: '性别不正确' }).optional()),
+  // 空串按「未填」处理（v2.1.0）：表单只填姓名保存时其余字段都是 ''，
+  // 不做这一步会先被格式校验拦下，走不到「无身份证转待核查」的分支
+  birthDate: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '出生日期格式应为 YYYY-MM-DD').nullable().optional()
+  ),
   idCard: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   phoneBackup: z.string().nullable().optional(),
@@ -520,6 +595,14 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
     // 二者结果一致，这里只在显式传了时才写，保持「不动标签」的语义）
     if (body.tagIds !== undefined) await syncPersonTags(conn, pid, body.tagIds, req.user!.id);
 
+    // 新增动作写进变更流水（v2.1.0：工作台「近期人口档案变更」要求
+    // 新增/删除都有记录；原先只有编辑与状态变更留痕）
+    await conn.query(
+      `INSERT INTO person_change_log (person_id, change_type, reason, operator_id)
+       VALUES (?, 'CREATE', ?, ?)`,
+      [pid, '新增人口档案', req.user!.id]
+    );
+
     return pid;
   });
 
@@ -622,7 +705,7 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
  */
 router.delete('/:id', requirePermission('person:delete'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
-  const person = await queryOne<any>('SELECT id, name FROM person WHERE id = ?', [id]);
+  const person = await queryOne<any>('SELECT id, name, person_no FROM person WHERE id = ?', [id]);
   if (!person) throw new AppError('人员不存在', 404, 'NOT_FOUND');
 
   await withTransaction(async (conn) => {
@@ -636,6 +719,14 @@ router.delete('/:id', requirePermission('person:delete'), async (req: Request, r
     // 若该人员是某户户主，解除户主引用（家庭本身保留）
     await conn.query('UPDATE family SET head_person_id = NULL WHERE head_person_id = ?', [id]);
     await conn.query('DELETE FROM person WHERE id = ?', [id]);
+    // 档案虽被物理删除，但删除动作本身要留在变更流水里（v2.1.0：
+    // 工作台「近期人口档案变更」要求新增/删除都有记录）。person_id 保留
+    // 原值（join 不上档案，统计侧显示「已删除人员」），姓名/编号写进 reason。
+    await conn.query(
+      `INSERT INTO person_change_log (person_id, change_type, reason, operator_id)
+       VALUES (?, 'DELETE', ?, ?)`,
+      [id, `删除人员档案：${person.name}（${person.person_no}）`, req.user!.id]
+    );
   });
 
   await writeAudit({
@@ -652,7 +743,10 @@ router.delete('/:id', requirePermission('person:delete'), async (req: Request, r
 const statusSchema = z.object({
   status: z.enum(PERSON_STATUSES),
   /** 状态生效日期：死亡记死亡日期、迁出记迁出日期；改回在册时前端传 null 清空 */
-  statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
+  statusDate: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional()
+  ),
   reason: z.string().max(255).nullable().optional(),
 });
 
@@ -705,7 +799,10 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
 const batchStatusSchema = z.object({
   personIds: z.array(z.number().int().positive()).min(1).max(500),
   status: z.enum(PERSON_STATUSES),
-  statusDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional(),
+  statusDate: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生效日期格式应为 YYYY-MM-DD').nullable().optional()
+  ),
   reason: z.string().max(255).nullable().optional(),
 });
 
@@ -786,6 +883,9 @@ router.post('/:id/tags', requirePermission('tag:manage'), async (req: Request, r
     if (dup) throw new AppError('该人员已关联此标签', 409, 'DUPLICATE_TAG');
   }
 
+  // 户籍/流动口径互斥（户籍优先）：加户籍标签先停用其生效的流动标签，反之亦然
+  await deactivateHukouFloatingCounterpart(pool, id, [body.tagId], req.user!.id);
+
   await execute(
     `INSERT INTO person_tag (person_id, tag_id, effect_date, expire_date, status, basis, created_by)
      VALUES (?,?,?,?,?,?,?)`,
@@ -824,8 +924,27 @@ router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request,
   const { personIds, tagIds, action, basis } = batchTagSchema.parse(req.body);
 
   await withTransaction(async (conn) => {
+    // 户籍/流动口径互斥（户籍优先）：批量 ADD 时若同一批声明了两类，
+    // 只保留户籍标签；随后对每个人员停用其对侧的生效标签。
+    // 整批在事务里，任何一条失败全部回滚，不会出现「一半人互斥一半人没处理」。
+    let effectiveTagIds = tagIds;
+    if (action === 'ADD') {
+      const defRes = await conn.query(
+        `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
+      );
+      const defRows: any[] = Array.isArray(defRes[0]) ? defRes[0] : defRes;
+      const hukouIds = new Set<number>();
+      const floatingIds = new Set<number>();
+      for (const r of defRows || []) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
+      if (tagIds.some((tid) => hukouIds.has(tid))) {
+        effectiveTagIds = tagIds.filter((tid) => !floatingIds.has(tid));
+      }
+      for (const pid of personIds) {
+        await deactivateHukouFloatingCounterpart(conn, pid, effectiveTagIds, req.user!.id);
+      }
+    }
     for (const pid of personIds) {
-      for (const tagId of tagIds) {
+      for (const tagId of effectiveTagIds) {
         if (action === 'ADD') {
           await conn.query(
             `INSERT INTO person_tag (person_id, tag_id, status, basis, created_by)

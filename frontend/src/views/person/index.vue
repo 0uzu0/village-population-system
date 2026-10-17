@@ -230,7 +230,9 @@
                     collapse-tags
                     style="width: 100%"
                     placeholder="可多选；空表示不打标签"
+                    @change="onFormTagsChange"
                   />
+                  <div class="form-tip">流动人口 = 户籍不在本村、暂住本村的人员；户籍人口与流动人口互斥，同时选择时保留户籍人口</div>
                 </el-form-item>
               </el-col>
               <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
@@ -315,7 +317,10 @@
       <el-alert :title="`将对已选的 ${selectedIds.size} 人执行操作，请二次确认`" type="warning" :closable="false" style="margin-bottom: 16px" />
       <el-form label-width="80px">
         <el-form-item label="操作"><el-radio-group v-model="batchTagForm.action"><el-radio value="ADD">添加标签</el-radio><el-radio value="REMOVE">移除标签</el-radio></el-radio-group></el-form-item>
-        <el-form-item label="标签"><el-select v-model="batchTagForm.tagIds" multiple filterable style="width: 100%"><el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
+        <el-form-item label="标签"><el-select v-model="batchTagForm.tagIds" multiple filterable style="width: 100%" @change="onBatchTagsChange"><el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
+        <el-form-item v-if="batchTagForm.action === 'ADD'" label=" ">
+          <div style="font-size: 12px; color: #909399; line-height: 1.5">户籍人口与流动人口互斥（总人口 = 户籍 + 流动）；同时选择时只保留户籍人口</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="batchTagVisible = false">取消</el-button>
@@ -444,8 +449,30 @@ const familyOptions = computed(() =>
   options.families.map((f: any) => ({ label: f.family_no, value: f.id }))
 );
 const personTagOptions = computed(() =>
-  personTags.value.map((t: any) => ({ label: t.name, value: t.id }))
+  personTags.value.map((t: any) => ({ label: t.name, value: t.id, code: t.code }))
 );
+
+/**
+ * 户籍/流动口径互斥（2026-10 v2.1.0）：流动人口 = 户籍不在本村、暂住本村，
+ * 总人口 = 户籍人口 + 流动人口，两个标签不允许同时生效。
+ * 前端在选择时就按「户籍优先」过滤，后端三处打标签入口还有同样的兜底。
+ */
+function preferHukouTags(ids: number[]): number[] {
+  const codeOf = new Map(personTags.value.map((t: any) => [t.id, t.code]));
+  if (!ids.some((id) => codeOf.get(id) === 'HUKOU_POP')) return ids;
+  return ids.filter((id) => codeOf.get(id) !== 'FLOATING_POP');
+}
+function onFormTagsChange(val: number[]) {
+  const filtered = preferHukouTags(val || []);
+  if (filtered.length !== (val || []).length) ElMessage.warning('户籍人口与流动人口互斥，已自动移除流动人口标签');
+  form.tagIds = filtered;
+}
+function onBatchTagsChange(val: number[]) {
+  if (batchTagForm.action !== 'ADD') return;
+  const filtered = preferHukouTags(val || []);
+  if (filtered.length !== (val || []).length) ElMessage.warning('户籍人口与流动人口互斥，已自动移除流动人口标签');
+  batchTagForm.tagIds = filtered;
+}
 
 /* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
 const DEFAULT_COLUMNS = [
@@ -768,6 +795,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.form-tip {
+  font-size: 12px;
+  color: var(--color-text-secondary, #909399);
+  line-height: 1.5;
+  margin-top: 4px;
+}
 .person-page {
   display: flex;
   flex-direction: column;

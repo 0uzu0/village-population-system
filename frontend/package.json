@@ -1,6 +1,6 @@
 {
   "name": "village-population-frontend",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "村级人口与重点人群精细化管理系统 - 前端",
   "private": true,
   "type": "module",

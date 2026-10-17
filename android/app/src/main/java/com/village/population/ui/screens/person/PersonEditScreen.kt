@@ -414,6 +414,14 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = com.village.population.ui.theme.AppTheme.tokens.ink3,
                     )
+                    // 户籍/流动口径互斥（总人口 = 户籍 + 流动，两者不交叉）：
+                    // 选中一方时自动取消另一方。后端 syncPersonTags 还有
+                    // 「户籍优先」兜底，这里前置拦截是为了让用户当场看到结果。
+                    Text(
+                        "户籍人口与流动人口互斥：选中一方会自动取消另一方",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = com.village.population.ui.theme.AppTheme.tokens.ink3,
+                    )
                     Spacer(Modifier.height(8.dp))
                     androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -425,9 +433,15 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                                 selected = tag.id in state.tagIds,
                                 onClick = {
                                     vm.onField { s ->
-                                        s.copy(
-                                            tagIds = if (tag.id in s.tagIds) s.tagIds - tag.id else s.tagIds + tag.id,
-                                        )
+                                        val toggled = if (tag.id in s.tagIds) s.tagIds - tag.id else s.tagIds + tag.id
+                                        val ids = if (tag.code == "HUKOU_POP" || tag.code == "FLOATING_POP") {
+                                            val counterpartIds = state.personTags
+                                                .filter { it.code == (if (tag.code == "HUKOU_POP") "FLOATING_POP" else "HUKOU_POP") }
+                                                .map { it.id }
+                                                .toSet()
+                                            if (tag.id in s.tagIds) toggled else toggled - counterpartIds
+                                        } else toggled
+                                        s.copy(tagIds = ids)
                                     }
                                 },
                             )

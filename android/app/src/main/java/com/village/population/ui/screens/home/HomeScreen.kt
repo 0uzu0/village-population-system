@@ -211,7 +211,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；各人群之间存在交叉，不可相加。",
+                            "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；重点人群之间存在交叉，不可相加。",
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.brandStrong,
                         )
@@ -266,12 +266,13 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                             StatCard("流动人口", "${d.floatingCount}", Modifier.weight(1f), StatTone.Quiet)
                             StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
                         }
-                        // 总人口是「户籍 + 流动」直接相加，而一个人可以既是户籍人口
-                        // 又是流动人口（两个口径有交叉）。不写这句，看到三个数对不上
-                        // 会以为是算错了，实际是有意按需求采用的默认口径。
+                        // 总人口 = 户籍 + 流动直接相加。v2.1.0 起两个口径**互斥**：
+                        // 流动人口 = 户籍不在本村、暂住本村的人员，打标签侧互斥
+                        // （选中户籍自动取消流动）、统计侧按户籍优先排除兜底，
+                        // 所以相加即得总人口，不会重复计数。
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "总人口 = 户籍人口 + 流动人口（两者存在交叉，相加为默认统计口径）",
+                            "流动人口 = 户籍不在本村、暂住本村的人员；总人口 = 户籍人口 + 流动人口（两者互斥）",
                             style = MaterialTheme.typography.bodySmall,
                             color = AppTheme.tokens.ink3,
                         )

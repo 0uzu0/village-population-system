@@ -63,12 +63,15 @@ const statCards = computed(() => {
   const d = dash.value;
   // 「总人口」口径 = 户籍人口 + 流动人口（2026-10 口径调整：原「常住人口」
   // 更名为「流动人口」，标签编码 RESIDENT_POP → FLOATING_POP）。
-  // 户籍/流动各自也单列一块（移动端），方便核对总人口的构成。
+  // v2.1.0 起流动人口定义 = 户籍不在本村、暂住本村的人员，与户籍人口
+  // **互斥不存在交叉**（打标签侧互斥 + 统计按户籍优先排除兜底），
+  // 因此总人口直接相加即得。户籍/流动各自单列一块，方便核对总人口构成。
   const hukou = d.hukouCount ?? 0;
   const floating = d.floatingCount ?? 0;
   return [
     { label: '总人口', value: hukou + floating, icon: 'User', color: '#3978F6', bg: '#EAF1FE' },
     { label: '户籍人口', value: hukou, icon: 'UserFilled', color: '#3978F6', bg: '#EAF1FE' },
+    { label: '流动人口', value: floating, icon: 'Position', color: '#3978F6', bg: '#EAF1FE' },
     { label: '家庭总数', value: d.familyCount ?? 0, icon: 'House', color: '#0E7C6B', bg: '#E4F4F0' },
     { label: '网格总数', value: d.gridCount ?? 0, icon: 'Grid', color: '#5B5BD6', bg: '#ECECFA' },
     { label: '党员人数', value: d.partyCount ?? 0, icon: 'Flag', color: '#E5484D', bg: '#FDECEC' },
@@ -108,11 +111,11 @@ const gridOption = computed<EChartsOption>(() => ({
 }));
 
 function typeLabel(t: string) {
-  const map: Record<string, string> = { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签' };
+  const map: Record<string, string> = { CREATE: '新增', UPDATE: '更新', STATUS_CHANGE: '状态变更', TAG: '标签', DELETE: '删除' };
   return map[t] || t;
 }
 function typeTag(t: string) {
-  const map: Record<string, any> = { CREATE: 'success', UPDATE: 'primary', STATUS_CHANGE: 'warning', TAG: 'info' };
+  const map: Record<string, any> = { CREATE: 'success', UPDATE: 'primary', STATUS_CHANGE: 'warning', TAG: 'info', DELETE: 'danger' };
   return map[t] || 'info';
 }
 onMounted(async () => {
