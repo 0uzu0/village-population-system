@@ -1,6 +1,8 @@
 package com.village.population.ui.screens.person
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -52,14 +54,14 @@ import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonRepository
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.AppTopBar
-import com.village.population.ui.components.BottomAction
-import com.village.population.ui.components.BottomActionBar
-import com.village.population.ui.components.DotLabel
 import com.village.population.ui.components.ErrorBox
-import com.village.population.ui.components.InfoRow
+import com.village.population.ui.components.InfoEntry
+import com.village.population.ui.components.InfoRows
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
+import com.village.population.ui.components.PrimaryButton
 import com.village.population.ui.components.SectionCard
+import com.village.population.ui.components.TagPill
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppTheme
@@ -191,19 +193,10 @@ fun PersonDetailScreen(
             // 页头再写一遍会挤掉返回键右侧的空间，滚动时也没有额外信息量
             AppTopBar(title = "人员详情", onBack = onBack)
         },
-        bottomBar = {
-            if (person != null) {
-                // 操作栏固定底部（设计稿画法）：单手可及，比原先挤在右上角的三个小图标好按
-                val actions = buildList {
-                    if (person.phone?.isNotBlank() == true) {
-                        add(BottomAction("打电话", Icons.Filled.Call) { context.dial(person.phone) })
-                    }
-                    add(BottomAction("拍照留痕", Icons.Filled.PhotoCamera, onCapture))
-                    add(BottomAction("编辑资料", Icons.Filled.Edit, onEdit))
-                }
-                BottomActionBar(actions)
-            }
-        },
+        // 底部操作栏已按设计稿撤掉：设计稿这一屏只有一个全宽主按钮「编辑」，
+        // 三图标操作栏是上一版的形态。撤掉后电话与拍照两个动作并没有消失——
+        // 电话号码行可直接点按拨号（见 InfoRow 的 onValueClick），
+        // 拍照入口收进「现场照片」卡（见下方空态与按钮）
     ) { padding ->
         when {
             state.loading && person == null -> LoadingBox(Modifier.padding(padding))
@@ -239,6 +232,7 @@ fun PersonDetailScreen(
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(AppShapes.card),
+                    border = BorderStroke(1.dp, tokens.line2),
                     shadowElevation = AppShapes.cardElevation,
                     tonalElevation = 0.dp,
                     modifier = Modifier.fillMaxWidth(),
@@ -247,8 +241,14 @@ fun PersonDetailScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        // 66dp 大头像 + 3dp 白环 + 柔和阴影（设计稿 .d-ava）：
+                        // 白环把头像与白卡剥离开，阴影让它「浮」在卡面上
                         Box(
-                            Modifier.size(66.dp).background(tokens.brandLight, CircleShape),
+                            Modifier
+                                .size(66.dp)
+                                .shadow(AppShapes.cardElevation, CircleShape)
+                                .background(tokens.brandLight, CircleShape)
+                                .border(3.dp, Color.White, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -266,7 +266,6 @@ fun PersonDetailScreen(
                             color = tokens.ink,
                         )
                         Spacer(Modifier.height(3.dp))
-                        val (statusText, statusColor) = statusTag(person.status)
                         Text(
                             listOfNotNull(
                                 if (person.gender == "FEMALE") "女" else "男",
@@ -277,25 +276,54 @@ fun PersonDetailScreen(
                             color = tokens.ink3,
                         )
                         Spacer(Modifier.height(10.dp))
+                        // 状态徽章与标签同一套胶囊（设计稿 .d-tags）：状态其实也是
+                        // 一种标签，两种样子摆在一行会读出两种信息层级
+                        val (statusText, statusColor) = statusTag(person.status)
+                        // 标签居中成排（设计稿 .d-tags justify-content: center）：
+                        // 这是头像下方的一行陪衬，左对齐会把「居中」的视线路径切断
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            DotLabel(statusText, statusColor)
+                            TagPill(statusText, statusColor)
                             person.tags.forEach { tag ->
-                                DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
+                                TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
                             }
                         }
                     }
                 }
 
-                // 现场照片：拍照留痕的落点。
-                // 没有照片时整块不显示——空白区块只占地方；「拍照留痕」按钮常驻在底部操作栏，
-                // 入口并没有因此消失。照片按拍照时间倒序（后端排好），文件名本身也带着
-                // 「哪天拍的、拍的谁」，所以不额外补一行说明文字。
-                if (state.photos.isNotEmpty()) {
-                    SectionCard(title = "现场照片（${state.photos.size}）") {
-                        androidx.compose.foundation.layout.FlowRow(
+                // 现场照片：拍照留痕的落点。底部三按钮操作栏撤掉后，拍照入口收进这张卡——
+                // 有照片时是缩略图网格，没照片时是空态加按钮，入口不因「暂无数据」消失
+                // （旧版没照片时整块不显示，入口只剩页头，等于没有）。
+                // 照片按拍照时间倒序（后端排好），文件名本身也带着「哪天拍的、拍的谁」。
+                SectionCard(title = if (state.photos.isEmpty()) "现场照片" else "现场照片（${state.photos.size}）") {
+                    if (state.photos.isEmpty()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(104.dp)
+                                .background(tokens.quiet, RoundedCornerShape(AppShapes.control))
+                                .border(1.dp, tokens.line2, RoundedCornerShape(AppShapes.control)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Filled.Image,
+                                    contentDescription = null,
+                                    tint = tokens.ink3,
+                                    modifier = Modifier.size(26.dp),
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "还没有现场照片",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.ink3,
+                                )
+                            }
+                        }
+                    } else {
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             maxItemsInEachRow = 3,
@@ -306,30 +334,53 @@ fun PersonDetailScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(onClick = onCapture) {
+                        Icon(
+                            Icons.Filled.PhotoCamera,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("拍照留痕")
+                    }
                 }
 
                 SectionCard(title = "基本信息") {
-                    InfoRow("身份证号", person.idCard)
-                    InfoRow("本人电话", person.phone)
-                    InfoRow("备用电话", person.phoneBackup)
-                    InfoRow("出生日期", person.birthDate)
-                    InfoRow("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" })
-                    InfoRow("人员编号", person.personNo)
-                    InfoRow("人员状态", PersonText.status(person.status))
+                    InfoRows(
+                        InfoEntry("身份证号", person.idCard),
+                        // 电话行直接点按拨号（值渲染成品牌色）：底部操作栏撤掉后，
+                        // 这一行就是「打电话」的入口——走访时给人打电话是高频动作，
+                        // 不该为它再翻一屏。两条电话都接 dial，空值不可点
+                        InfoEntry("本人电话", person.phone, onClick = {
+                            person.phone?.let { context.dial(it) }
+                        }),
+                        InfoEntry("备用电话", person.phoneBackup, onClick = {
+                            person.phoneBackup?.let { context.dial(it) }
+                        }),
+                        InfoEntry("出生日期", person.birthDate),
+                        InfoEntry("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" }),
+                        InfoEntry("人员编号", person.personNo),
+                        InfoEntry("人员状态", PersonText.status(person.status)),
+                    )
                 }
 
                 SectionCard(title = "户籍与居住") {
-                    InfoRow("所属村庄", person.village)
-                    InfoRow("所属网格", person.gridName)
-                    InfoRow("户籍地址", person.hukouAddress)
-                    InfoRow("现居住地址", person.liveAddress)
+                    InfoRows(
+                        InfoEntry("所属村庄", person.village),
+                        InfoEntry("所属网格", person.gridName),
+                        InfoEntry("户籍地址", person.hukouAddress),
+                        InfoEntry("现居住地址", person.liveAddress),
+                    )
                 }
 
                 // 「与户主关系」只出现在家庭这一处。原先「户籍与居住」也重复列了一行，
                 // 同一个值在两处出现，改了其中一个字段会让人怀疑另一个怎么没变。
                 SectionCard(title = "家庭") {
-                    InfoRow("所属家庭", person.familyName)
-                    InfoRow("与户主关系", PersonText.relation(person.relation))
+                    InfoRows(
+                        InfoEntry("所属家庭", person.familyName),
+                        InfoEntry("与户主关系", PersonText.relation(person.relation)),
+                    )
                 }
 
                 SectionCard(title = "重点人群") {
@@ -346,20 +397,27 @@ fun PersonDetailScreen(
                 }
 
                 SectionCard(title = "服务台账") {
-                    InfoRow("银行账号", person.bankAccount)
-                    InfoRow("月补贴金额", person.subsidyAmount?.let { "$it 元/月" })
-                    InfoRow("家庭情况", person.familyCondition)
-                    InfoRow("健康评估", person.healthAssessment)
+                    InfoRows(
+                        InfoEntry("银行账号", person.bankAccount),
+                        InfoEntry("月补贴金额", person.subsidyAmount?.let { "$it 元/月" }),
+                        InfoEntry("家庭情况", person.familyCondition),
+                        InfoEntry("健康评估", person.healthAssessment),
+                    )
                 }
 
                 person.disability?.let { d ->
                     SectionCard(title = "残疾档案") {
-                        InfoRow("残疾类别", d.type)
-                        InfoRow("残疾等级", d.levelLabel ?: d.level)
-                        InfoRow("残疾证号", d.card)
-                        InfoRow("监护人", d.guardianName)
-                        InfoRow("监护人电话", d.guardianPhone)
-                        InfoRow("备注", d.remark)
+                        InfoRows(
+                            InfoEntry("残疾类别", d.type),
+                            InfoEntry("残疾等级", d.levelLabel ?: d.level),
+                            InfoEntry("残疾证号", d.card),
+                            InfoEntry("监护人", d.guardianName),
+                            // 监护人电话同样可点按拨号
+                            InfoEntry("监护人电话", d.guardianPhone, onClick = {
+                                d.guardianPhone?.let { context.dial(it) }
+                            }),
+                            InfoEntry("备注", d.remark),
+                        )
                     }
                 }
 
@@ -398,6 +456,15 @@ fun PersonDetailScreen(
                     color = tokens.ink3,
                 )
                 Spacer(Modifier.height(20.dp))
+                // 全宽主按钮「编辑」（设计稿 .btn-primary）：撤掉底部三图标操作栏后，
+                // 这一屏的主操作回到内容流末尾——50dp 高 + 品牌实底 + 14dp 圆角，
+                // 滚到底必然看见，也不再和底部导航抢拇指区
+                PrimaryButton(
+                    text = "编辑",
+                    onClick = onEdit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(20.dp))
             }
         }
     }
@@ -428,19 +495,21 @@ private fun PersonTags(person: PersonDto) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         person.tags.forEach { tag ->
-            DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
+            TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
         }
     }
     Spacer(Modifier.height(8.dp))
-    person.tags.forEach { tag ->
-        InfoRow(
-            tag.name,
-            listOfNotNull(
-                tag.effectDate?.let { "生效 $it" },
-                tag.status?.takeIf { it != "ACTIVE" }?.let { "状态 $it" },
-            ).joinToString("，").ifBlank { "有效" },
-        )
-    }
+    InfoRows(
+        *person.tags.map { tag ->
+            InfoEntry(
+                tag.name,
+                listOfNotNull(
+                    tag.effectDate?.let { "生效 $it" },
+                    tag.status?.takeIf { it != "ACTIVE" }?.let { "状态 $it" },
+                ).joinToString("，").ifBlank { "有效" },
+            )
+        }.toTypedArray(),
+    )
 }
 
 /**

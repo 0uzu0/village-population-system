@@ -23,13 +23,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,12 +54,14 @@ import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.PendingFilter
 import com.village.population.ui.components.AppChip
 import com.village.population.ui.components.AppTopBar
-import com.village.population.ui.components.DotLabel
 import com.village.population.ui.components.EmptyBox
 import com.village.population.ui.components.ErrorBox
+import com.village.population.ui.components.InlineSearchField
 import com.village.population.ui.components.LoadingBox
+import com.village.population.ui.components.MetaTextStyle
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SearchField
+import com.village.population.ui.components.TagPill
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppShapes
@@ -212,26 +213,29 @@ fun PersonListScreen(
 
     Scaffold(
         topBar = {
+            // 标题即设计稿 .topbar：透明底 + 18sp 加粗墨色（见 AppTopBar）
             AppTopBar(
-                title = "人口查询",
+                title = "人口档案",
                 actions = {
                     // 总数放在标题栏右侧（设计稿的 `.bar .rt`）：
                     // 放在内容区会跟着列表一起滚走，而「筛选后到底有多少人」是要随时能看见的
                     Text(
                         "共 ${state.total} 人",
                         style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.ink2,
                         modifier = Modifier.padding(end = 16.dp),
                     )
                 },
             )
         },
         floatingActionButton = {
-            // 品牌底 + 白字（设计稿的 `.fab`）；Material 默认用的是 primaryContainer，
-            // 浅蓝底上放浅蓝字，在户外的强光下几乎看不见
-            ExtendedFloatingActionButton(
+            // 设计稿 .fab：52dp 方圆角（18dp 圆角）纯图标按钮，不是带文字的延长丸——
+            // 「新增」两个字占掉按钮一半宽度，而加号本身已经说清了动作；
+            // 品牌底 + 白字（Material 默认用的是 primaryContainer，浅蓝底上放浅蓝字，
+            // 在户外的强光下几乎看不见）
+            FloatingActionButton(
                 onClick = onCreatePerson,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("新增") },
+                shape = RoundedCornerShape(18.dp),
                 containerColor = tokens.brand,
                 contentColor = androidx.compose.ui.graphics.Color.White,
                 // 阴影与卡片同一档（4dp）。FAB 没有 shadowElevation 命名参数，
@@ -240,7 +244,14 @@ fun PersonListScreen(
                 elevation = FloatingActionButtonDefaults.elevation(
                     defaultElevation = AppShapes.cardElevation,
                 ),
-            )
+                modifier = Modifier.size(52.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "新增人员",
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -274,6 +285,9 @@ fun PersonListScreen(
                         text = "仅看在册",
                         selected = state.query.activeOnly,
                         onClick = { vm.toggleActiveOnly() },
+                        // 选中时跟一枚对勾（设计稿 .chip.on 里的 check）：
+                        // 「已选上」这件事不能只靠底色——色弱用户在户外更认形状
+                        selectedIcon = Icons.Filled.Check,
                     )
                     AppChip(
                         text = state.query.village?.take(6) ?: "按村庄",
@@ -281,11 +295,14 @@ fun PersonListScreen(
                         onClick = { villagePickerOpen = true },
                     )
                     // 筛完必须让人**看得见筛了什么**：从「低保对象 62 人」点进来却只看到
-                    // 「共 62 人」，使用者会怀疑是漏了人，而不是意识到当前是筛选结果
+                    // 「共 62 人」，使用者会怀疑是漏了人，而不是意识到当前是筛选结果。
+                    // 用 warn 红色档（设计稿 .chip.warn）：它在说「这是个待清理的筛选」，
+                    // 点一下就清，跟普通选中态区分开
                     state.filterLabel?.let { label ->
                         AppChip(
                             text = "重点人群：$label",
-                            selected = true,
+                            selected = false,
+                            warn = true,
                             onClick = { vm.clearFocusFilter() },
                             trailingIcon = Icons.Filled.Clear,
                         )
@@ -377,14 +394,10 @@ private fun VillageChooserDialog(
             Column(Modifier.padding(16.dp)) {
                 Text("选择村庄", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                InlineSearchField(
                     value = keyword,
                     onValueChange = { keyword = it },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    placeholder = { Text("搜索村名") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(AppShapes.control),
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "搜索村名",
                 )
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.height((filtered.size.coerceIn(1, 8) * 52 + 8).dp)) {
@@ -421,8 +434,8 @@ private fun VillageChooserDialog(
 }
 
 /**
- * 人员行，对应设计稿的 `.pitem`：
- * 第一行「姓名 + 性别年龄」、第二行「证件号 · 村庄」、第三行标签。
+ * 人员行，对应设计稿的 `.p-card`：44dp 头像圆牌 + 姓名（性别年龄随行）+
+ * 证件号 · 村庄 + 标签胶囊。
  *
  * 第二行放证件号而不是网格/住址：现场核人靠的是「年纪 + 尾号」，
  * 号码能对上就基本确认是同一个人；住址那一列在村里几乎都是同一个村名，没有区分度。
@@ -431,9 +444,14 @@ private fun VillageChooserDialog(
  * 抹掉前 6 位与中间位之后反而没法逐位核对。号码太长时按行尾省略，
  * 点进详情能看到完整的。
  *
- * 卡片化（设计稿 v3 定稿）：20dp 圆角 + 4dp 阴影 + 16dp 留白，
+ * 卡片化（设计稿 v3 定稿）：20dp 圆角 + 4dp 阴影 + 1px 浅描边兜底 + 16dp 级留白，
  * 与首页指标卡、分区卡同一套 [AppShapes]；头像圆牌把视觉重心收到左侧，
  * 扫读时先落点再落到文字。
+ *
+ * 标签为什么排在文字下方而不是设计稿画右侧竖列：真实数据一个人挂四五个
+ * 标签是常事（低保 + 残疾 + 老年 + 党员…），竖列会把卡片撑到半屏高；
+ * 成排换行在标签多时只增高不撑宽，与设计稿的胶囊样式（.p-tag 10sp 彩色胶囊）
+ * 保持一致。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -454,14 +472,14 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
         ) {
             Box(
                 Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .background(tokens.brandLight, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     person.name.take(1),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 17.sp),
+                    fontWeight = FontWeight.Bold,
                     color = tokens.brandStrong,
                 )
             }
@@ -470,18 +488,24 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         person.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        // 设计稿 .p-name 15px 700：列表行不是标题，用 20sp 会把
+                        // 一屏能扫的人数砍掉一半
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
                         color = tokens.ink,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(Modifier.width(7.dp))
-                    DotLabel(
+                    Spacer(Modifier.width(6.dp))
+                    // 性别年龄是纯文字而不是徽章（设计稿 .p-name span 11px 三级灰）：
+                    // 它是名字的补充说明，做成彩色小方块会跟真正的标签胶囊抢注意力
+                    Text(
                         "${if (person.gender == "FEMALE") "女" else "男"} · " +
                             "${person.age ?: DateText.ageOf(person.birthDate) ?: "?"} 岁",
-                        tokens.ink2,
+                        style = MetaTextStyle,
+                        color = tokens.ink3,
+                        maxLines = 1,
                     )
                 }
                 Spacer(Modifier.height(3.dp))
@@ -490,8 +514,8 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
                         person.idCard?.takeIf { it.isNotBlank() },
                         person.village?.takeIf { it.isNotBlank() },
                     ).joinToString(" · ").ifBlank { "—" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.ink3,
+                    style = MetaTextStyle,
+                    color = tokens.ink2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -502,10 +526,10 @@ private fun PersonRow(person: PersonDto, onClick: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         person.tags.take(4).forEach { tag ->
-                            DotLabel(tag.name, parseHexColor(tag.color, tokens.brand))
+                            TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
                         }
                         if (person.tags.size > 4) {
-                            DotLabel("+${person.tags.size - 4}", tokens.ink3)
+                            TagPill("+${person.tags.size - 4}", tokens.ink3)
                         }
                     }
                 }

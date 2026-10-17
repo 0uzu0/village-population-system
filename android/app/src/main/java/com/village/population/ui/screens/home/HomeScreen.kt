@@ -146,7 +146,8 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp),
+            // 卡片间距 12dp（设计稿 token#6「宽松留白」：卡片内 16dp、卡间距 12dp）
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 头部（设计稿 v3「浅色简洁头卡」）：不加底色，跟随页面灰底。
             // 品牌蓝不做大面积色块，只收在头像这一颗锚点里——大面积品牌色显沉，
@@ -170,13 +171,17 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(
                             "你好，${user?.displayName ?: "网格员"}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            // 设计稿 .hero-hi 是 20px 700：问候是头卡的主文字，
+                            // 用指标数字那一档（23sp）会把「报数」的层级抢走
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
                             color = tokens.ink,
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(3.dp))
+                        // 「10月17日 星期六」而不是 ISO 串：头卡是给眼睛扫的，
+                        // 2026-10-17 这种写法要逐位读，中文日期一眼就知道是哪天
                         Text(
-                            DateText.today(),
+                            DateText.todayCn(),
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.ink3,
                         )
@@ -185,10 +190,11 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 // 口径说明独立成卡（设计稿 v3）：原先是紧贴头部的灰色小字，
                 // 开会报数的人最需要的一句话反而是全屏最不显眼的元素。
-                // 淡蓝底 + 深蓝字 + info 图标，紧跟头部但已不属于头卡
+                // 淡蓝底 + 深蓝字 + info 图标，紧跟头部但已不属于头卡。
+                // 16dp 圆角（.caliber）比白卡收一档——它是衬底面板，不是卡片
                 Surface(
                     color = tokens.brandFaint,
-                    shape = RoundedCornerShape(AppShapes.card),
+                    shape = RoundedCornerShape(AppShapes.panel),
                     border = BorderStroke(1.dp, tokens.line2),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -222,21 +228,22 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             }
 
             // 快捷动作：移动端真正高频的两件事（台账速记已去掉——那是对着大表格整理
-            // 金额与发票号的活，手机屏幕做不了也做不好，留在电脑端）
+            // 金额与发票号的活，手机屏幕做不了也做不好，留在电脑端）。
+            // 两片瓦片**直接排在内容区**（设计稿 .qa-row）：不再套分区卡——
+            // 只有两个入口时，「快捷操作」这张卡加它的标题行占了整整一屏的 1/6，
+            // 而标题并没有传达任何额外信息
             item {
-                SectionCard(title = "快捷操作") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickActionTile(
-                            "上门登记",
-                            Icons.Filled.PersonAdd,
-                            Modifier.weight(1f),
-                        ) { onNavigate(Routes.personEdit(0)) }
-                        QuickActionTile(
-                            "拍照留痕",
-                            Icons.Filled.PhotoCamera,
-                            Modifier.weight(1f),
-                        ) { onNavigate(Routes.capture()) }
-                    }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    QuickActionTile(
+                        "上门登记",
+                        Icons.Filled.PersonAdd,
+                        Modifier.weight(1f),
+                    ) { onNavigate(Routes.personEdit(0)) }
+                    QuickActionTile(
+                        "拍照留痕",
+                        Icons.Filled.PhotoCamera,
+                        Modifier.weight(1f),
+                    ) { onNavigate(Routes.capture()) }
                 }
             }
 
@@ -322,8 +329,10 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 "共 ${p.total} 条待处理",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
+                                // 设计稿 .pend-num 15px 700：这是待办计数，
+                                // 用正文 17sp 会把它从「提示」抬成「内容」
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = if (p.total > 0) tokens.amber else tokens.ink2,
                             )
                             Spacer(Modifier.weight(1f))
@@ -333,12 +342,12 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                             Button(
                                 onClick = { onNavigate(Routes.PENDING) },
                                 shape = RoundedCornerShape(AppShapes.chip),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 7.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = tokens.brand,
                                     contentColor = Color.White,
                                 ),
-                            ) { Text("去处理", style = MaterialTheme.typography.bodySmall) }
+                            ) { Text("去处理", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold) }
                         }
                         Text(
                             "来源：Excel 导入时身份证号为空或非法的记录，需要逐条补齐或忽略。",
@@ -364,10 +373,11 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
 }
 
 /**
- * 快捷入口，对应设计稿的 `.qa`：品牌极浅底 + 图标 + 文字。
+ * 快捷入口，对应设计稿的 `.qa-tile`：品牌极浅底 + 36dp 圆牌图标 + 13.5sp 标签。
  *
  * 图标放进品牌浅底的圆牌里（而不是裸露一个小图标）：只剩两个入口时，
- * 卡片里会空出一大块，圆牌把视觉重心压回中间，看起来才是一个完整的按钮而不是半张空卡。
+ * 大片空白会把视觉重心扯散，圆牌把它压回中间，看起来才是一个完整的按钮。
+ * 16dp 圆角 + 1px 浅描边（.qa-tile）：与白卡 20dp 收一档，衬底面板不是卡片。
  */
 @Composable
 private fun QuickActionTile(
@@ -379,23 +389,24 @@ private fun QuickActionTile(
     val tokens = AppTheme.tokens
     Surface(
         color = tokens.brandFaint,
-        shape = RoundedCornerShape(AppShapes.control),
+        shape = RoundedCornerShape(AppShapes.panel),
+        border = BorderStroke(1.dp, tokens.line2),
         modifier = modifier.clickableNoRipple(true, onClick),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(34.dp).background(tokens.brandLight, CircleShape),
+                Modifier.size(36.dp).background(tokens.brandLight, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = tokens.brandStrong, modifier = Modifier.size(18.dp))
+                Icon(icon, contentDescription = null, tint = tokens.brandStrong, modifier = Modifier.size(17.dp))
             }
             Spacer(Modifier.width(9.dp))
             Text(
                 label,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 13.5.sp),
                 fontWeight = FontWeight.SemiBold,
                 color = tokens.ink,
             )

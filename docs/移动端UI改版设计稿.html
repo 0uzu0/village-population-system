@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>掌上村务 · 安卓端 UI 改版设计稿 v1.0.7</title>
+<title>掌上村务 · 安卓端 UI 改版设计稿 v2.0.0</title>
 <style>
   :root {
     --brand: #1D6FE0;
@@ -391,9 +391,9 @@
 
   <!-- ================= 页头 ================= -->
   <div class="doc-head">
-    <div class="doc-badge">UI 改版设计稿 · 待评审</div>
+    <div class="doc-badge">UI 改版设计稿 · 已随 v2.0.0 发布</div>
     <h1>掌上村务 安卓端视觉改版</h1>
-    <div class="sub">只改「长相」，不改行为 —— <b>功能、接口、路由、表单校验、权限、文案全部保持 v1.0.6 现状</b>；色值受测试保护不动，字号按舒适度重排，改版通过形状 / 阴影 / 布局 / 字号层级表达现代感。预计随 <b>v1.0.7</b> 发布。</div>
+    <div class="sub">只改「长相」，不改行为 —— <b>功能、接口、路由、表单校验、权限、文案全部保持 v1.0.6 现状</b>；色值受测试保护不动，字号按舒适度重排，改版通过形状 / 阴影 / 布局 / 字号层级表达现代感。已随 <b>v2.0.0</b> 发布。</div>
   </div>
 
   <!-- ================= 设计语言 ================= -->
@@ -766,7 +766,7 @@
                 <div class="me-name">王建国</div>
                 <div class="me-role">村级管理员 · 幸福村</div>
               </div>
-              <div class="me-ver">v1.0.6</div>
+              <div class="me-ver">v2.0.0</div>
             </div>
             <div class="card" style="padding:0">
               <div class="menu-row">
@@ -790,7 +790,7 @@
                 <svg class="m-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
             </div>
-            <div class="me-foot">掌上村务 · 村级人口精细化管理系统<br>当前版本 v1.0.6（改版后随 v1.0.7 发布）</div>
+            <div class="me-foot">掌上村务 · 村级人口精细化管理系统<br>当前版本 v2.0.0（UI 改版 v3 已随本版发布）</div>
           </div>
           <div class="navbar">
             <div class="nav-item"><div class="nav-ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></svg></div>工作台</div>
@@ -970,6 +970,7 @@
         <li><b>人员列表</b>：PersonRow 卡片化（头像圆牌 + 证件号 + 标签胶囊）。⚠️ 设计稿示意画的是脱敏证件号，实施按代码既有决策保持**完整号码**——这一屏的使用场景是拿手机对着人逐位核身份，脱敏后反而没法核对（代码注释有完整理据）</li>
         <li><b>表单 / 拍照留痕</b>：分区卡片 + 大圆角控件 + 芯片多选，见预览新增两屏</li>
         <li><b>详情页 / 待核查 / 我的</b>：按上图同规范对齐</li>
+        <li><b>实施偏差记录（v2.0.0）</b>：① 人员行标签实施为<b>文字下方成排胶囊</b>而非设计稿右侧竖列——真实数据一人常挂 4~5 个标签，竖列会把卡片撑高一倍；② 待核查卡<b>保留第三个「确认入库」文字按钮</b>——它对应后端确认建人的重动作，不能没有入口，设计稿每张卡只画了两个按钮；③ 详情页底部三按钮操作栏撤掉后，<b>电话改为信息行内点按拨号、拍照入口收进「现场照片」卡</b>——功能不因版式调整而丢失</li>
       </ul>
     </div>
     <div class="rule-card warn">
@@ -984,7 +985,7 @@
   </div>
 
   <div class="doc-foot">
-    设计稿 v1 · 2026-10-17 · 随 v1.0.7 发布预览<br>
+    设计稿 v3 · 2026-10-17 · 已随 v2.0.0 发布<br>
     实施后需真机点验：浅色头卡的文字对比度、低端机阴影裁切、强光下胶囊导航可辨性、重排后字号层级的阅读舒适度
   </div>
 </div>

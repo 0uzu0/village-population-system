@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="window_background">#FFF5F7FA</color>
+    <!-- 页面底色，与设计稿 --bg: #F4F6FA 及 Theme.kt 的 LightTokens.bg 逐位一致。
+         差 1 个色阶肉眼看不出来，但冷启动那一下的窗口底色会跟页面底色「接缝」，
+         严格取同值；深色档见 values-night（#12161C = DarkTokens.bg） -->
+    <color name="window_background">#FFF4F6FA</color>
     <color name="ic_launcher_background">#FF1D6FE0</color>
 </resources>

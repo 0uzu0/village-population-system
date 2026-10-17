@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,12 +33,15 @@ import com.village.population.data.remote.dto.VillageDto
 import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.PersonRepository
 import com.village.population.data.repository.SubmitResult
+import com.village.population.ui.components.ActionButton
 import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.FormField
 import com.village.population.ui.components.LoadingBox
+import com.village.population.ui.components.OptionChip
 import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
+import com.village.population.ui.components.PrimaryButton
 import com.village.population.ui.components.SectionCard
 import com.village.population.util.IdCard
 import com.village.population.util.PersonText
@@ -301,14 +303,17 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                 )
                 Spacer(Modifier.height(10.dp))
 
+                // 性别芯片（设计稿 .fchip/.fchip.on）：白底细边 ⇄ 浅蓝底深蓝字。
+                // 不用 Material FilterChip——它的默认样式带勾选、尺寸另一套，
+                // 会和人口档案那排筛选片读出两种「选中态」，而它们是同一种语义
                 Text("性别", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("MALE" to "男", "FEMALE" to "女").forEach { (value, label) ->
-                        androidx.compose.material3.FilterChip(
+                        OptionChip(
+                            text = label,
                             selected = state.gender == value,
                             onClick = { vm.onField { it.copy(gender = value) } },
-                            label = { Text(label) },
                         )
                     }
                 }
@@ -397,7 +402,8 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         state.personTags.forEach { tag ->
-                            androidx.compose.material3.FilterChip(
+                            OptionChip(
+                                text = tag.name,
                                 selected = tag.id in state.tagIds,
                                 onClick = {
                                     vm.onField { s ->
@@ -406,7 +412,6 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                                         )
                                     }
                                 },
-                                label = { Text(tag.name) },
                             )
                         }
                     }
@@ -427,7 +432,12 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
+                // 保存是这一屏的页面级主操作：按设计稿 .btn-primary 走 PrimaryButton
+                //（品牌实底 + 14.5sp 加粗 + 蓝色投影），而不是 Material Button 的
+                // 默认样式——后者的圆角是全圆角、字重与投影都是另一套，
+                // 摆到已对齐的界面里会一眼看出「这颗不一样」
+                PrimaryButton(
+                    text = if (state.saving) "保存中…" else "保存",
                     onClick = {
                         vm.save { result ->
                             when (result) {
@@ -441,15 +451,17 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                     },
                     // 档案没读回来就不给点：空表单提交会把原档案覆盖成空
                     enabled = vm.canSave,
-                    modifier = Modifier.weight(1f).height(52.dp),
-                ) {
-                    Text(if (state.saving) "保存中…" else "保存")
-                }
+                    modifier = Modifier.weight(1f),
+                )
                 if (resultMessage != null) {
-                    androidx.compose.material3.OutlinedButton(
+                    // 返回是次操作（.btn-line）：白底细描边。高度与主按钮对齐到 50dp，
+                    // 两颗按钮并排时顶天立地，不出现一高一低的错位
+                    ActionButton(
+                        text = "返回",
                         onClick = onDone,
-                        modifier = Modifier.width(96.dp).height(52.dp),
-                    ) { Text("返回") }
+                        modifier = Modifier.width(96.dp),
+                        height = 50.dp,
+                    )
                 }
             }
             Spacer(Modifier.height(24.dp))

@@ -25,10 +25,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +47,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.BuildConfig
 import com.village.population.data.local.queue.QueuedOp
 import com.village.population.ui.LocalAppContainer
+import com.village.population.ui.components.ActionButton
+import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.FormField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
@@ -83,13 +84,18 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
 
     LaunchedEffect(pendingOps, message, showQueueDialog) { refreshLocal() }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-    ) {
+    // 标题栏（设计稿 .topbar「我的」）：这一屏此前整页直接铺内容，
+    // 滚到底部时看不出在哪一页——四个底栏 Tab 里只有它有标题
+    Scaffold(
+        topBar = { AppTopBar(title = "我的") },
+    ) { padding ->
         Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            Column(
+                Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
             // 身份卡（设计稿「我的」页 v3 白卡）：无渐变、无彩色底。
             // 品牌浅底头像 + 姓名 + 角色 + 版本号胶囊，一卡说清「我是谁、什么版本」。
             // 旧版这里是一块品牌渐变头 + 半透明头像——与首页头卡去蓝是同一条决策：
@@ -120,7 +126,9 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(
                             user?.displayName ?: "未登录",
-                            style = MaterialTheme.typography.titleMedium,
+                            // 设计稿 .me-name 17px 800：身份卡是「我是谁」，
+                            // 用标题档 20sp 会跟页面标题抢层级
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
                             fontWeight = FontWeight.ExtraBold,
                             color = tokens.ink,
                         )
@@ -221,9 +229,12 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                     "统计口径为在册人口（正常 / 迁入）。",
                 style = MaterialTheme.typography.bodySmall,
                 color = tokens.ink3,
+                // 设计稿 .me-foot 居中：页脚是收尾的脚注，不是内容
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
+            }
         }
     }
 
@@ -289,16 +300,21 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                         color = if (pendingOps > 0) AppTheme.tokens.amber else AppTheme.tokens.ink2,
                     )
                     Spacer(Modifier.height(10.dp))
+                    // 弹窗内的一实一虚同样走设计稿按钮对：立即同步是主操作（实钮），
+                    // 清空缓存是次操作（虚钮）——后者有破坏性，不该用品牌蓝鼓励点击
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
+                        ActionButton(
+                            text = "立即同步",
                             onClick = {
                                 container.syncManager.requestSync()
                                 message = "已请求同步；同步在后台进行，完成后本页数字会更新"
                             },
                             enabled = pendingOps > 0,
+                            filled = true,
                             modifier = Modifier.weight(1f),
-                        ) { Text("立即同步") }
-                        OutlinedButton(
+                        )
+                        ActionButton(
+                            text = "清空缓存",
                             onClick = {
                                 scope.launch {
                                     container.cache.clear()
@@ -306,7 +322,7 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                        ) { Text("清空缓存") }
+                        )
                     }
 
                     if (ops.isNotEmpty()) {
@@ -436,7 +452,14 @@ private fun SettingRow(
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = fg)
+            // 设计稿 .menu-row 14px 500：设置项是「一行一件事」，
+            // 用正文 17sp 会让五行菜单读起来像五段正文
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = fg,
+            )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
@@ -463,7 +486,6 @@ private fun SettingRow(
         )
     }
 }
-
 @Composable
 private fun SettingDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(AppTheme.tokens.line2))

@@ -6,6 +6,7 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,12 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,7 +57,11 @@ import com.village.population.data.remote.dto.PersonDto
 import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonQuery
 import com.village.population.ui.LocalAppContainer
+import com.village.population.ui.components.ActionButton
 import com.village.population.ui.components.AppTopBar
+import com.village.population.ui.components.HintTextStyle
+import com.village.population.ui.components.InlineSearchField
+import com.village.population.ui.components.MetaTextStyle
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.clickableNoRipple
@@ -299,21 +300,35 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                         color = tokens.ink3,
                     )
                     Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
+                    // 白底细描边档（设计稿 .btn-line）：这一屏的主操作是「拍照」，
+                    // 选人让人重新做选择，不是「继续」，用虚按钮不抢动作位
+                    ActionButton(
+                        text = "选择人员",
                         onClick = { pickerOpen = true },
-                        shape = RoundedCornerShape(AppShapes.control),
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
-                    ) {
-                        Icon(Icons.Filled.Person, contentDescription = null)
-                        Text("  选择人员")
-                    }
+                        icon = Icons.Filled.Person,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 44dp 品牌浅底头像（设计稿 .p-ava）：先认人再操作，
+                        // 光一行文字在「换过人」的场次里容易看串
+                        Box(
+                            Modifier.size(44.dp).background(tokens.brandLight, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                linked.name.take(1),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 17.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = tokens.brandStrong,
+                            )
+                        }
+                        Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 linked.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = tokens.ink,
                             )
                             Text(
@@ -322,11 +337,23 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                                     (linked.age ?: DateText.ageOf(linked.birthDate))?.let { "$it 岁" },
                                     linked.village?.takeIf { it.isNotBlank() },
                                 ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
+                                // 设计稿 .p-meta 是 11px：与人员列表的副标题同档
+                                style = MetaTextStyle,
                                 color = tokens.ink3,
                             )
                         }
-                        TextButton(onClick = { pickerOpen = true }) { Text("更换") }
+                        // 「更换」按设计稿 .link-change：品牌色小字链接，不用 TextButton——
+                        // 按钮的默认内边距与最小尺寸会把它撑成一颗视觉按钮，
+                        // 而它在语义上只是这一行末尾的一个出口
+                        Text(
+                            "更换",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.brand,
+                            modifier = Modifier
+                                .clickableNoRipple(true) { pickerOpen = true }
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                        )
                     }
                 }
             }
@@ -340,39 +367,40 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                         Icons.Filled.PhotoCamera,
                         contentDescription = null,
                         tint = tokens.brand,
-                        modifier = Modifier.size(38.dp),
+                        modifier = Modifier.size(34.dp),
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "拍照或从相册选择",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = tokens.ink,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "不需要申请相机与存储权限\n照片经系统相机 / 文件选择器授权写入",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = HintTextStyle,
                         color = tokens.ink3,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
+                    // 一实一虚（设计稿 .cam-btns）：实心是「继续」——这一屏的主角；
+                    // 虚钮是「换条路」。两颗都换成设计稿的按钮对后，
+                    // 与 Material Button 的默认高度/圆角/字重不再混用
+                    ActionButton(
+                        text = "拍照",
                         onClick = ::beginCapture,
-                        shape = RoundedCornerShape(AppShapes.control),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                    ) {
-                        Icon(Icons.Filled.PhotoCamera, contentDescription = null)
-                        Text("  拍照")
-                    }
-                    OutlinedButton(
+                        filled = true,
+                        icon = Icons.Filled.PhotoCamera,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionButton(
+                        text = "从相册选",
                         onClick = { pickImage.launch("image/*") },
-                        shape = RoundedCornerShape(AppShapes.control),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                    ) {
-                        Icon(Icons.Filled.Image, contentDescription = null)
-                        Text("  从相册选")
-                    }
+                        icon = Icons.Filled.Image,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
 
@@ -392,12 +420,16 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                             .diskCacheKey(null)
                             .build()
                     }
+                    // 预览盒按设计稿 .photo-box：quiet 底 + line2 1px 描边 + 12dp 圆角。
+                    // 描边在这里不是装饰——照片本身可能有白边（晴天拍墙、拍表格），
+                    // 没有描边时「图到哪了、盒到哪了」在浅色照片上分不清
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .height(260.dp)
                             .clickableNoRipple(true) { viewing = true }
-                            .background(tokens.quiet, RoundedCornerShape(AppShapes.control)),
+                            .background(tokens.quiet, RoundedCornerShape(12.dp))
+                            .border(1.dp, tokens.line2, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         AsyncImage(
@@ -410,40 +442,38 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     // 文件名就是拍照时间，连同具体时刻一起显示：
                     // 「这是不是刚才那张」「时间对不对」只能由用户自己核对——
-                    // 一旦后台按错的时间落盘，光从列表里看不出来哪里错了
+                    // 一旦后台按错的时间落盘，光从列表里看不出来哪里错了。
+                    // 两行分档对应设计稿 .pv-file（11px ink2）/.pv-meta（10.5px ink3）
                     Text(
                         file.name,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.ink3,
+                        style = MetaTextStyle,
+                        color = tokens.ink2,
                     )
                     Text(
                         "拍摄 ${DateText.formatTimestamp(photo.takenAt)} · ${file.length() / 1024} KB",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = HintTextStyle,
                         color = tokens.ink3,
                     )
                     Spacer(Modifier.height(10.dp))
+                    // 设计稿 .pv-btns：删除重拍是 96dp 定宽虚钮、上传是自适应实钮。
+                    // 「删」这一侧不该跟「传」抢宽度——手指直奔主操作，不需要大目标
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
+                        ActionButton(
+                            text = "删除重拍",
                             onClick = ::discard,
-                            shape = RoundedCornerShape(AppShapes.control),
-                            modifier = Modifier.height(48.dp),
-                        ) { Text("删除重拍") }
-                        Button(
+                            modifier = Modifier.width(96.dp),
+                        )
+                        ActionButton(
+                            text = when {
+                                uploading -> "上传中…"
+                                person == null -> "请先选择关联人员"
+                                else -> "上传到「${person?.name}」"
+                            },
                             onClick = ::startUpload,
                             enabled = !uploading && person != null,
-                            shape = RoundedCornerShape(AppShapes.control),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                        ) {
-                            Text(
-                                when {
-                                    uploading -> "上传中…"
-                                    person == null -> "请先选择关联人员"
-                                    else -> "上传到「${person?.name}」"
-                                }
-                            )
-                        }
+                            filled = true,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -473,14 +503,14 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(
+                    ActionButton(
+                        text = "立即同步",
                         onClick = {
                             container.syncManager.requestSync()
                             message = CapMessage("已请求同步，请稍后查看「我的 → 待同步记录」", CapLevel.OK)
                         },
-                        shape = RoundedCornerShape(AppShapes.control),
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("立即同步") }
+                    )
                 }
             }
         }
@@ -633,17 +663,17 @@ private fun PersonPickerDialog(
             Column(Modifier.padding(16.dp)) {
                 Text("选择关联人员", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                // 与选村弹窗同一只搜索盒（InlineSearchField）：上千人的查询靠接口分页，
+                // 保留显式的「搜索」按钮——网格员在户外戴手套时，点按钮比唤键盘可靠
+                InlineSearchField(
                     value = keyword,
                     onValueChange = { keyword = it },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    placeholder = { Text("搜姓名 / 身份证号 / 手机号") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(AppShapes.control),
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
+                    placeholder = "搜姓名 / 身份证号 / 手机号",
+                    onSearch = { search() },
+                    trailing = {
                         TextButton(onClick = { search() }) { Text("搜索") }
                     },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
                 when {

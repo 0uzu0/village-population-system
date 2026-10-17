@@ -45,11 +45,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.repository.MetaRepository
+import com.village.population.ui.components.ActionButton
+import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.EmptyBox
 import com.village.population.ui.components.ErrorBox
-import com.village.population.ui.components.InfoRow
+import com.village.population.ui.components.HintTextStyle
+import com.village.population.ui.components.InfoEntry
+import com.village.population.ui.components.InfoRows
 import com.village.population.ui.components.LoadingBox
-import com.village.population.ui.components.QCard
+import com.village.population.ui.components.PlainField
+import com.village.population.ui.components.PillTextStyle
 import com.village.population.ui.components.SearchField
 import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
@@ -211,7 +216,12 @@ fun PendingScreen() {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    Scaffold { padding ->
+    Scaffold(
+        // 标题栏（设计稿 .topbar「待核查」）：透明底 + 18sp 加粗墨色。
+        // 这一屏此前没有页头，进来先看见一块琥珀横幅，像「出了什么事」——
+        // 而它只是一屏待办的来源说明，不该抢在标题前面
+        topBar = { AppTopBar(title = "待核查") },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Column(
                 Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -219,10 +229,11 @@ fun PendingScreen() {
             ) {
                 // 来源说明用琥珀横幅（设计稿 amber-banner）：这一屏的每条记录
                 // 都来自同一个「导入时证件有问题」的原因，说明白来源，
-                // 网格员才知道要逐条补什么。原先是行灰字，一扫就过
+                // 网格员才知道要逐条补什么。原先是行灰字，一扫就过。
+                // 16dp 圆角（.amber-banner）比白卡收一档——它是告示面板，不是卡片
                 Surface(
                     color = tokens.amberBg,
-                    shape = RoundedCornerShape(AppShapes.card),
+                    shape = RoundedCornerShape(AppShapes.panel),
                     border = BorderStroke(1.dp, tokens.amberLine),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -249,11 +260,16 @@ fun PendingScreen() {
                         color = if (state.selected.isEmpty()) tokens.ink3 else tokens.brand,
                         modifier = Modifier.weight(1f),
                     )
+                    // 批量忽略是次操作（设计稿 .btn-line）：白底细描边 + 二级墨字。
+                    // 文字色特意不用品牌蓝——这一排的头等语义是「已勾选几条」，
+                    // 批量动作再上品牌色会跟它抢；紧凑高度（约 30dp）也比
+                    // 行内大按钮更配这行只有一行文字的选择栏
                     OutlinedButton(
                         onClick = { vm.batchIgnore(toast) },
                         enabled = state.selected.isNotEmpty() && !state.working,
                         shape = RoundedCornerShape(AppShapes.control),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = tokens.ink2),
                     ) { Text("批量忽略", style = MaterialTheme.typography.bodySmall) }
                 }
             }
@@ -428,16 +444,26 @@ private fun PendingDetailDialog(
                 EditableRow("处理备注", handleNote, { handleNote = it })
 
                 Spacer(Modifier.height(6.dp))
-                // 系统判定与来源信息保持只读
-                InfoRow("待核查原因", row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason))
-                InfoRow("导入批次", listOfNotNull(row.batchNo, row.rowNo?.let { "第 $it 行" }).joinToString(" · "))
-                InfoRow("导入时间", row.createdAt)
+                // 系统判定与来源信息保持只读，成组一行一线（设计稿 .irow + .irow）
+                InfoRows(
+                    InfoEntry("待核查原因", row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason)),
+                    InfoEntry("导入批次", listOfNotNull(row.batchNo, row.rowNo?.let { "第 $it 行" }).joinToString(" · ")),
+                    InfoEntry("导入时间", row.createdAt),
+                )
 
                 Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
+                // 弹窗底部的行动对同样走设计稿按钮词表：保存是主操作（实钮），
+                // 取消是退路（虚钮）。此前保存用的是 Material Button 默认样式——
+                // 全圆角胶囊，与设计稿的其他按钮不是一套语言
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ActionButton(
+                        text = "取消",
+                        onClick = onDismiss,
+                        enabled = !saving,
+                        modifier = Modifier.width(96.dp),
+                    )
+                    ActionButton(
+                        text = if (saving) "保存中…" else "保存",
                         onClick = {
                             // 只提交改动过的字段：多带一个键就可能把正确值覆盖成空串
                             val patch = buildMap<String, String?> {
@@ -458,9 +484,9 @@ private fun PendingDetailDialog(
                             onSave(patch)
                         },
                         enabled = !saving,
-                    ) {
-                        Text(if (saving) "保存中…" else "保存")
-                    }
+                        filled = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -488,19 +514,16 @@ private fun EditableRow(
         ) {
             Text(
                 label,
-                style = MaterialTheme.typography.bodySmall,
+                style = HintTextStyle,
                 color = AppTheme.tokens.ink3,
                 modifier = Modifier.width(84.dp),
             )
-            // 直接用 OutlinedTextField 而不是 FormField：这里的标签已经由左侧那列承担，
-            // 再给输入框传一个空 label，Material 仍会为它留出一行占位高度，行距会被顶散。
-            androidx.compose.material3.OutlinedTextField(
+            // 用项目的 PlainField（设计稿 .fld-input 那只白盒）而不是另起一套：
+            // 同在一个弹窗里，输入框跟别处长得一样才不会读出「两个系统」
+            PlainField(
                 value = value,
                 onValueChange = onValueChange,
-                placeholder = placeholder?.let { { Text(it) } },
-                singleLine = true,
-                // 圆角与项目其它输入框保持一致（FormField 用的是 AppShapes.control）
-                shape = RoundedCornerShape(AppShapes.control),
+                placeholder = placeholder,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -509,7 +532,7 @@ private fun EditableRow(
         if (hint != null) {
             Text(
                 hint,
-                style = MaterialTheme.typography.bodySmall,
+                style = HintTextStyle,
                 color = if (hintError) AppTheme.tokens.red else AppTheme.tokens.brandStrong,
                 modifier = Modifier.padding(start = 84.dp, top = 3.dp),
             )
@@ -526,7 +549,7 @@ private fun reasonLabel(reason: String?): String? = when (reason) {
 }
 
 /**
- * 待核查卡片，对应设计稿的 `.qcard`：琥珀左边框 + 姓名 + 原因 + 两个操作。
+ * 待核查卡片，对应设计稿 `.pv-card`：白底大圆角卡 + 姓名 + 原因徽章 + 主次操作。
  *
  * 「为什么这条要核查」写在卡片上而不是藏进详情：这一屏通常有几十条，
  * 逐条点进去看原因才能决定怎么处理，等于把网格员按在屏幕上点几十次。
@@ -542,99 +565,118 @@ private fun PendingRow(
     onIgnore: () -> Unit,
 ) {
     val tokens = AppTheme.tokens
-    QCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = checked, onCheckedChange = { onToggle() })
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        row.name ?: "（无姓名）",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = tokens.ink,
-                    )
-                    // 原因徽章（设计稿 pv-badge）：缺失=红、非法=琥珀。
-                    // 「为什么这条要核查」做成行内徽章而不是只在副标题文字里——
-                    // 副标题掃一眼就过，徽章是形状+颜色双重编码，扫列表时先抓住它
-                    val (badge, badgeBg, badgeFg) = when (row.reason) {
-                        "ID_CARD_MISSING" -> Triple("身份证缺失", tokens.redBg, tokens.red)
-                        "ID_CARD_INVALID" -> Triple("身份证非法", tokens.amberBg, tokens.amber)
-                        else -> Triple(null, tokens.quiet, tokens.ink3)
-                    }
-                    if (badge != null) {
-                        Spacer(Modifier.width(7.dp))
-                        Surface(
-                            color = badgeBg,
-                            shape = RoundedCornerShape(AppShapes.chip),
-                        ) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = badgeFg,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
-                            )
+    // 设计稿 .pv-card：白底 + 20dp 圆角 + 柔和阴影 + 1px 浅描边。
+    // 旧版这里还带一条 3dp 琥珀竖条（QCard）——v3 已把「待处理」的表达
+    // 从竖条改成行内原因徽章：竖条只说「这张卡要处理」，而「**为什么**」
+    // （证件缺失 / 证件非法）才是动手前必须知道的信息
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(AppShapes.card),
+        border = BorderStroke(1.dp, tokens.line2),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = checked, onCheckedChange = { onToggle() })
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            row.name ?: "（无姓名）",
+                            // 设计稿 .pv-name 14.5px 700：行标题，不是页面标题
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = tokens.ink,
+                        )
+                        // 原因徽章（设计稿 pv-badge）：缺失=红、非法=琥珀。
+                        // 「为什么这条要核查」做成行内徽章而不是只在副标题文字里——
+                        // 副标题扫一眼就过，徽章是形状+颜色双重编码，扫列表时先抓住它
+                        val (badge, badgeBg, badgeFg) = when (row.reason) {
+                            "ID_CARD_MISSING" -> Triple("身份证缺失", tokens.redBg, tokens.red)
+                            "ID_CARD_INVALID" -> Triple("身份证非法", tokens.amberBg, tokens.amber)
+                            else -> Triple(null, tokens.quiet, tokens.ink3)
+                        }
+                        if (badge != null) {
+                            Spacer(Modifier.width(7.dp))
+                            Surface(
+                                color = badgeBg,
+                                shape = RoundedCornerShape(AppShapes.chip),
+                            ) {
+                                Text(
+                                    badge,
+                                    style = PillTextStyle,
+                                    color = badgeFg,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                )
+                            }
                         }
                     }
+                    Text(
+                        listOfNotNull(
+                            row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
+                            row.village?.takeIf { it.isNotBlank() },
+                            row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason),
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.ink2,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    listOfNotNull(
-                        row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
-                        row.village?.takeIf { it.isNotBlank() },
-                        row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason),
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.ink3,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            // 主操作按钮按问题类型命名（设计稿 pv-btn.ok：补全信息 / 修正证件号），
-            // 打开的就是编辑弹窗：这条记录本来就缺/错在证件号，第一动作当然是改它，
-            // 而不是笼统一个「确认入库」——那反而要想一下「确认什么」。
-            // 确认入库保留为右侧文字按钮：证件号本身没问题、只是库里没这人时才用得上
-            Button(
-                onClick = onOpen,
-                enabled = !working,
-                shape = RoundedCornerShape(AppShapes.control),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = tokens.brandLight,
-                    contentColor = tokens.brandStrong,
-                ),
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                Text(
-                    when (row.reason) {
-                        "ID_CARD_MISSING" -> "补全信息"
-                        "ID_CARD_INVALID" -> "修正证件号"
-                        else -> "详情"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            // 忽略是次操作（设计稿 pv-btn.skip）：安静灰底 + 细描边，
-            // 与主操作拉开「可点但别急着点」的距离
-            OutlinedButton(
-                onClick = onIgnore,
-                enabled = !working,
-                shape = RoundedCornerShape(AppShapes.control),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = tokens.ink3),
-                border = BorderStroke(1.dp, tokens.line2),
-            ) { Text("忽略", style = MaterialTheme.typography.bodySmall) }
-            Spacer(Modifier.weight(1f))
-            // 确认入库降为文字按钮并去掉装饰箭头：它不再是这条卡的主路径，
-            // 只服务「证件号核对无误、直接放行」的场景。带箭头的实体样式
-            // 会让它看起来跟主操作一样重要，而它恰恰是最少见的一条路
-            TextButton(onClick = onConfirm, enabled = !working) {
-                Text("确认入库", style = MaterialTheme.typography.bodySmall)
+                // 主操作按钮按问题类型命名（设计稿 pv-btn.ok：补全信息 / 修正证件号），
+                // 打开的就是编辑弹窗：这条记录本来就缺/错在证件号，第一动作当然是改它，
+                // 而不是笼统一个「确认入库」——那反而要想一下「确认什么」。
+                // 确认入库保留为右侧文字按钮：证件号核对无误、直接放行时才用得上。
+                // （设计稿每张卡只画了两个按钮；保留第三个是刻意的功能取舍——
+                //  「确认入库」对应后端查重建人的重动作，不能没有入口）
+                Button(
+                    onClick = onOpen,
+                    enabled = !working,
+                    shape = RoundedCornerShape(AppShapes.control),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = tokens.brandLight,
+                        contentColor = tokens.brandStrong,
+                    ),
+                ) {
+                    Text(
+                        when (row.reason) {
+                            "ID_CARD_MISSING" -> "补全信息"
+                            "ID_CARD_INVALID" -> "修正证件号"
+                            else -> "详情"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                // 忽略是次操作（设计稿 pv-btn.skip）：安静灰底 + 细描边，
+                // 与主操作拉开「可点但别急着点」的距离
+                OutlinedButton(
+                    onClick = onIgnore,
+                    enabled = !working,
+                    shape = RoundedCornerShape(AppShapes.control),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = tokens.quiet,
+                        contentColor = tokens.ink3,
+                    ),
+                    border = BorderStroke(1.dp, tokens.line2),
+                ) { Text("忽略", style = MaterialTheme.typography.bodySmall) }
+                Spacer(Modifier.weight(1f))
+                // 确认入库降为文字按钮并去掉装饰箭头：它不再是这条卡的主路径，
+                // 只服务「证件号核对无误、直接放行」的场景。带箭头的实体样式
+                // 会让它看起来跟主操作一样重要，而它恰恰是最少见的一条路
+                TextButton(onClick = onConfirm, enabled = !working) {
+                    Text("确认入库", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

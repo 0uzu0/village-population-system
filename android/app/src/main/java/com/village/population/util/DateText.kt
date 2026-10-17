@@ -21,6 +21,7 @@ object DateText {
     private val DATE_TIME = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
     private val DATE_ONLY = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
     private val DATE_TIME_SEC = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA)
+    private val TODAY_CN = SimpleDateFormat("M月d日 E", Locale.CHINA)
 
     /**
      * 北京时区。后端的 mysql2 连接配的是 `timezone: '+08:00'`，
@@ -40,6 +41,15 @@ object DateText {
 
     /** 今天，yyyy-MM-dd */
     fun today(): String = DATE_ONLY.format(Date())
+
+    /**
+     * 今天的中文写法，`M月d日 E`（如「10月17日 星期六」）。
+     *
+     * 首页问候语下面那行用它：头卡是给眼睛扫的，`2026-10-17` 要逐位读，
+     * 中文日期加星期一眼就知道是哪天。Locale.CHINA 保证 E 出的是「星期六」
+     * 而不是 Saturday——这一屏没有第二个语言。
+     */
+    fun todayCn(): String = TODAY_CN.format(Date())
 
     /**
      * 文件名用的时间戳 `yyyy-MM-dd-HH-mm-ss`，与后端 file.ts 的 stampOf 同一形状。
