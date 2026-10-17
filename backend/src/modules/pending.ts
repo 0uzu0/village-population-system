@@ -6,6 +6,7 @@ import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { formatDate } from '../utils/date';
+import { syncPersonTags } from './person';
 import { z } from 'zod';
 
 const router = Router();
@@ -81,7 +82,12 @@ router.get('/:id', requirePermission('excel:import'), async (req: Request, res: 
 const updateSchema = z.object({
   name: z.string().min(1).max(64).optional(),
   gender: z.enum(['MALE', 'FEMALE']).nullable().optional(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  // 空串按「未填」处理：PC 补录弹窗整份表单提交，出生日期留空时传的是 ''，
+  // 不做归一会被格式校验直接拒绝，导致整个补录保存失败（v2.1.1）
+  birthDate: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional()
+  ),
   idCard: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   phoneBackup: z.string().nullable().optional(),
@@ -112,7 +118,24 @@ router.put('/:id', requirePermission('excel:import'), async (req: Request, res: 
   };
   for (const [k, col] of Object.entries(map)) {
     const v = (body as any)[k];
-    if (v !== undefined) { sets.push(`${col} = ?`); params.push(v === '' ? null : v); }
+    if (v === undefined) continue;
+    // 性别/出生日期的空值不进 SET，交给下方「身份证派生」补齐（避免同列重复 SET）
+    if ((k === 'gender' || k === 'birthDate') && !v) continue;
+    sets.push(`${col} = ?`); params.push(v === '' ? null : v);
+  }
+  // 补录身份证时自动派生出生日期与性别（v2.1.1，与确认入库/建档同口径）：
+  // 用户只填身份证号，保存后列表里就能看到日期性别，不用等到确认入库。
+  // 「空值 = 未填」（PC 弹窗整份提交，没填的字段传 null/''），一律以身份证
+  // 派生值填充；调用方显式传了非空值才以调用方为准。身份证非法时不派生
+  // 也不报错（本接口允许先存非法号码，入库时再校验）。
+  if (body.idCard) {
+    const check = validateIdCard(String(body.idCard));
+    if (check.valid && check.normalized) {
+      const derivedBirth = birthFromIdCard(check.normalized);
+      const derivedGender = genderFromIdCard(check.normalized);
+      if (!body.gender && derivedGender) { sets.push('gender = ?'); params.push(derivedGender); }
+      if (!body.birthDate && derivedBirth) { sets.push('birth_date = ?'); params.push(derivedBirth); }
+    }
   }
   if (!sets.length) return ok(res, { id }, '无字段更新');
 
@@ -181,6 +204,25 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
         await conn.query('UPDATE family SET head_person_id = ? WHERE id = ? AND head_person_id IS NULL', [newId, familyId]);
       }
     }
+
+    // 回挂建档时选择的标签（v2.1.1）：转待核查分支此前会丢掉 tagIds，
+    // 确认入库后档案上没有任何标签，「流动人口」等在列表里就消失了。
+    // syncPersonTags 自带户籍/流动互斥，与新建档同一套口径。
+    if (p.tag_ids) {
+      const tagIds = String(p.tag_ids)
+        .split(',')
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      if (tagIds.length) await syncPersonTags(conn, newId, tagIds, req.user!.id);
+    }
+
+    // 新增动作写进变更流水（v2.1.1，与 POST /persons 口径一致——
+    // 此前确认入库建档在「近期人口档案变更」里无任何记录）
+    await conn.query(
+      `INSERT INTO person_change_log (person_id, change_type, reason, operator_id)
+       VALUES (?, 'CREATE', ?, ?)`,
+      [newId, '待核查确认入库建档', req.user!.id]
+    );
 
     await conn.query(
       `UPDATE import_pending SET status = 'RESOLVED', handle_note = COALESCE(?, handle_note), handled_by = ?, handled_at = NOW() WHERE id = ?`,

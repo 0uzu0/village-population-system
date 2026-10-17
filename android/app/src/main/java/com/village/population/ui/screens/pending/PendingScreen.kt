@@ -93,7 +93,9 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
-                val page = meta.pendingList(page = 1, pageSize = 50, keyword = _state.value.keyword)
+                // 只看「待核查」：不传 status 会把已入库/已忽略的记录一起带回来
+                //（后端按 status 排序但不过滤），确认入库后记录就不消失了
+                val page = meta.pendingList(page = 1, pageSize = 50, keyword = _state.value.keyword, status = "PENDING")
                 _state.update { it.copy(loading = false, list = page.value.list, total = page.value.total) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = e.toUserMessage()) }

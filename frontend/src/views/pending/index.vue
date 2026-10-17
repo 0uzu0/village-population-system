@@ -125,7 +125,7 @@
           </el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="补录后校验位会自动校验" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="身份证号"><el-input v-model="form.idCard" placeholder="补录后自动带出出生日期与性别" @input="onEditIdCardInput" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="出生日期"><el-input v-model="form.birthDate" placeholder="YYYY-MM-DD" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
@@ -154,6 +154,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { pendingApi } from '@/api';
+import { birthFromIdCard, genderFromIdCard } from '@/utils/idcard';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
@@ -220,6 +221,15 @@ async function saveEdit() {
     load();
     loadSummary();
   } finally { saving.value = false; }
+}
+
+/** 补录身份证时自动预填出生日期/性别（只补空值，与后端保存时的派生同口径） */
+function onEditIdCardInput(val: string) {
+  if (!val || !/^\d{17}[\dXx]$/.test(val)) return;
+  const birth = birthFromIdCard(val);
+  if (birth && !form.birthDate) form.birthDate = birth;
+  const g = genderFromIdCard(val);
+  if (g && !form.gender) form.gender = g;
 }
 
 async function confirmRow(row: any) {

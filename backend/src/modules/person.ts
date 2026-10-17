@@ -393,8 +393,9 @@ async function deactivateHukouFloatingCounterpart(
  * update 路由本身不在事务里，此时传入 pool（与 saveDisability 的做法一致）。
  *
  * 每一处增删都写 tag_change_log，与批量打标签保持同样的留痕口径。
+ * 待核查确认入库（pending.ts）也用它回挂建档时选择的标签。
  */
-async function syncPersonTags(
+export async function syncPersonTags(
   conn: { query: (sql: string, params?: any[]) => Promise<any> },
   personId: number,
   tagIds: number[],
@@ -536,15 +537,18 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
     const pendingId = await withTransaction(async (conn) => {
       const [r] = (await conn.query(
         `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date,
-           id_card, phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation,
+           id_card, phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, tag_ids,
            raw_data, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           batchNo, null, 'ID_CARD_MISSING', '人工新增人口未填写身份证号，需补录后确认入库',
           body.name, body.gender || null, body.birthDate || null, null,
           identity.phone || null, identity.phone_backup || null,
           body.hukouAddress || null, body.liveAddress || null, body.village || null,
           gridNo, familyNo, body.relation || null,
+          // 建档时选择的标签存下来，确认入库时回挂（此前直接丢弃，
+          // 入库后「流动人口」等标签在前端消失）
+          (body.tagIds && body.tagIds.length ? body.tagIds.join(',') : null),
           JSON.stringify({ source: 'MANUAL', form: req.body }),
           req.user!.id,
         ]
