@@ -49,6 +49,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -484,6 +486,11 @@ fun FormField(
     keyboardType: KeyboardType = KeyboardType.Text,
     onImeAction: (() -> Unit)? = null,
 ) {
+    // 显式传 KeyboardActions 会覆盖平台默认的「完成即收起键盘」，
+    // 所以收起必须自己做：上门登记里键盘曾因此挡住底部保存按钮、
+    // 点「完成」毫无反应，用户只能杀应用
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxWidth()) {
         Text(label, style = HintTextStyle, color = AppTheme.tokens.ink3)
         Spacer(Modifier.height(5.dp))
@@ -496,7 +503,11 @@ fun FormField(
                 cursorBrush = SolidColor(AppTheme.tokens.brand),
                 singleLine = singleLine,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                keyboardActions = KeyboardActions(onDone = { onImeAction?.invoke() }),
+                keyboardActions = KeyboardActions(onDone = {
+                    keyboard?.hide()
+                    focusManager.clearFocus()
+                    onImeAction?.invoke()
+                }),
                 decorationBox = { inner ->
                     Box(Modifier.fillMaxWidth()) {
                         if (value.isEmpty() && placeholder != null) {
@@ -560,6 +571,9 @@ fun SearchField(
     modifier: Modifier = Modifier,
     onSearch: (() -> Unit)? = null,
 ) {
+    // 同 FormField：自定义 KeyboardActions 后收起键盘要自己做
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     FieldBox(
         modifier = modifier,
         leading = {
@@ -595,7 +609,11 @@ fun SearchField(
             cursorBrush = SolidColor(AppTheme.tokens.brand),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
+            keyboardActions = KeyboardActions(onSearch = {
+                keyboard?.hide()
+                focusManager.clearFocus()
+                onSearch?.invoke()
+            }),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth()) {
                     if (value.isEmpty()) {
@@ -619,6 +637,9 @@ fun InlineSearchField(
     onSearch: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    // 同 FormField：自定义 KeyboardActions 后收起键盘要自己做
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     FieldBox(
         modifier = modifier,
         leading = {
@@ -638,7 +659,11 @@ fun InlineSearchField(
             cursorBrush = SolidColor(AppTheme.tokens.brand),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
+            keyboardActions = KeyboardActions(onSearch = {
+                keyboard?.hide()
+                focusManager.clearFocus()
+                onSearch?.invoke()
+            }),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth()) {
                     if (value.isEmpty()) {

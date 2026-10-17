@@ -1,5 +1,6 @@
 package com.village.population.ui.screens.person
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +24,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -247,6 +252,8 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var resultMessage by remember { mutableStateOf<String?>(null) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(personId) { vm.init() }
 
@@ -276,7 +283,18 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // 键盘弹出时把内容整体抬到键盘上方：否则底部保存按钮被挡，
+                // 表单又长，用户输完姓名找不到保存的地方
+                .imePadding()
                 .verticalScroll(rememberScrollState())
+                // 点空白处收起键盘。子级（输入框/芯片）吃掉的点击到不了这里，
+                // 只有落在空白处的点击会触发收起
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        keyboard?.hide()
+                        focusManager.clearFocus()
+                    }
+                }
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

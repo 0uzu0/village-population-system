@@ -1,6 +1,7 @@
 package com.village.population.ui.navigation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -90,6 +92,20 @@ private val TABS = listOf(
 
 /** 某个路由是不是底部 Tab 的落点 */
 private fun isTabRoute(route: String): Boolean = TABS.any { it.route == route }
+
+/**
+ * 每个导航目的地都套这层「点击盾」。
+ *
+ * 换页动画期间旧目的地还在组合树里：新屏的空白处如果没有点击消费者，
+ * 手指事件会**穿透**到旧屏同坐标的可点击控件上。复现路径：人口列表 →
+ * 底栏切工作台，手快在新屏空白处再点一下——那一下落在还没退场的人口行上，
+ * 直接误开人员详情。
+ *
+ * 盾只消费「子级没吃掉的点击」：按钮 / 列表行 / 滚动 / 长按都先被子级处理，
+ * 行为不变；只有落在空白处的点击会被截住，不再漏给前一屏。
+ */
+private fun Modifier.shieldClickThrough(): Modifier =
+    pointerInput(Unit) { detectTapGestures { } }
 
 @Composable
 fun AppRoot() {
@@ -228,30 +244,36 @@ fun AppRoot() {
                 startDestination = if (signedIn) Routes.HOME else Routes.LOGIN,
             ) {
                 composable(Routes.LOGIN) {
-                    LoginScreen(
-                        onLoggedIn = {
-                            navController.navigate(Routes.HOME) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        LoginScreen(
+                            onLoggedIn = {
+                                navController.navigate(Routes.HOME) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            },
+                        )
+                    }
                 }
 
                 composable(Routes.HOME) {
-                    HomeScreen(
-                        // Tab 落点走 switchTab（与底栏完全同一套栈语义），
-                        // 其余页面（新增人员、拍照留痕…）正常压栈
-                        onNavigate = { route ->
-                            if (isTabRoute(route)) switchTab(route) else navController.navigate(route)
-                        },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        HomeScreen(
+                            // Tab 落点走 switchTab（与底栏完全同一套栈语义），
+                            // 其余页面（新增人员、拍照留痕…）正常压栈
+                            onNavigate = { route ->
+                                if (isTabRoute(route)) switchTab(route) else navController.navigate(route)
+                            },
+                        )
+                    }
                 }
 
                 composable(Routes.PERSONS) {
-                    PersonListScreen(
-                        onOpenPerson = { id -> navController.navigate(Routes.personDetail(id)) },
-                        onCreatePerson = { navController.navigate(Routes.personEdit(0)) },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        PersonListScreen(
+                            onOpenPerson = { id -> navController.navigate(Routes.personDetail(id)) },
+                            onCreatePerson = { navController.navigate(Routes.personEdit(0)) },
+                        )
+                    }
                 }
 
                 composable(
@@ -259,12 +281,14 @@ fun AppRoot() {
                     arguments = listOf(navArgument("personId") { type = NavType.IntType }),
                 ) { entry ->
                     val personId = entry.arguments?.getInt("personId") ?: 0
-                    PersonDetailScreen(
-                        personId = personId,
-                        onBack = { navController.popBackStack() },
-                        onEdit = { navController.navigate(Routes.personEdit(personId)) },
-                        onCapture = { navController.navigate(Routes.capture(personId)) },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        PersonDetailScreen(
+                            personId = personId,
+                            onBack = { navController.popBackStack() },
+                            onEdit = { navController.navigate(Routes.personEdit(personId)) },
+                            onCapture = { navController.navigate(Routes.capture(personId)) },
+                        )
+                    }
                 }
 
                 composable(
@@ -272,17 +296,21 @@ fun AppRoot() {
                     arguments = listOf(navArgument("personId") { type = NavType.IntType }),
                 ) { entry ->
                     val personId = entry.arguments?.getInt("personId") ?: 0
-                    PersonEditScreen(
-                        personId = personId,
-                        onDone = { navController.popBackStack() },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        PersonEditScreen(
+                            personId = personId,
+                            onDone = { navController.popBackStack() },
+                        )
+                    }
                 }
 
                 composable(Routes.PENDING) {
                     // 不再从这里跳人员详情：待核查记录用的是 import_pending.id，
                     // 与 person.id 是两套编号，且这条记录本来就还没有正式人员。
                     // 详情改为在本页弹窗展示（见 PendingScreen）。
-                    PendingScreen()
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        PendingScreen()
+                    }
                 }
 
                 composable(
@@ -291,18 +319,23 @@ fun AppRoot() {
                         navArgument("personId") { type = NavType.IntType; defaultValue = 0 },
                     ),
                 ) { entry ->
-                    CaptureScreen(
-                        personId = entry.arguments?.getInt("personId")?.takeIf { it > 0 },
-                        onBack = { navController.popBackStack() },
-                    )
+                    val personId = entry.arguments?.getInt("personId")?.takeIf { it > 0 }
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        CaptureScreen(
+                            personId = personId,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
                 }
 
                 composable(Routes.PROFILE) {
-                    ProfileScreen(
-                        onLoggedOut = {
-                            navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
-                        },
-                    )
+                    Box(Modifier.fillMaxSize().shieldClickThrough()) {
+                        ProfileScreen(
+                            onLoggedOut = {
+                                navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+                            },
+                        )
+                    }
                 }
             }
         }

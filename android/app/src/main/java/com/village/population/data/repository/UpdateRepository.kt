@@ -23,6 +23,18 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
+ * APK 下载走 gh-proxy 加速（国内直连 GitHub release 资产基本超时）。
+ *
+ * gh-proxy 的用法是「代理前缀 + 完整 GitHub URL」，用户指定的通道是
+ * `https://v4.gh-proxy.org/https://github.com/0uzu0/village-population-system/releases/latest`。
+ * releases/latest 本身是个 HTML 页面，直接拿它当 APK 下载必然失败；
+ * 所以前缀套在 release 资产的真实地址（browser_download_url）上，
+ * 落到同一条加速通道：
+ * `https://v4.gh-proxy.org/https://github.com/.../releases/download/vX.Y.Z/village-app-X.Y.Z.apk`
+ */
+private const val DOWNLOAD_PROXY_PREFIX = "https://v4.gh-proxy.org/"
+
+/**
  * 检查更新 + 下载安装 APK。
  *
  * 与 [com.village.population.data.remote.ApiClient] 刻意隔离：ApiClient 的
@@ -82,7 +94,7 @@ class UpdateRepository(private val context: Context) {
         if (latest.isBlank() || compareVersions(latest, current) <= 0) return null
         return UpdateInfo(
             version = latest,
-            apkUrl = apk.browser_download_url,
+            apkUrl = DOWNLOAD_PROXY_PREFIX + apk.browser_download_url,
             fileName = apk.name,
             sizeBytes = apk.size,
         )
