@@ -10,12 +10,19 @@
       </div>
       <el-form :model="form" @keyup.enter="submit">
         <el-form-item>
-          <el-input v-model="form.username" placeholder="请输入账号" size="large">
+          <el-input v-model="form.username" placeholder="请输入账号" size="large" autocomplete="off">
             <template #prefix><el-icon><User /></el-icon></template>
           </el-input>
         </el-form-item>
         <el-form-item>
-          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" size="large">
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            placeholder="请输入密码"
+            size="large"
+            autocomplete="new-password"
+          >
             <template #prefix><el-icon><Lock /></el-icon></template>
           </el-input>
         </el-form-item>
@@ -23,7 +30,6 @@
           登 录
         </el-button>
       </el-form>
-      <p class="tip">初始账号 admin，密码 Admin@123456（首次登录请修改）</p>
     </div>
   </div>
 </template>
@@ -39,7 +45,9 @@ const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
 
-const form = ref({ username: 'admin', password: '' });
+// 账号密码一律不预填：这是村级系统，电脑常放在便民服务点的公用桌面上，
+// 预填 admin 等于把管理员账号写在屏幕上（密码提示同理），谁来点一下就能试密码。
+const form = ref({ username: '', password: '' });
 const loading = ref(false);
 
 async function submit() {
@@ -114,11 +122,5 @@ async function submit() {
   height: 44px;
   margin-top: 4px;
   font-size: var(--font-size-md);
-}
-.tip {
-  margin-top: 16px;
-  text-align: center;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-placeholder);
 }
 </style>
