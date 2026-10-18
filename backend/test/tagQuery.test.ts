@@ -2,22 +2,51 @@ import { describe, it, expect } from 'vitest';
 import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter, combineFilters } from '../src/utils/tagQuery';
 import { ELDERLY_MIN_AGE, MINOR_MAX_AGE, ageRangeText } from '../src/utils/age';
 
+/** 占位符数量必须与参数数量严格一致，否则 SQL 参数会错位（查错人/报错） */
+function holes(f: { where: string }): number {
+  return (f.where.match(/\?/g) || []).length;
+}
+
 describe('标签筛选 SQL 构建', () => {
   it('并集（ANY）生成 EXISTS IN 条件', () => {
     const f = buildPersonTagFilter({ tags: [1, 2, 3], mode: 'ANY' }, 'p');
     expect(f.where).toContain('pt.tag_id IN (?,?,?)');
-    expect(f.params).toEqual([1, 2, 3]);
+    // 前 N 个参数是标签 ID 本身，之后是户籍守卫（见下方专项用例）
+    expect(f.params.slice(0, 3)).toEqual([1, 2, 3]);
   });
 
   it('交集（ALL）为每个标签生成独立 EXISTS', () => {
     const f = buildPersonTagFilter({ tags: [1, 2], mode: 'ALL' }, 'p');
-    expect(f.where.split('EXISTS').length).toBe(3); // 两个 EXISTS + 前缀
-    expect(f.params).toEqual([1, 2]);
+    // 逐条 tag_id = ? 判定（不是 IN），两个标签就是两条
+    expect(f.where.match(/pt\.tag_id = \?/g)?.length).toBe(2);
+    expect(f.params.slice(0, 2)).toEqual([1, 2]);
   });
 
   it('空标签返回空片段', () => {
     expect(buildPersonTagFilter({ tags: [], mode: 'ANY' }).where).toBe('');
     expect(buildPersonTagFilter(undefined).where).toBe('');
+  });
+
+  it('户籍/流动守卫：所选标签里含流动人口', () => {
+    const f = buildPersonTagFilter({ tags: [14], mode: 'ANY' }, 'p');
+    // 需要三件事：所选含户籍（并集语义不排除）、所选不含流动（放行）、人不持户籍
+    expect(f.where).toContain('FLOATING_POP');
+    expect(f.where).toContain('HUKOU_POP');
+  });
+
+  it('户籍/流动守卫：任何组合下占位符与参数都对齐', () => {
+    const cases: Array<{ tags: number[]; mode: 'ANY' | 'ALL' }> = [
+      { tags: [1], mode: 'ANY' },
+      { tags: [1, 2, 3], mode: 'ANY' },
+      { tags: [1, 2], mode: 'ALL' },
+      { tags: [14], mode: 'ANY' },
+      { tags: [14, 15], mode: 'ANY' },
+      { tags: [14, 3, 9], mode: 'ALL' },
+    ];
+    for (const c of cases) {
+      const f = buildPersonTagFilter(c, 'p');
+      expect(holes(f), `${c.mode} ${c.tags.join(',')} 占位符与参数不一致`).toBe(f.params.length);
+    }
   });
 
   it('家庭标签筛选', () => {
@@ -35,7 +64,9 @@ describe('标签筛选 SQL 构建', () => {
     const f1 = buildPersonTagFilter({ tags: [1], mode: 'ANY' }, 'p');
     const f2 = buildAgeFilter(18, null, 'p');
     const combined = combineFilters([f1, f2]);
-    expect(combined.params.length).toBe(2);
+    // 参数按片段顺序拼接，长度必须是各片段之和（拼错会整体错位）
+    expect(combined.params.length).toBe(f1.params.length + f2.params.length);
+    expect(holes(combined)).toBe(combined.params.length);
   });
 });
 
