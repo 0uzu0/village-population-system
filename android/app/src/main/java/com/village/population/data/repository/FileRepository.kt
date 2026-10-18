@@ -4,11 +4,19 @@ import com.village.population.data.remote.ApiExecutor
 import com.village.population.data.remote.ApiService
 import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.PageData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 附件仓库。
@@ -23,9 +31,25 @@ import java.io.File
 class FileRepository(
     private val api: ApiService,
     private val exec: ApiExecutor,
-    /** 图片预览落盘目录。传 null 时 downloadToCache 会退回内存字节 */
+    /** 图片预览落盘目录。传 null 时 imageFile 退回临时文件 */
     private val imageCacheDir: File? = null,
 ) {
+
+    /**
+     * 进行中的下载，按附件 id 去重。
+     *
+     * 详情页的缩略图是 FlowRow（不是懒加载），进页面就会把这一屏的照片同时铺开；
+     * 放大查看又会对同一张再要一次。没有这张表，同一张图会被重复拉两遍，
+     * 在只有一两格信号的村里，这就是用户要多等的几十秒和双份流量。
+     */
+    private val inflight = ConcurrentHashMap<Int, Deferred<File>>()
+
+    /**
+     * 下载任务自己的作用域：**故意不挂在界面上**。
+     * 用户翻走、Compose 把缩略图撤掉时，已经拉了一半的图仍然会落完盘，
+     * 下次进来直接命中缓存；否则弱网下会出现「每次进详情页都从头再下一遍」。
+     */
+    private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * 上传附件。
@@ -61,14 +85,6 @@ class FileRepository(
         exec.page { api.files(bizType = bizType, bizId = bizId, pageSize = pageSize) }
 
     /**
-     * 下载附件字节。
-     * 不能把 `/files/:id` 直接丢给图片控件——那个接口要 Bearer 头，直链必然 401。
-     * 必须先取回字节再交给图片框架渲染。
-     */
-    suspend fun download(id: Int): ByteArray =
-        exec.download { api.downloadFile(id) }
-
-    /**
      * 删除附件。
      *
      * 注意这是**不可逆**的：后端删库记录的同时会把磁盘上的物理文件删掉，
@@ -81,32 +97,126 @@ class FileRepository(
     /**
      * 取回一张图片并落到本地缓存文件，返回该文件供 Coil 直接渲染。
      *
-     * 为什么要落盘而不是把 ByteArray 交给 Coil：
-     *  · 盘上有文件 = 进过村没信号时，看过的照片还能再打开；
-     *  · Coil 对 File 的识别最直接（ByteArray 要靠嗅探头部字节推断格式）。
-     * 照片按 id 不可变，所以文件名固定、命中即用，不需要考虑失效。
+     * 三件事必须一起做，少一件现场就会「卡住 / 闪退」——修复前正是缺了它们：
+     *
+     *  1. **全程在 IO 线程**。调用方是 Compose 的 `produceState`，它跑在组合的协程
+     *     上下文里，也就是**主线程**。`/files/:id` 是 `@Streaming`，读响应体是同步
+     *     阻塞的，于是一张 5MB 的照片在弱网下能把主线程堵十几秒，界面完全不动；
+     *     FlowRow 里几张同时开始，就排队堵几十秒 —— 用户看到的是「卡住」，
+     *     再往下就是 ANR 被系统杀掉（「闪退」）。
+     *
+     *  2. **流式落盘，不经过 ByteArray**。原来先 `bytes()` 读成数组再写文件，
+     *     等于整张原图在堆里待一份、写入缓冲再一份；照片区是同时开始的，
+     *     二十张就上百 MB，低端机直接 OOM。
+     *
+     *  3. **落盘前后都校验**。中途断网、或服务端回了张错误页，都会变成一个永远
+     *     解不出来的 `file-x.jpg`；而「命中缓存就直接返回」意味着它会被一直用下去，
+     *     表现为「这张照片永远打不开」。所以先写 .part、校验通过再改名，
+     *     非图片内容直接丢弃，让下次点击能重新下。
+     *
+     * 为什么落盘而不是把字节交给 Coil：盘上有文件 = 进过村没信号时，看过的照片
+     * 还能再打开；Coil 对 File 的识别也最直接。照片按 id 不可变，命中即用。
      */
-    suspend fun imageFile(id: Int): File {
+    suspend fun imageFile(id: Int): File = withContext(Dispatchers.IO) {
+        if (id <= 0) throw IOException("无效的附件 id: $id")
+        cachedFile(id)?.let { return@withContext it }
+
+        val task = inflight.computeIfAbsent(id) { key ->
+            // 这里用默认的 Dispatched 启动：任务体不会在 computeIfAbsent 的锁内执行，
+            // 它 finally 里的 inflight.remove 才不会变成「锁内递归改同一个 map」
+            downloadScope.async {
+                try {
+                    fetchToCache(id)
+                } finally {
+                    inflight.remove(key)
+                }
+            }
+        }
+        // await() 被取消（界面撤掉）不会取消下载本身：任务在 downloadScope 里跑完并落盘
+        task.await()
+    }
+
+    private fun cachedFile(id: Int): File? {
+        val dir = imageCacheDir ?: return null
+        val cached = File(dir, fileNameOf(id))
+        if (!cached.exists() || cached.length() <= 0) return null
+        // 命中也要验一次文件头：v2.2.2 之前缓存的是「先 bytes() 再写」，中途断网会留下
+        // 半张图；更早还有把服务端错误页存成 .jpg 的可能。这类文件 Coil 永远解不出来，
+        // 而命中就返回意味着它再也不会被重新下载——现象就是「这张照片永远打不开」。
+        // 删掉重下即可自愈，代价只是每张图多读 12 个字节。
+        if (!looksLikeImage(cached)) {
+            cached.delete()
+            return null
+        }
+        return cached
+    }
+
+    private fun fileNameOf(id: Int): String = "file-$id.jpg"
+
+    private suspend fun fetchToCache(id: Int): File {
         val dir = imageCacheDir
-        if (dir != null) {
-            if (!dir.exists()) dir.mkdirs()
-            val cached = File(dir, "file-$id.jpg")
-            if (cached.exists() && cached.length() > 0) return cached
+        if (dir == null) {
+            // 没配缓存目录（异常装配 / 单测）：退回临时文件，仍然流式写盘
+            val target = File.createTempFile("img-$id-", ".jpg")
+            writeAtomically(target, id)
+            return target
         }
-        val bytes = download(id)
-        val target = if (dir != null) File(dir, "file-$id.jpg") else File.createTempFile("img-$id-", ".jpg")
-        // 先写 .part 再改名：中途断网不会在缓存里留下一张半截图（半张图会让 Coil 一直解不出来）
-        val tmp = File(target.parentFile, "${target.name}.part")
-        tmp.writeBytes(bytes)
-        if (!tmp.renameTo(target)) {
-            tmp.delete()
-            throw java.io.IOException("图片缓存写入失败")
-        }
+        if (!dir.exists() && !dir.mkdirs()) throw IOException("图片缓存目录创建失败")
+        val target = File(dir, fileNameOf(id))
+        // 上次中断留下的 .part 只可能是残缺的，先清掉
+        File(dir, "${fileNameOf(id)}.part").delete()
+        writeAtomically(target, id)
+        pruneCache(dir)
         return target
+    }
+
+    /**
+     * 边下边写，只有校验通过才改名成正式文件名。
+     * 先写 `.part` 再 rename 的原因：中途断网不会在缓存里留下一张半截图
+     * （半张图会让 Coil 一直解不出来）。
+     */
+    private suspend fun writeAtomically(target: File, id: Int) {
+        val tmp = File(target.parentFile, "${target.name}.part")
+        try {
+            exec.stream({ api.downloadFile(id) }) { body ->
+                body.byteStream().use { input ->
+                    tmp.outputStream().use { out -> input.copyTo(out, COPY_BUFFER) }
+                }
+            }
+            if (tmp.length() <= 0L) throw IOException("图片内容为空")
+            if (!looksLikeImage(tmp)) throw IOException("返回的内容不是图片")
+            if (target.exists() && !target.delete()) throw IOException("旧缓存清理失败")
+            if (!tmp.renameTo(target)) throw IOException("图片缓存写入失败")
+        } catch (e: Throwable) {
+            // 任何失败都不留残骸：留着就会变成一张「永远打不开、又永远命中缓存」的图
+            tmp.delete()
+            throw e
+        }
+    }
+
+    /**
+     * 缓存目录按**文件数**封顶，超了删最旧的。
+     *
+     * 照片按 id 不可变，删掉只是下次重下，不会读错；但不管的话，一个村反复拍照
+     * 几个月就能把 cacheDir 撑到几百 MB（系统清理缓存是整目录清空，
+     * 届时正在写的文件也可能被一起收走）。
+     */
+    private fun pruneCache(dir: File) {
+        val files = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".jpg") } ?: return
+        if (files.size <= MAX_CACHED_PHOTOS) return
+        files.sortedBy { it.lastModified() }
+            .take(files.size - MAX_CACHED_PHOTOS)
+            .forEach { it.delete() }
     }
 
     companion object {
         private val TEXT_PLAIN = "text/plain".toMediaType()
+
+        /** 单次从响应体搬运的字节数。缓冲太小会在弱网下放大系统调用次数 */
+        private const val COPY_BUFFER = 64 * 1024
+
+        /** 图片缓存条目上限。按单张 3–8MB 估，150 张约 0.5–1GB，够覆盖一个村的现场照片 */
+        private const val MAX_CACHED_PHOTOS = 150
 
         val ALLOWED_EXTENSIONS = setOf(".pdf", ".jpg", ".jpeg", ".png", ".webp")
 
@@ -118,6 +228,28 @@ class FileRepository(
             name.endsWith(".png", true) -> "image/png"
             name.endsWith(".webp", true) -> "image/webp"
             else -> "image/jpeg"
+        }
+
+        /**
+         * 只认白名单里的三种图片格式（后端上传白名单也只有这三种）。
+         *
+         * 只读文件头几个字节，不解析整张图。用途是拦住「服务端回了 HTML 错误页 /
+         * JSON 报错」这类**状态码是 200 但内容不是图**的情况——它们要是被当成
+         * 图片存进缓存，Coil 每次都会解码失败，而缓存命中又不会再重下，
+         * 于是一张错误的图会永远显示不出来。
+         */
+        internal fun looksLikeImage(file: File): Boolean {
+            val head = ByteArray(12)
+            val read = file.inputStream().use { it.read(head) }
+            if (read < 4) return false
+            val jpeg = read >= 3 &&
+                head[0] == 0xFF.toByte() && head[1] == 0xD8.toByte() && head[2] == 0xFF.toByte()
+            val png = read >= 8 &&
+                head[0] == 0x89.toByte() && head[1] == 'P'.code.toByte() &&
+                head[2] == 'N'.code.toByte() && head[3] == 'G'.code.toByte()
+            val webp = read >= 12 &&
+                String(head, 0, 4) == "RIFF" && String(head, 8, 4) == "WEBP"
+            return jpeg || png || webp
         }
     }
 }

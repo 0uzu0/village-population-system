@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -34,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -50,10 +53,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.PersonDto
 import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonRepository
+import kotlinx.coroutines.CancellationException
 import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.ErrorBox
@@ -78,6 +83,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.File
 
 data class PersonDetailUiState(
@@ -473,20 +479,53 @@ fun PersonDetailScreen(
     }
 }
 
+/** 放大查看时的解码上限（像素）。按 1440 解一张图最多约 8MB 位图，看清原图足够了 */
+private const val VIEWER_MAX_PX = 1440
+
+/**
+ * 单张照片的加载状态。
+ *
+ * 修复前只有「文件有没有拿到」两态：拿不到（null）就一直转圈。于是一张永远下不来的
+ * 照片会让那一格永远转圈，用户看到的是「整个页面卡住了」；而真正让页面卡住的是
+ * 下载跑在主线程上（见 FileRepository.imageFile 的注释）。有了失败态，至少
+ * 「下不来」和「还在下」在界面上是两件事，重试也才有个落点。
+ */
+private sealed interface PhotoLoadState {
+    data object Loading : PhotoLoadState
+    data object Failed : PhotoLoadState
+    data class Ready(val file: File) : PhotoLoadState
+}
+
+/**
+ * 取一张照片。取消要原样抛出：`runCatching` 会把 CancellationException 也吞掉，
+ * 那会让「滑走这一屏」变成一次假的加载失败。
+ */
+private suspend fun loadPhoto(files: FileRepository, id: Int): PhotoLoadState =
+    try {
+        PhotoLoadState.Ready(files.imageFile(id))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        PhotoLoadState.Failed
+    }
+
 /**
  * 现场照片缩略图。
  *
- * 图片接口要 Bearer 头，把 URL 直接丢给 `<img>` 那种做法必然 401，
- * 所以必须先由 FileRepository 取回字节落到本地缓存文件，再交给 Coil 渲染
- * （见 FileRepository.imageFile）。取不到就显示一块占位底，
- * 不让整张卡片因为一张图而整块空掉。
+ * 图片接口要 Bearer 头，把 URL 直接丢给图片控件那种做法必然 401，
+ * 所以必须先由 FileRepository 取回并落到本地缓存文件，再交给 Coil 渲染
+ * （见 FileRepository.imageFile）。取不到就显示一块可点按重试的占位底，
+ * 不让整张卡片因为一张图而整块空掉，也不让它一直转圈假装还在加载。
  */
 @Composable
 private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
     val files = LocalAppContainer.current.fileRepository
     val tokens = AppTheme.tokens
-    val file by androidx.compose.runtime.produceState<File?>(null, photo.id) {
-        value = runCatching { files.imageFile(photo.id) }.getOrNull()
+    // 点一下失败态就加一次，produceState 以它为 key 重跑
+    var retry by remember(photo.id) { mutableIntStateOf(0) }
+    val load by produceState<PhotoLoadState>(PhotoLoadState.Loading, photo.id, retry) {
+        value = PhotoLoadState.Loading
+        value = loadPhoto(files, photo.id)
     }
     Surface(
         color = tokens.quiet,
@@ -496,25 +535,43 @@ private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
         modifier = Modifier
             .width(84.dp)
             .height(84.dp)
-            .clickableNoRipple(file != null, onClick),
-    ) {
-        val loaded = file
-        if (loaded == null) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                if (photo.id > 0) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
+            .clickableNoRipple {
+                when (load) {
+                    is PhotoLoadState.Ready -> onClick()
+                    PhotoLoadState.Failed -> retry++
+                    PhotoLoadState.Loading -> Unit
                 }
-            }
-        } else {
-            AsyncImage(
-                model = loaded,
+            },
+    ) {
+        when (val current = load) {
+            is PhotoLoadState.Ready -> AsyncImage(
+                model = current.file,
                 contentDescription = photo.fileName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            PhotoLoadState.Failed -> Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = null,
+                    tint = tokens.ink3,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text("点按重试", style = MaterialTheme.typography.bodySmall, color = tokens.ink3)
+            }
+
+            PhotoLoadState.Loading -> Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            }
         }
     }
 }
@@ -550,29 +607,51 @@ private fun PhotoViewerDialog(
     onDelete: () -> Unit,
 ) {
     val files = LocalAppContainer.current.fileRepository
+    val context = LocalContext.current
     val tokens = AppTheme.tokens
     var confirming by remember { mutableStateOf(false) }
-    val file by produceState<File?>(null, photo.id) {
-        value = runCatching { files.imageFile(photo.id) }.getOrNull()
+    var retry by remember(photo.id) { mutableIntStateOf(0) }
+    val load by produceState<PhotoLoadState>(PhotoLoadState.Loading, photo.id, retry) {
+        value = PhotoLoadState.Loading
+        value = loadPhoto(files, photo.id)
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(AppShapes.card), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(12.dp)) {
-                val loaded = file
-                if (loaded != null) {
-                    AsyncImage(
-                        model = loaded,
+                when (val current = load) {
+                    is PhotoLoadState.Ready -> AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(current.file)
+                            // 显式限一个解码上限：Dialog 里的约束一旦是「无界」，
+                            // Coil 会按原图解码，一张 12MP 的现场照片就是 48MB 位图，
+                            // 内存不够时就是一次闪退
+                            .size(VIEWER_MAX_PX)
+                            .build(),
                         contentDescription = photo.fileName,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 420.dp),
                     )
-                } else {
-                    Box(
+
+                    PhotoLoadState.Failed -> Box(
                         Modifier.fillMaxWidth().height(200.dp),
                         contentAlignment = Alignment.Center,
-                    ) { androidx.compose.material3.CircularProgressIndicator() }
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "照片加载失败",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = tokens.ink3,
+                            )
+                            TextButton(onClick = { retry++ }) { Text("重试") }
+                        }
+                    }
+
+                    PhotoLoadState.Loading -> Box(
+                        Modifier.fillMaxWidth().height(200.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
                 }
                 Spacer(Modifier.height(8.dp))
                 // 文件名就是「拍照时间-谁-编号」（后端按拍照时间生成），

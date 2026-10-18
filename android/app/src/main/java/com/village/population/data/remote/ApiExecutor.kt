@@ -51,13 +51,20 @@ class ApiExecutor(
     }
 
     /**
-     * 下载二进制（附件）。走的是同一个鉴权拦截器，
+     * 流式下载二进制（附件）。走的是同一个鉴权拦截器，
      * 所以拿到的不是「一个能直接给图片控件用的 URL」，而是字节——
      * `/files/:id` 需要 Authorization 头，直链一定 401。
+     *
+     * 这里**只把响应体交出去**，不替调用方读成 ByteArray：`/files/:id` 是
+     * `@Streaming` 的，`bytes()` 会在当前线程上同步读完整个响应体。现场照片是
+     * 手机原图（单张 3–8MB），读成字节数组等于把整张图放进堆里再复制一份，
+     * 几个人同时看照片就能把低端机的堆顶穿（见 FileRepository.imageFile）。
+     *
+     * [consume] 是阻塞式的（读流 / 写文件），**调用方负责切到 IO 调度器**。
      */
-    suspend fun download(block: suspend () -> ResponseBody): ByteArray {
+    suspend fun <R> stream(block: suspend () -> ResponseBody, consume: (ResponseBody) -> R): R {
         val body = guarded(block)
-        return body.use { it.bytes() }
+        return body.use(consume)
     }
 
     private suspend fun <R> guarded(block: suspend () -> R): R =

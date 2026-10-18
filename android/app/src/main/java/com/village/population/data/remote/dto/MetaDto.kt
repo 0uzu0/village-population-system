@@ -190,7 +190,7 @@ data class BatchIdsRequest(
  * 所以列表里直接显示它就能看出「哪天拍的、拍的是谁」，不需要额外字段。
  *
  * 注意这里**没有 url**：预览接口要 Bearer 头，直链一定 401，
- * 必须先 download(id) 取回字节再交给图片框架（见 FileRepository.download）。
+ * 必须先按 id 把图取回本地文件再交给图片框架（见 FileRepository.imageFile）。
  */
 @Serializable
 data class FileDto(
