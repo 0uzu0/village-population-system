@@ -124,10 +124,12 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       throw new Error(`数据库迁移失败: ${mig.name} 解析出 0 条语句`);
     }
     const conn = await pool.getConnection();
+    let stmtIndex = -1;
     try {
       await conn.beginTransaction();
-      for (const stmt of statements) {
-        await conn.query(stmt);
+      for (let i = 0; i < statements.length; i++) {
+        stmtIndex = i;
+        await conn.query(statements[i]);
       }
       await conn.query('INSERT INTO schema_migrations (version) VALUES (?)', [mig.version]);
       await conn.commit();
@@ -135,8 +137,20 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       logger.info('migration-applied', { name: mig.name, statements: statements.length });
     } catch (err) {
       await conn.rollback();
-      logger.error('migration-failed', { name: mig.name, message: err instanceof Error ? err.message : String(err) });
-      throw new Error(`数据库迁移失败: ${mig.name}`);
+      // 定位到具体语句：迁移文件里有 DDL 时，MySQL 会**隐式提交**，rollback 收不回来。
+      // 只报文件名会让人分不清「ALTER 重复执行」还是「后面某条 DML 失败」——
+      // v2.2.0 首发就是在这个坑里耗了半天。这里把语句序号、前 160 字和 errno 一起打出来。
+      const failed = stmtIndex >= 0 ? statements[stmtIndex] : '';
+      logger.error('migration-failed', {
+        name: mig.name,
+        statementIndex: stmtIndex + 1,
+        statementCount: statements.length,
+        statement: failed.replace(/\s+/g, ' ').trim().slice(0, 160),
+        code: (err as any)?.code,
+        errno: (err as any)?.errno,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error(`数据库迁移失败: ${mig.name}（第 ${stmtIndex + 1}/${statements.length} 条语句）`);
     } finally {
       conn.release();
     }

@@ -8,24 +8,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(dirname "$SCRIPT_DIR")"
-NEW_VERSION="${1:?用法: ./update.sh <版本号，如 v1.1.0>}"
+NEW_VERSION="${1:?用法: ./update.sh <版本号，如 v2.2.0>}"
+
+# ⚠️ git 标签是 vX.Y.Z，但镜像标签是 X.Y.Z（docker/metadata-action 的
+# type=semver,pattern={{version}} 会去掉 v）。这里统一去掉开头的 v 再拼镜像名，
+# 否则 `./update.sh v2.2.0` 会去拉一个不存在的 ghcr.io/...:v2.2.0 而拉取失败。
+# 两种写法（v2.2.0 / 2.2.0）都接受，存的永远是镜像标签形式。
+IMG_VERSION="${NEW_VERSION#v}"
 
 cd "$DEPLOY_DIR"
 
 echo "[update] 1/4 备份数据库..."
 "$SCRIPT_DIR/backup.sh" || { echo "[update] 备份失败，中止升级"; exit 1; }
 
-echo "[update] 2/4 拉取镜像版本 ${NEW_VERSION}..."
-VERSION="$NEW_VERSION" docker compose pull frontend backend
+echo "[update] 2/4 拉取镜像版本 ${IMG_VERSION}（git 标签 v${IMG_VERSION}）..."
+VERSION="$IMG_VERSION" docker compose pull frontend backend
 
 echo "[update] 3/4 重启应用..."
 # 原地更新 .env 的 VERSION 行。不使用 sed -i.bak：备份文件会遗留明文密码
 if [ -f .env ]; then
-  sed "s/^VERSION=.*/VERSION=${NEW_VERSION}/" .env > .env.tmp
-  grep -q '^VERSION=' .env || echo "VERSION=${NEW_VERSION}" >> .env.tmp
+  sed "s/^VERSION=.*/VERSION=${IMG_VERSION}/" .env > .env.tmp
+  grep -q '^VERSION=' .env || echo "VERSION=${IMG_VERSION}" >> .env.tmp
   mv .env.tmp .env
 fi
-VERSION="$NEW_VERSION" docker compose up -d frontend backend
+VERSION="$IMG_VERSION" docker compose up -d frontend backend
 
 echo "[update] 4/4 等待服务就绪并健康检查..."
 sleep 15

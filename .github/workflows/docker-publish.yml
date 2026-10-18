@@ -118,7 +118,11 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short
+            # {{version}} 会去掉 git 标签的 v 前缀，所以打 v2.2.0 得到的是镜像标签 2.2.0。
+            # 下面再加一条 v{{version}}，让「git 标签名」也能直接当镜像标签用
+            # （deploy 脚本与文档里习惯写 vX.Y.Z，两种写法都拉得到，少一个踩坑点）。
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern=v{{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: 构建并推送镜像
         uses: docker/build-push-action@v6

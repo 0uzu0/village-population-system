@@ -1,5 +1,16 @@
 <template>
   <div class="dashboard">
+    <!-- 加载失败提示：否则接口一挂，下面所有卡片都显示 0，
+         看起来像「村里没有任何人」，比空白更误导（口径类误判最难发现）。 -->
+    <el-alert
+      v-if="loadError"
+      type="error"
+      :closable="false"
+      show-icon
+      title="统计数据加载失败"
+      :description="loadError"
+    />
+
     <!-- 统计卡片 -->
     <div class="stat-grid">
       <div v-for="card in statCards" :key="card.label" class="stat-card">
@@ -7,7 +18,7 @@
           <el-icon :size="22"><component :is="card.icon" /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ card.value }}</div>
+          <div class="stat-value">{{ loadError ? '—' : card.value }}</div>
           <div class="stat-label">{{ card.label }}</div>
         </div>
       </div>
@@ -58,6 +69,7 @@ import type { EChartsOption } from 'echarts';
 const dash = ref<any>({});
 const dist = ref<any>({ age: [], gender: [], grids: [] });
 const changes = ref<any[]>([]);
+const loadError = ref('');
 
 const statCards = computed(() => {
   const d = dash.value;
@@ -119,15 +131,26 @@ function typeTag(t: string) {
   return map[t] || 'info';
 }
 onMounted(async () => {
-  const [d, di, c] = await Promise.all([
+  // 用 allSettled 而不是 all：任一接口失败不该把另外两块也一起拖成空白，
+  // 更不该让所有卡片默默显示 0（用户会当成「真的没人」）。
+  const [d, di, c] = await Promise.allSettled([
     statisticsApi.dashboard(),
     statisticsApi.distributions(),
     statisticsApi.changes(),
   ]);
-  dash.value = d.data;
-  dist.value = di.data;
-  changes.value = c.data || [];
+  const errors: string[] = [];
+  if (d.status === 'fulfilled') dash.value = d.value.data ?? {};
+  else errors.push(`统计卡片：${errText(d.reason)}`);
+  if (di.status === 'fulfilled') dist.value = di.value.data ?? { age: [], gender: [], grids: [] };
+  else errors.push(`分布图表：${errText(di.reason)}`);
+  if (c.status === 'fulfilled') changes.value = c.value.data || [];
+  else errors.push(`变更流水：${errText(c.reason)}`);
+  loadError.value = errors.join('；');
 });
+
+function errText(e: any): string {
+  return e?.response?.data?.message || e?.message || '请求失败';
+}
 </script>
 
 <style scoped>

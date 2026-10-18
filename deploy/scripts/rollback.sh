@@ -9,19 +9,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(dirname "$SCRIPT_DIR")"
-TARGET_VERSION="${1:?用法: ./rollback.sh <旧版本号，如 v1.0.0>}"
+TARGET_VERSION="${1:?用法: ./rollback.sh <旧版本号，如 v2.1.1>}"
+
+# 同 update.sh：git 标签带 v、镜像标签不带 v，统一按镜像标签形式处理
+IMG_VERSION="${TARGET_VERSION#v}"
 
 cd "$DEPLOY_DIR"
 
-echo "[rollback] 将应用回滚到版本 ${TARGET_VERSION} ..."
+echo "[rollback] 将应用回滚到版本 ${IMG_VERSION}（git 标签 v${IMG_VERSION}）..."
 # 原地更新 .env 的 VERSION 行。不使用 sed -i.bak：备份文件会遗留明文密码
 if [ -f .env ]; then
-  sed "s/^VERSION=.*/VERSION=${TARGET_VERSION}/" .env > .env.tmp
-  grep -q '^VERSION=' .env || echo "VERSION=${TARGET_VERSION}" >> .env.tmp
+  sed "s/^VERSION=.*/VERSION=${IMG_VERSION}/" .env > .env.tmp
+  grep -q '^VERSION=' .env || echo "VERSION=${IMG_VERSION}" >> .env.tmp
   mv .env.tmp .env
 fi
 
-VERSION="$TARGET_VERSION" docker compose up -d frontend backend
+VERSION="$IMG_VERSION" docker compose up -d frontend backend
 
 echo "[rollback] 等待服务就绪..."
 sleep 15
