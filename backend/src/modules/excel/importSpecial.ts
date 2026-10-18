@@ -6,6 +6,7 @@ import { writeAudit } from '../../middleware/audit';
 import { SPECIAL_IMPORT_SPECS, mapRowFields, type SpecialImportType } from '../../utils/specialImport';
 import { upload, readRowsByColumns, safeUnlink, insertImportErrors } from './shared';
 import { markImportFailed } from '../../services/importTask';
+import { repairHukouFloatingExclusive } from '../../utils/hukouFloating';
 
 import { validateIdCard } from '../../utils/idcard';
 import { WRITE_CHUNK } from './shared';
@@ -266,6 +267,16 @@ router.post(
             chunk.flatMap((it) => [it.personId, it.tagId, req.user!.id, `${spec.label}导入（批次 ${batchNo}）`])
           );
         }
+
+        // 导入是按文件里的标签直接 INSERT，绕过了 person.ts 的互斥逻辑：
+        // 同一个人既标「户籍人口」又标「流动人口」时，工作台的流动人口与
+        // 标签页的人数就会对不上。这里按「户籍优先」收口（幂等）。
+        await repairHukouFloatingExclusive(
+          conn,
+          tagInserts.map((it) => it.personId),
+          req.user!.id,
+          `${spec.label}导入（批次 ${batchNo}）：户籍/流动口径互斥，按户籍优先移除`
+        );
       });
 
       await insertImportErrors(taskId, errors);

@@ -47,7 +47,10 @@ export const env = {
   dbPassword: req('DB_PASSWORD', ''),
 
   jwtSecret: req('JWT_SECRET', DEV_DEFAULTS.jwtSecret),
-  jwtExpiresIn: req('JWT_EXPIRES_IN', '12h'),
+  // 登录有效期 7 天（2026-10 起）：网格员出勤按天记，每天都要登录一次
+  // 反而会让人把密码写在手机壳背面——这才是真正的安全风险。
+  // 7 天覆盖「周一派任务、周末回村补录」的完整周期，过期后由 401 统一拦截。
+  jwtExpiresIn: req('JWT_EXPIRES_IN', '7d'),
 
   adminInitUsername: req('ADMIN_INIT_USERNAME', 'admin'),
   adminInitPassword: req('ADMIN_INIT_PASSWORD', DEV_DEFAULTS.adminPassword),

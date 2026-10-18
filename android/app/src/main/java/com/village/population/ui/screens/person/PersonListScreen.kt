@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -189,6 +190,52 @@ class PersonListViewModel(
         _state.update { it.copy(query = it.query.copy(page = it.query.page + 1)) }
         load(append = true)
     }
+
+    /**
+     * 首屏加载 / 从详情返回时的「原地刷新」。
+     *
+     * 原先这里一律走 `load()`：从人员详情按返回键回到列表，`LaunchedEffect(Unit)`
+     * 会重新跑一遍，而 `load()` 是「清空并只取第 1 页」——列表被截回 20 条，
+     * 用户翻了半天的位置连同滚动位置一起没了，观感就是「返回后永远回到第一个人」。
+     *
+     * 现在的语义分两种：
+     *  · 列表还空着（首次进入 / 换了筛选条件）→ 正常加载；
+     *  · 列表已有数据（返回本页）→ 按**当前已加载的条数**重取一次覆盖写回，
+     *    条数与 id 顺序都不变，LazyColumn 的滚动位置自然保住，
+     *    同时还能拿到详情/编辑里刚改过的姓名与标签。
+     * 刷新失败静默忽略：一次后台刷新失败不该让用户丢掉已经翻到的位置。
+     */
+    fun initOrRefresh() {
+        val current = _state.value
+        if (current.list.isEmpty()) {
+            load()
+            return
+        }
+        // 超过一页上限就不刷新了：分多次取反而会让列表条数抖动，位置更不稳
+        if (current.list.size > MAX_REFRESH_PAGE_SIZE) return
+        viewModelScope.launch {
+            val window = current.query.copy(page = 1, pageSize = current.list.size)
+            try {
+                val page = repo.list(window)
+                _state.update {
+                    it.copy(
+                        list = page.value.list,
+                        total = page.value.total,
+                        fromCache = page.fromCache,
+                        savedAt = page.savedAt,
+                        error = null,
+                    )
+                }
+            } catch (_: Exception) {
+                // 静默：保留原有列表
+            }
+        }
+    }
+
+    private companion object {
+        /** 与后端 /persons 的 pageSize 上限（200）对齐 */
+        const val MAX_REFRESH_PAGE_SIZE = 200
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -204,12 +251,17 @@ fun PersonListScreen(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var villagePickerOpen by remember { mutableStateOf(false) }
+    // rememberLazyListState 内部是 rememberSaveable：从详情返回时 NavHost 会按
+    // 目的地恢复保存态，滚动位置跟着回来。少了它，每次重组都是从第 0 项开始。
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         vm.loadVillages()
         // 消费一次性筛选（工作台跳过来时带的）
         val pending = container.personFilterBus.consume()
-        if (pending != null) vm.applyPendingFilter(pending) else vm.load()
+        // 带筛选过来必须整体重载（筛选条件变了，旧列表不能留），
+        // 其余情况（含从详情/编辑返回）走原地刷新，保住已加载条数与滚动位置
+        if (pending != null) vm.applyPendingFilter(pending) else vm.initOrRefresh()
     }
 
     Scaffold(
@@ -323,6 +375,7 @@ fun PersonListScreen(
                 state.error != null -> ErrorBox(state.error!!) { vm.load() }
                 state.list.isEmpty() -> EmptyBox("没有符合条件的在册人员")
                 else -> LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

@@ -385,18 +385,11 @@ fun PersonDetailScreen(
                     )
                 }
 
-                SectionCard(title = "重点人群") {
-                    if (person.tags.isEmpty()) {
-                        Text(
-                            "暂无标签。身份类人群（党员、低保、残疾等）通过打标签认定；" +
-                                "老年人、未成年人按出生日期自动判定，不需要打标签。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = tokens.ink3,
-                        )
-                    } else {
-                        PersonTags(person)
-                    }
-                }
+                // 「重点人群」这一块 2026-10 按需求整块删掉：
+                // 人员详情是「核对这个人是谁」的页面，重点人群是按人群看名单的入口，
+                // 两件事混在一起会让详情页变长、也让网格员在核人时分心。
+                // 标签本身没丢——顶部身份区仍会展示标签胶囊，重点人群名单在
+                // 工作台对应入口进入；要调整标签走「编辑」。
 
                 SectionCard(title = "服务台账") {
                     InfoRows(
@@ -478,40 +471,6 @@ fun PersonDetailScreen(
             onDelete = { vm.removePhoto(photo) },
         )
     }
-}
-
-/**
- * 标签区：色片 + 「生效/状态」两列。
- *
- * 用 FlowRow 而不是 Row：一个人身上挂六七个标签是常事（低保 + 残疾 + 老年…），
- * 单行的 Row 会把超出部分直接切掉——患者看不到自己已经被打过的标签，
- * 会以为没登记上，然后重复打一遍。
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PersonTags(person: PersonDto) {
-    val tokens = AppTheme.tokens
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        person.tags.forEach { tag ->
-            TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
-        }
-    }
-    Spacer(Modifier.height(8.dp))
-    InfoRows(
-        *person.tags.map { tag ->
-            InfoEntry(
-                tag.name,
-                listOfNotNull(
-                    tag.effectDate?.let { "生效 $it" },
-                    tag.status?.takeIf { it != "ACTIVE" }?.let { "状态 $it" },
-                ).joinToString("，").ifBlank { "有效" },
-            )
-        }.toTypedArray(),
-    )
 }
 
 /**

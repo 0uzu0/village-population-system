@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
+import { tagPersonCountExclusiveGuard } from '../utils/hukouFloating';
 import { z } from 'zod';
 
 const router = Router();
@@ -67,11 +68,14 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
     // 关联人数与重点人群/工作台同口径：个人标签只数在册人员（死亡/迁出不计入），
     // 家庭标签数在册家庭。删除前的引用计数见下方 DELETE，那里不过滤状态——
     // 只要有人引用过就不能删，避免删掉带历史数据的标签。
+    // 「流动人口」另加户籍优先守卫（utils/hukouFloating.ts）：否则历史上
+    // 同时挂了户籍/流动两类标签的人会被两边各数一次，工作台与标签页对不上。
     `SELECT td.*, c.name AS category_name,
        (SELECT COUNT(*) FROM person_tag pt
           WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
             AND EXISTS (SELECT 1 FROM person p
-              WHERE p.id = pt.person_id AND ${activeSql('p')})) AS person_count,
+              WHERE p.id = pt.person_id AND ${activeSql('p')})
+            ${tagPersonCountExclusiveGuard('td.code', 'pt.person_id')}) AS person_count,
        (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
           WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND f.status = 1) AS family_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id
