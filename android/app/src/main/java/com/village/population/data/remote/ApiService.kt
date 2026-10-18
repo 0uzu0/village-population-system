@@ -14,6 +14,7 @@ import com.village.population.data.remote.dto.PendingDto
 import com.village.population.data.remote.dto.PendingSummaryDto
 import com.village.population.data.remote.dto.PersonCreateRequest
 import com.village.population.data.remote.dto.PersonDto
+import com.village.population.data.remote.dto.PersonSaveResult
 import com.village.population.data.remote.dto.QuickGroupData
 import com.village.population.data.remote.dto.SimpleListData
 import com.village.population.data.remote.dto.TagDto
@@ -79,11 +80,18 @@ interface ApiService {
     @GET("api/persons/{id}")
     suspend fun person(@Path("id") id: Int): ApiEnvelope<PersonDto>
 
+    /**
+     * 新增人员。
+     *
+     * 响应是 `PersonSaveResult` 而不是 `PersonDto`：未填身份证号时后端**不建正式
+     * 档案**，返回的是 `{ pending: true, pendingId }`（没有 id），这种「没建档但
+     * 也没失败」的结果必须由调用方明确区分，否则界面会当成建档成功直接返回列表。
+     */
     @POST("api/persons")
-    suspend fun createPerson(@Body body: PersonCreateRequest): ApiEnvelope<PersonDto>
+    suspend fun createPerson(@Body body: PersonCreateRequest): ApiEnvelope<PersonSaveResult>
 
     @PUT("api/persons/{id}")
-    suspend fun updatePerson(@Path("id") id: Int, @Body body: PersonCreateRequest): ApiEnvelope<PersonDto>
+    suspend fun updatePerson(@Path("id") id: Int, @Body body: PersonCreateRequest): ApiEnvelope<PersonSaveResult>
 
     @POST("api/persons/{id}/tags")
     suspend fun addPersonTag(@Path("id") id: Int, @Body body: AddTagRequest): VoidEnvelope

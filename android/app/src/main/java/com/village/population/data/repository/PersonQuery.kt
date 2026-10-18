@@ -86,10 +86,19 @@ data class Cached<T>(
     val savedAt: Long = 0L,
 )
 
-/** 提交结果：要么已经入库，要么进了离线队列 */
+/** 提交结果：已入库 / 已进离线队列 / 转了待核查（没建档但也没失败） */
 sealed interface SubmitResult {
     data class Sent(val personId: Int? = null) : SubmitResult
     data class Queued(val label: String) : SubmitResult
+
+    /**
+     * 未填身份证号，后端把这条记录转进了 `import_pending`（待核查）。
+     *
+     * 这是后端的既定口径（身份证是确认身份的唯一凭证，缺失即待核查），
+     * 不是错误：数据没丢，只是还没成为正式档案。界面必须明确告知去向，
+     * 否则用户回列表找不到人会以为白填了，往往再录一遍——于是待核查里多一条重复。
+     */
+    data class Pending(val pendingId: Int? = null) : SubmitResult
 }
 
 /** 分页结果的小工具：判断还有没有下一页 */

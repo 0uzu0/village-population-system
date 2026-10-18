@@ -58,7 +58,9 @@ import com.village.population.ui.components.PillTextStyle
 import com.village.population.ui.components.SearchField
 import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
+import com.village.population.util.FormRules
 import com.village.population.util.IdCard
+import com.village.population.util.PersonText
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,6 +167,12 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
                     is com.village.population.data.repository.SubmitResult.Queued -> {
                         _state.update { it.copy(working = false, list = it.list.filterNot { row -> row.id == id }) }
                         onResult(true, "无网络，已暂存本机，联网后自动忽略")
+                    }
+                    // 忽略操作不会产生 Pending（那是「建档缺身份证」的结果），
+                    // 这里兜底处理，避免将来 SubmitResult 新增分支时此处编译失败
+                    is com.village.population.data.repository.SubmitResult.Pending -> {
+                        _state.update { it.copy(working = false) }
+                        onResult(false, "操作结果异常，请重试")
                     }
                 }
             } catch (e: Exception) {
@@ -356,6 +364,11 @@ private fun PendingDetailDialog(
     var idCardHint by remember(row.id) { mutableStateOf<String?>(null) }
     var idCardHintError by remember(row.id) { mutableStateOf(false) }
 
+    // 提交前的本地校验提示。为什么要有：后端对这些字段是「超了/格式不对就整单 400」，
+    // 而这一屏的输入框全是自由文本，很容易打进一个后端不认的值（如性别写了「男 」）。
+    // 在这里先说清楚是哪一栏，比让网格员对着一条 400 猜要省事得多。
+    var formError by remember(row.id) { mutableStateOf<String?>(null) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(AppShapes.card),
@@ -454,6 +467,15 @@ private fun PendingDetailDialog(
                 )
 
                 Spacer(Modifier.height(10.dp))
+                // 本地校验提示放在按钮正上方：用户刚点完保存，视线就在这一带
+                formError?.let {
+                    Text(
+                        it,
+                        style = HintTextStyle,
+                        color = AppTheme.tokens.red,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                }
                 // 弹窗底部的行动对同样走设计稿按钮词表：保存是主操作（实钮），
                 // 取消是退路（虚钮）。此前保存用的是 Material Button 默认样式——
                 // 全圆角胶囊，与设计稿的其他按钮不是一套语言
@@ -470,7 +492,11 @@ private fun PendingDetailDialog(
                             // 只提交改动过的字段：多带一个键就可能把正确值覆盖成空串
                             val patch = buildMap<String, String?> {
                                 if (name != row.name.orEmpty()) put("name", name)
-                                if (gender != row.gender.orEmpty()) put("gender", gender)
+                                if (gender != row.gender.orEmpty()) {
+                                    // 界面上填「男/女」，提交给后端的必须是 MALE/FEMALE：
+                                    // 后端是 zod 枚举，中文会直接 400
+                                    put("gender", FormRules.genderCode(gender) ?: gender)
+                                }
                                 if (birthDate != row.birthDate.orEmpty()) put("birthDate", birthDate)
                                 if (idCard != row.idCard.orEmpty()) put("idCard", idCard)
                                 if (phone != row.phone.orEmpty()) put("phone", phone)
@@ -483,7 +509,13 @@ private fun PendingDetailDialog(
                                 if (liveAddress != row.liveAddress.orEmpty()) put("liveAddress", liveAddress)
                                 if (handleNote != row.handleNote.orEmpty()) put("handleNote", handleNote)
                             }
-                            onSave(patch)
+                            val error = validatePatch(patch)
+                            if (error != null) {
+                                formError = error
+                            } else {
+                                formError = null
+                                onSave(patch)
+                            }
                         },
                         enabled = !saving,
                         filled = true,
@@ -540,6 +572,35 @@ private fun EditableRow(
             )
         }
     }
+}
+
+/**
+ * 待核查补录的**本地**校验，逐条对应后端 `updateSchema`。
+ *
+ * 只校验 patch 里出现的键：这一屏是「只提交改动过的字段」，
+ * 没动过的栏位即使原本不合法（例如历史数据里性别是空的）也不该拦住保存。
+ */
+private fun validatePatch(patch: Map<String, String?>): String? {
+    patch["name"]?.let { value ->
+        if (value.isBlank()) return "姓名不能为空"
+        FormRules.lengthError("姓名", value, FormRules.NAME_MAX)?.let { return it }
+    }
+    // 空串 = 用户清空了性别。后端把空串按「未填」处理（不会 400），这里放行
+    patch["gender"]?.let { value ->
+        if (value.isNotBlank() && FormRules.genderCode(value) == null) {
+            return "性别只能填「男」或「女」"
+        }
+    }
+    patch["birthDate"]?.let { value -> FormRules.dateError("出生日期", value)?.let { return it } }
+    patch["phone"]?.let { FormRules.lengthError("本人电话", it, FormRules.PHONE_MAX)?.let { e -> return e } }
+    patch["phoneBackup"]?.let { FormRules.lengthError("备用电话", it, FormRules.PHONE_MAX)?.let { e -> return e } }
+    patch["village"]?.let { FormRules.lengthError("所属村庄", it, FormRules.VILLAGE_MAX)?.let { e -> return e } }
+    patch["gridNo"]?.let { FormRules.lengthError("网格编号", it, FormRules.CODE_MAX)?.let { e -> return e } }
+    patch["familyNo"]?.let { FormRules.lengthError("家庭编号", it, FormRules.CODE_MAX)?.let { e -> return e } }
+    patch["hukouAddress"]?.let { FormRules.lengthError("户籍地址", it, FormRules.ADDRESS_MAX)?.let { e -> return e } }
+    patch["liveAddress"]?.let { FormRules.lengthError("现居住地址", it, FormRules.ADDRESS_MAX)?.let { e -> return e } }
+    patch["handleNote"]?.let { FormRules.lengthError("处理备注", it, FormRules.HANDLE_NOTE_MAX)?.let { e -> return e } }
+    return null
 }
 
 /** 待核查原因码 → 中文；与后端 import_pending.reason 的取值一致 */
@@ -609,6 +670,23 @@ private fun PendingRow(
                                     badge,
                                     style = PillTextStyle,
                                     color = badgeFg,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                )
+                            }
+                        }
+                        // 状态徽章：这一行在源表里就已经迁出/死亡。
+                        // 「确认入库」不会让他变成正常人口（后端沿用 person_status），
+                        // 入库后他在所有在册名单里都看不到——动手前必须让人知道。
+                        PersonText.statusLabel(row.personStatus)?.let { label ->
+                            Spacer(Modifier.width(7.dp))
+                            Surface(
+                                color = tokens.quiet,
+                                shape = RoundedCornerShape(AppShapes.chip),
+                            ) {
+                                Text(
+                                    label,
+                                    style = PillTextStyle,
+                                    color = tokens.ink3,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
                                 )
                             }

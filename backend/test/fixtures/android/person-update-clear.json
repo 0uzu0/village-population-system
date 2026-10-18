@@ -1,0 +1,17 @@
+{
+  "name": "张三",
+  "gender": "MALE",
+  "birthDate": "1955-03-08",
+  "idCard": "320102195503081232",
+  "phone": "",
+  "phoneBackup": "",
+  "hukouAddress": "",
+  "liveAddress": "",
+  "village": "某村",
+  "relation": "HEAD",
+  "remark": "",
+  "tagIds": [
+    8
+  ],
+  "rowVersion": 3
+}

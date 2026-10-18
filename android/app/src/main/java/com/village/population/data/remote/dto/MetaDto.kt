@@ -162,6 +162,15 @@ data class PendingDto(
     @SerialName("family_no") val familyNo: String? = null,
     val relation: String? = null,
     val status: String? = null,
+    /**
+     * 导入行带过来的人员状态（V024 起有这一列）：`MOVED_OUT` / `DEAD` 表示该人
+     * 在源表里就已经迁出或死亡。
+     *
+     * 必须展示出来：确认入库后他写进 person 表时**沿用这个状态**，于是不会出现在
+     * 任何在册名单里（移动端列表固定 activeOnly=true）。不提示的话，网格员点完
+     * 「确认入库」回列表找不到人，只会以为这次操作没生效。
+     */
+    @SerialName("person_status") val personStatus: String? = null,
     @SerialName("handle_note") val handleNote: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )

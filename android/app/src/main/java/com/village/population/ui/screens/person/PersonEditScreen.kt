@@ -48,6 +48,7 @@ import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
 import com.village.population.ui.components.PrimaryButton
 import com.village.population.ui.components.SectionCard
+import com.village.population.util.FormRules
 import com.village.population.util.IdCard
 import com.village.population.util.PersonText
 import com.village.population.util.toUserMessage
@@ -207,27 +208,36 @@ class PersonEditViewModel(
             _state.update { it.copy(error = "档案尚未读取完成，请稍后重试（或返回详情页重新进入）") }
             return
         }
-        if (s.name.isBlank()) {
-            _state.update { it.copy(error = "姓名必填") }
-            return
-        }
-        if (s.idCard.isNotBlank() && IdCard.validate(s.idCard) is IdCard.Result.Invalid) {
-            _state.update { it.copy(error = "身份证号不正确，请检查后再保存") }
+        // 本地先按后端 zod 的上限拦一遍：这些字段超长后端只会回一句
+        // 「too_big」，而此刻人还在走访现场，不可能知道是哪一栏超了
+        validate(s)?.let { message ->
+            _state.update { it.copy(error = message) }
             return
         }
 
         val request = PersonCreateRequest(
             name = s.name.trim(),
+            // 性别是枚举：未选时为 null，会被 JSON 配置整个省掉（后端 optional），
+            // 绝不能发 ""，否则 zod 枚举直接拒掉
             gender = s.gender,
-            birthDate = s.birthDate.takeIf { it.isNotBlank() },
-            idCard = s.idCard.takeIf { it.isNotBlank() },
-            phone = s.phone.takeIf { it.isNotBlank() },
-            phoneBackup = s.phoneBackup.takeIf { it.isNotBlank() },
+            /*
+             * 文本字段一律**原样提交**，不做 takeIf{isNotBlank()} 收成 null。
+             *
+             * 这是与后端「清空」语义对齐的关键：后端收到 '' 会把该列落成 NULL，
+             * 收到 undefined（null 被 explicitNulls=false 省掉的效果）则视为
+             * 「本次没提交这个字段」而保持原值。早先这里统一收成 null，
+             * 于是「删掉电话再保存」显示成功，回列表电话还在——假成功。
+             */
+            birthDate = s.birthDate.trim(),
+            idCard = s.idCard.trim(),
+            phone = s.phone.trim(),
+            phoneBackup = s.phoneBackup.trim(),
+            // 村庄是下拉选择，清空入口不存在，null 即「未选/不改」
             village = s.village,
-            hukouAddress = s.hukouAddress.takeIf { it.isNotBlank() },
-            liveAddress = s.liveAddress.takeIf { it.isNotBlank() },
-            relation = s.relation.takeIf { it.isNotBlank() },
-            remark = s.remark.takeIf { it.isNotBlank() },
+            hukouAddress = s.hukouAddress.trim(),
+            liveAddress = s.liveAddress.trim(),
+            relation = s.relation,
+            remark = s.remark.trim(),
             // 全量覆盖语义：把多选框里的值原样提交。
             // 编辑时 tagIds 已回填，用户没改动也会原样发回，不会被清空
             tagIds = s.tagIds,
@@ -245,6 +255,27 @@ class PersonEditViewModel(
                 _state.update { it.copy(saving = false, error = e.toUserMessage()) }
             }
         }
+    }
+
+    /**
+     * 提交前的本地校验。顺序按「用户最可能出错的先后」：
+     * 身份标识 → 证件 → 日期 → 联系方式 → 地址 → 备注。
+     * 所有上限都取自 [FormRules]（与后端 zod 一一对应）。
+     */
+    private fun validate(s: PersonEditUiState): String? {
+        if (s.name.isBlank()) return "姓名必填"
+        FormRules.lengthError("姓名", s.name.trim(), FormRules.NAME_MAX)?.let { return it }
+        if (s.idCard.isNotBlank() && IdCard.validate(s.idCard) is IdCard.Result.Invalid) {
+            return "身份证号不正确，请检查后再保存"
+        }
+        FormRules.dateError("出生日期", s.birthDate)?.let { return it }
+        FormRules.lengthError("本人电话", s.phone, FormRules.PHONE_MAX)?.let { return it }
+        FormRules.lengthError("备用电话", s.phoneBackup, FormRules.PHONE_MAX)?.let { return it }
+        FormRules.lengthError("户籍地址", s.hukouAddress, FormRules.ADDRESS_MAX)?.let { return it }
+        FormRules.lengthError("现居住地址", s.liveAddress, FormRules.ADDRESS_MAX)?.let { return it }
+        FormRules.lengthError("所属村庄", s.village.orEmpty(), FormRules.VILLAGE_MAX)?.let { return it }
+        FormRules.lengthError("备注", s.remark, FormRules.REMARK_MAX)?.let { return it }
+        return null
     }
 }
 
@@ -503,16 +534,17 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                     onClick = {
                         vm.save { result ->
                             when (result) {
-                                is SubmitResult.Sent -> {
-                                    if (result.personId == 0) {
-                                        // 后端把无身份证的建档转入了待核查：没有生成
-                                        // 正式档案，留在本页说明去向，避免用户回到列表
-                                        // 找不到人以为数据丢了
-                                        resultMessage = "未填写身份证号，已转入待核查人员；在「待核查」页补录身份证后可确认入库"
-                                    } else {
-                                        onDone()
-                                    }
+                                is SubmitResult.Sent -> onDone()
+
+                                // 未填身份证号：后端**没有建正式档案**，而是转进了待核查。
+                                // 留在本页说明去向，不要返回列表——那里找不到这个人，
+                                // 用户会以为数据丢了再录一遍，待核查里就多一条重复。
+                                is SubmitResult.Pending -> {
+                                    val no = result.pendingId?.let { "（记录 #$it）" }.orEmpty()
+                                    resultMessage = "未填写身份证号，已转入待核查人员$no；" +
+                                        "到「待核查」补录身份证后点「确认入库」即可建档"
                                 }
+
                                 is SubmitResult.Queued -> {
                                     // 明确告诉用户「数据没丢」，否则他会以为保存失败而反复点
                                     resultMessage = "当前无网络，${result.label} 已暂存本机，联网后会自动上传"

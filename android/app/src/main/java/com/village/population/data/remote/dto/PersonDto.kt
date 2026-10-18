@@ -104,6 +104,13 @@ data class PersonChangeDto(
  * 另一个关键：出生日期与性别不由用户填，而是从身份证提取后带上（与后端
  * 「身份证是出生日期/性别的权威来源」口径一致）。服务端还会再算一次并覆盖，
  * 这里带上只是为了让离线队列里的数据自洽。
+ *
+ * 第三个关键（v2.3.1 修）：**空值分两种，不能一律传 null**。
+ *  - 文本字段（电话/地址/备注…）用户清空后要传 `""`，后端把 `''` 落成 NULL，
+ *    这才是「清空」；传 null 会被 explicitNulls=false 直接省掉，后端视为「未提交」，
+ *    于是界面上删掉的电话在保存后又变回原值（假成功）。
+ *  - `gender` 这类枚举例外：null/未选就不序列化，绝不能发 `""`
+ *    （后端 zod 枚举会拒掉空串）。
  */
 @Serializable
 data class PersonCreateRequest(
@@ -133,6 +140,28 @@ data class PersonCreateRequest(
      * 服务端比对不一致返回 409，避免把别人刚保存的改动静默覆盖。
      */
     val rowVersion: Int? = null,
+)
+
+/**
+ * 新增 / 编辑人员的**响应体**（不是人员对象）。
+ *
+ * 这两个接口的 data 形状并不相同，早先用 `PersonDto` 去接，靠「字段缺失 →
+ * 默认值 0」蒙对了「转待核查」这条分支：
+ *  - 有身份证建档：`{ id, personNo, message }`
+ *  - 无身份证建档：`{ pending: true, pendingId }` —— **没有 id**
+ *
+ * 蒙对的前提是 ignoreUnknownKeys=true 且 id 有默认值，一旦哪天默认值改了，
+ * 或后端给这条分支补一个 `id`，界面就会把「已转入待核查」当成「建档成功」
+ * 直接返回列表，人却找不到。所以这里显式建模。
+ */
+@Serializable
+data class PersonSaveResult(
+    val id: Int = 0,
+    val personNo: String? = null,
+    /** true = 未填身份证号，已转入待核查人员，没有生成正式档案 */
+    val pending: Boolean = false,
+    /** 转待核查后的记录 id（import_pending.id），仅 pending=true 时有值 */
+    val pendingId: Int? = null,
 )
 
 /**

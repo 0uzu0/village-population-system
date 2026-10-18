@@ -85,8 +85,10 @@ class PersonRepository(
      */
     suspend fun create(req: PersonCreateRequest): SubmitResult =
         try {
-            val person = exec.data { api.createPerson(req) }
-            SubmitResult.Sent(person.id)
+            val res = exec.data { api.createPerson(req) }
+            // 后端两种成功：建档（data.id）与转待核查（data.pending=true，没有 id）。
+            // 后者必须单独上报——它不是失败，也不能当成「已建档」让界面返回列表。
+            if (res.pending) SubmitResult.Pending(res.pendingId) else SubmitResult.Sent(res.id)
         } catch (e: ApiException) {
             throw e
         } catch (e: IOException) {

@@ -137,7 +137,12 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
 
 
 
-const personSchema = z.object({
+/**
+ * 建档 / 编辑人员请求体。**导出给契约测试**（test/androidContract.test.ts）：
+ * 移动端的请求体样本要拿它跑一遍，才能保证「APP 提交的字段」与「后端接受的字段」
+ * 是同一份口径，而不是两边各写一遍注释。
+ */
+export const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
   formerName: z.string().max(64).nullable().optional(),
   gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['MALE', 'FEMALE'], { message: '性别不正确' }).optional()),
@@ -229,8 +234,8 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
       const [r] = (await conn.query(
         `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date,
            id_card, phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, tag_ids,
-           raw_data, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           person_status, raw_data, created_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           batchNo, null, 'ID_CARD_MISSING', '人工新增人口未填写身份证号，需补录后确认入库',
           body.name, body.gender || null, body.birthDate || null, null,
@@ -240,6 +245,10 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
           // 建档时选择的标签存下来，确认入库时回挂（此前直接丢弃，
           // 入库后「流动人口」等标签在前端消失）
           (body.tagIds && body.tagIds.length ? body.tagIds.join(',') : null),
+          // 建档时填的人员状态一并带过去（V024）：此前这张表只认默认值 NORMAL，
+          // 于是「新增一位已迁出/已死亡的人」在补录身份证后会被复活成正常人口。
+          // 确认入库时按这一列写 person.status，与 Excel 导入同一口径。
+          body.status || 'NORMAL',
           JSON.stringify({ source: 'MANUAL', form: req.body }),
           req.user!.id,
         ]

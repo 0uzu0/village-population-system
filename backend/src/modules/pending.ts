@@ -81,9 +81,24 @@ router.get('/:id', requirePermission('excel:import'), async (req: Request, res: 
   return ok(res, row);
 });
 
-const updateSchema = z.object({
-  name: z.string().min(1).max(64).optional(),
-  gender: z.enum(['MALE', 'FEMALE']).nullable().optional(),
+/**
+ * 待核查记录的补录/修正请求体。
+ *
+ * **导出给契约测试**（test/androidContract.test.ts）：移动端「待核查」编辑弹窗
+ * 只提交改动过的字段，这里必须与它保持同一份字段名与取值口径。
+ */
+export const updateSchema = z.object({
+  // 空串按「未填」处理，但姓名是身份标识，明确拒绝并提供中文提示
+  // （此前 min(1) 的默认英文提示会直接弹给村网格员）
+  name: z.string().min(1, '姓名不能为空').max(64).optional(),
+  // 与 POST/PUT /persons 同一口径（v2.3.1）：性别是枚举，空串不能原样进 zod。
+  // 移动端「性别」是可清空的文本框，清空后提交的是 ''，此前会 400
+  // 「Invalid enum value ... received ''」——保存失败，用户却看不出哪一栏错了。
+  // 这里按「未填」转 undefined，交由下方 update 逻辑跳过该列（不会被清空）。
+  gender: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.enum(['MALE', 'FEMALE'], { message: '性别应为 MALE / FEMALE' }).nullable().optional()
+  ),
   // 空串按「未填」处理：PC 补录弹窗整份表单提交，出生日期留空时传的是 ''，
   // 不做归一会被格式校验直接拒绝，导致整个补录保存失败（v2.1.1）
   birthDate: z.preprocess(

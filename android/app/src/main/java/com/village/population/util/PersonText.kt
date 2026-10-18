@@ -42,6 +42,18 @@ object PersonText {
         else -> code.trim()
     }
 
+    /**
+     * **只在非在册时**给出状态标签，在册（正常 / 迁入 / 未知）一律返回 null。
+     *
+     * 用于「待核查」列表：那一屏绝大多数行都是正常人口，给每个人都挂一枚徽章会
+     * 把真正需要提醒的几行淹没掉。这里只标出「确认入库后不会进在册名单」的那部分。
+     */
+    fun statusLabel(code: String?): String? = when (code?.trim()?.uppercase()) {
+        "MOVED_OUT" -> "已迁出"
+        "DEAD" -> "已死亡"
+        else -> null
+    }
+
     private fun passthrough(code: String?, map: Map<String, String>): String {
         val v = code?.trim().orEmpty()
         if (v.isEmpty()) return ""

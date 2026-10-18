@@ -7,11 +7,15 @@ import com.village.population.data.remote.ApiService
 import com.village.population.data.remote.AppJson
 import com.village.population.data.repository.MetaRepository
 import com.village.population.data.repository.PersonRepository
+import com.village.population.data.repository.SubmitResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -19,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -51,6 +56,11 @@ class PersonEditViewModelTest {
     private companion object {
         const val PATH_VILLAGES = "/api/grids/villages"
         const val PATH_PERSON = "/api/persons/"
+        /**
+         * 新增是 `POST /api/persons`——**没有结尾斜杠**，与详情的 `/api/persons/{id}`
+         * 是两个前缀，只按 `/api/persons/` 匹配会漏掉它（写成 404 才能看出「打错了接口」）。
+         */
+        const val PATH_PERSON_ROOT = "/api/persons"
         /** 「人口标签」多选项：新增/编辑都要拉一次标签定义 */
         const val PATH_TAGS = "/api/tags/definitions"
     }
@@ -60,7 +70,7 @@ class PersonEditViewModelTest {
         {"code":0,"message":"success","data":{
           "id":7,"personNo":"P0007","name":"张三","formerName":"张小三",
           "gender":"MALE","birthDate":"1955-03-08","age":71,
-          "idCard":"320102195503081234","phone":"13800000001","phoneBackup":"13900000002",
+          "idCard":"320102195503081232","phone":"13800000001","phoneBackup":"13900000002",
           "hukouAddress":"江苏省南京市某区某街道","liveAddress":"三组 12 号",
           "village":"某村","gridId":1,"gridName":"一网格",
           "familyId":3,"familyName":"F0003","relation":"户主",
@@ -68,7 +78,7 @@ class PersonEditViewModelTest {
           "bankAccount":"6222021234567890123","subsidyAmount":300,"familyCondition":"独居",
           "healthAssessment":"一般","dataSource":"Excel导入","updatedAt":"2026-10-01 08:00:00",
           "disability":{"type":"肢体残疾","level":"LEVEL_2","levelLabel":"二级",
-                        "card":"32010219550308123443","guardianName":"张四","guardianPhone":"13700000003"},
+                        "card":"32010219550308123243","guardianName":"张四","guardianPhone":"13700000003"},
           "tags":[{"id":8,"linkId":21,"name":"低保对象","code":"LOW_INCOME_PERSON","color":"#F76B15"}],
           "changes":[{"field_name":"phone","old_value":"138","new_value":"139","change_type":"UPDATE"}]}}
     """.trimIndent()
@@ -120,10 +130,16 @@ class PersonEditViewModelTest {
      * 按路径分发之后，每个请求拿到什么只取决于它自己的 URL，
      * 与协程调度顺序无关，测试因此是确定的。
      */
+    /** 写请求的请求体（按到达顺序）。用于断言「清空字段到底发出去了什么」 */
+    private val capturedBodies = mutableListOf<String>()
+
     private fun respondWith(vararg routes: Pair<String, () -> MockResponse>) {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val p = request.path ?: return notFound("<empty>")
+                // 非 GET 都留下请求体：写请求的字段值是这一组用例的重点，
+                // 光看「请求发出去了」并不能说明发对了
+                if (request.method != "GET") capturedBodies += request.body.readUtf8()
                 for ((prefix, factory) in routes) {
                     if (p.startsWith(prefix)) return factory()
                 }
@@ -159,6 +175,22 @@ class PersonEditViewModelTest {
     private fun personDetail(delayMs: Long = 0) = { json(detailJson, delayMs = delayMs) }
 
     /**
+     * 新增成功的真实响应形状（`{ id, personNo }`）。
+     * 注意用的是 `PersonSaveResult` 而不是人员对象：这个接口只回这两个字段。
+     */
+    private val okCreate = {
+        json("""{"code":0,"message":"新增成功","data":{"id":18,"personNo":"P0018"}}""")
+    }
+
+    /**
+     * 未填身份证号：后端不建正式档案，转入待核查（`{ pending, pendingId }`，**没有 id**）。
+     * 这是「成功但没建档」的第三种结果，界面必须能区分。
+     */
+    private val okCreatePending = {
+        json("""{"code":0,"message":"未填写身份证号，已转入待核查人员","data":{"pending":true,"pendingId":42}}""")
+    }
+
+    /**
      * 个人标签定义列表。
      * 其中 id=8 与 detailJson 里该人员已挂的标签一致，便于断言「编辑时回填」。
      */
@@ -185,7 +217,7 @@ class PersonEditViewModelTest {
         assertTrue("档案应已读回", s.loaded)
         assertEquals(false, s.loading)
         assertEquals("张三", s.name)
-        assertEquals("320102195503081234", s.idCard)
+        assertEquals("320102195503081232", s.idCard)
         assertEquals("MALE", s.gender)
         assertEquals("1955-03-08", s.birthDate)
         assertEquals("13800000001", s.phone)
@@ -263,5 +295,102 @@ class PersonEditViewModelTest {
         // 新增时标签选项要拉全（否则表单里没得选），但不该有预选中的标签
         assertEquals(2, vm.state.value.personTags.size)
         assertTrue("新增时不应有预选标签", vm.state.value.tagIds.isEmpty())
+    }
+
+    /**
+     * 「清空字段」是移动端曾经踩过的坑，也是本组用例存在的理由：
+     *
+     * 早先 `save()` 把所有空值收成 null，而 AppJson 配了 explicitNulls=false，
+     * null 字段**整个不参与序列化**。后端收到的是「没有这个字段」，按「本次没提交」
+     * 处理并保持原值——于是网格员删掉电话点保存，界面提示已保存，回列表电话还在。
+     * 这类「假成功」比报错更坏：没人会发现数据没改。
+     *
+     * 后端的清空语义是收到 `''`（fieldMap 里 `=== '' ? null : v`），
+     * 所以客户端必须把空串原样发出去。
+     */
+    @Test
+    fun `编辑时清空字段要把空串发出去_而不是被 JSON 配置省掉`() {
+        capturedBodies.clear()
+        respondWith(PATH_VILLAGES to okVillages, PATH_PERSON to personDetail(), PATH_TAGS to okTags)
+
+        val vm = PersonEditViewModel(personRepo, metaRepo, 7)
+        vm.init()
+        awaitUntil { vm.state.value.loaded }
+
+        // 用户删掉了本人电话与备注
+        vm.onField { it.copy(phone = "", remark = "") }
+
+        var result: SubmitResult? = null
+        vm.save { result = it }
+        awaitUntil { result != null }
+
+        assertTrue("应当是已入库而不是转待核查", result is SubmitResult.Sent)
+        val body = Json.parseToJsonElement(capturedBodies.last()).jsonObject
+        assertTrue("phone 必须出现在请求体里（省略 = 当成没改）", body.containsKey("phone"))
+        assertEquals("", body["phone"]?.jsonPrimitive?.content)
+        assertTrue("remark 同理", body.containsKey("remark"))
+        assertEquals("", body["remark"]?.jsonPrimitive?.content)
+        // 没动过的字段照原值发回，不能被空值顶掉
+        assertEquals("320102195503081232", body["idCard"]?.jsonPrimitive?.content)
+        // 编辑必须带乐观锁版本号（详情样本里没有该字段，故为默认 0）
+        assertTrue("编辑要带 rowVersion", body.containsKey("rowVersion"))
+    }
+
+    /**
+     * 未填身份证号的新增：后端**不建正式档案**，返回 `{pending:true,pendingId}`。
+     *
+     * 这条路径早先是「蒙对的」——用 PersonDto 去接响应，data 里没有 id，
+     * 于是 `id` 落到默认值 0，界面靠 `personId == 0` 反推「转了待核查」。
+     * 只要哪天后端的默认值或响应形状动一下，界面就会把它当成建档成功直接返回列表，
+     * 而这个人根本不在列表里。现在改成显式的 `SubmitResult.Pending`，这里钉住它。
+     */
+    @Test
+    fun `未填身份证号新增时_上报转待核查而不是建档成功`() {
+        capturedBodies.clear()
+        respondWith(PATH_VILLAGES to okVillages, PATH_TAGS to okTags, PATH_PERSON_ROOT to okCreatePending)
+
+        val vm = PersonEditViewModel(personRepo, metaRepo, 0)
+        vm.init()
+        awaitUntil { vm.state.value.villages.isNotEmpty() }
+
+        // 只填姓名（走访现场常有的「先记个名字，回头补证件」）
+        vm.onField { it.copy(name = "王五") }
+
+        var result: SubmitResult? = null
+        vm.save { result = it }
+        awaitUntil { result != null }
+
+        assertTrue(
+            "未填身份证号必须是 Pending，不能当成建档成功",
+            result is SubmitResult.Pending
+        )
+        assertEquals(42, (result as SubmitResult.Pending).pendingId)
+
+        val body = Json.parseToJsonElement(capturedBodies.last()).jsonObject
+        assertEquals("王五", body["name"]?.jsonPrimitive?.content)
+        assertFalse("未选性别不能发 gender 空串（后端枚举会拒）", body.containsKey("gender"))
+        assertFalse("未选村庄不能发 village", body.containsKey("village"))
+        assertFalse("新增不带 rowVersion", body.containsKey("rowVersion"))
+        // 标签是空集合：语义是「不打标签」，要显式发，不能被省成「不动标签」
+        assertTrue(body.containsKey("tagIds"))
+    }
+
+    @Test
+    fun `有身份证号新增时_上报已建档并返回列表`() {
+        capturedBodies.clear()
+        respondWith(PATH_VILLAGES to okVillages, PATH_TAGS to okTags, PATH_PERSON_ROOT to okCreate)
+
+        val vm = PersonEditViewModel(personRepo, metaRepo, 0)
+        vm.init()
+        awaitUntil { vm.state.value.villages.isNotEmpty() }
+
+        vm.onField { it.copy(name = "王五", idCard = "320102195503081232") }
+
+        var result: SubmitResult? = null
+        vm.save { result = it }
+        awaitUntil { result != null }
+
+        assertTrue(result is SubmitResult.Sent)
+        assertEquals(18, (result as SubmitResult.Sent).personId)
     }
 }
