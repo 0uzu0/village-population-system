@@ -129,8 +129,6 @@ data class DashboardDto(
     val lowIncomePersonCount: Int = 0,
     val veteranCount: Int = 0,
     val preferentialCount: Int = 0,
-    /** 低保家庭：认定对象是家庭，走 family_tag，与「低保对象（人）」不是一回事 */
-    val lowIncomeFamilyCount: Int = 0,
 )
 
 // ---------------------------------------------------------------------------

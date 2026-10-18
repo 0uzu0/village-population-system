@@ -1,6 +1,7 @@
 /**
- * 标签筛选 SQL 构建工具（个人标签交集/并集、家庭标签）
+ * 标签筛选 SQL 构建工具（个人标签交集/并集、年龄区间）
  * 独立纯函数，便于单元测试
+ * 注：家庭标签筛选已随家庭标签功能下线（V026）移除
  */
 
 import { notSupersededByTagIdSql } from './tagExclusive';
@@ -55,21 +56,6 @@ export function buildPersonTagFilter(filter: TagFilter | undefined, prefix = 'p'
                 WHERE pt.person_id = ${prefix}.id AND pt.status = 'ACTIVE' AND pt.tag_id IN (${placeholders})
                   AND ${notSupersededByTagIdSql('pt.tag_id', `${prefix}.id`)})`,
     params: [...filter.tags],
-  };
-}
-
-/**
- * 家庭标签筛选：命中具备某家庭级标签的家庭内全部成员
- */
-export function buildFamilyTagFilter(tagIds: number[], prefix = 'p'): BuiltFilter {
-  if (!tagIds || !tagIds.length) return { where: '', params: [] };
-  const placeholders = tagIds.map(() => '?').join(',');
-  return {
-    where: ` AND ${prefix}.family_id IN (
-      SELECT ft.family_id FROM family_tag ft
-      WHERE ft.tag_id IN (${placeholders}) AND ft.status = 'ACTIVE'
-    )`,
-    params: [...tagIds],
   };
 }
 

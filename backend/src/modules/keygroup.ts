@@ -3,7 +3,7 @@ import { query, queryOne } from '../config/db';
 import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, PageResult } from '../utils/response';
-import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter } from '../utils/tagQuery';
+import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
 import { calcAge, ageRangeText, ELDERLY_MIN_AGE, MINOR_MAX_AGE } from '../utils/age';
 import { formatDate } from '../utils/date';
 import { buildDisabilityLevelFilter, disabilityLevelLabel } from '../utils/disability';
@@ -79,7 +79,6 @@ const querySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   tagIds: z.string().optional(),
   tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
-  familyTagIds: z.string().optional(),
   gridId: z.coerce.number().optional(),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
@@ -206,22 +205,12 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
   const selectedTagIds: number[] = q.tagIds
     ? q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n))
     : [];
-  const selectedFamilyTagIds: number[] = q.familyTagIds
-    ? q.familyTagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n))
-    : [];
 
   if (selectedTagIds.length) {
     const tf = buildPersonTagFilter({ tags: selectedTagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
     if (tf.where) { where.push(tf.where.replace(/^ AND /, '')); params.push(...tf.params); }
     const names = await tagNames(selectedTagIds);
     conditions.push(`个人标签(${q.tagMode === 'ALL' ? '交集' : '并集'}): ${names.join('、')}`);
-  }
-
-  if (selectedFamilyTagIds.length) {
-    const ft = buildFamilyTagFilter(selectedFamilyTagIds, 'p');
-    if (ft.where) { where.push(ft.where.replace(/^ AND /, '')); params.push(...ft.params); }
-    const names = await tagNames(selectedFamilyTagIds);
-    conditions.push(`家庭标签: ${names.join('、')}`);
   }
 
   const whereSql = where.join(' AND ');
@@ -315,7 +304,6 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
       conditions,
       tagMode: selectedTagIds.length ? q.tagMode : null,
       tagIds: selectedTagIds,
-      familyTagIds: selectedFamilyTagIds,
       gridId: q.gridId || null,
       minAge: q.minAge ?? null,
       maxAge: q.maxAge ?? null,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPersonTagFilter, buildFamilyTagFilter, buildAgeFilter, combineFilters } from '../src/utils/tagQuery';
+import { buildPersonTagFilter, buildAgeFilter, combineFilters } from '../src/utils/tagQuery';
 import { ELDERLY_MIN_AGE, MINOR_MAX_AGE, ageRangeText } from '../src/utils/age';
 
 /** 占位符数量必须与参数数量严格一致，否则 SQL 参数会错位（查错人/报错） */
@@ -51,12 +51,6 @@ describe('标签筛选 SQL 构建', () => {
       const f = buildPersonTagFilter(c, 'p');
       expect(holes(f), `${c.mode} ${c.tags.join(',')} 占位符与参数不一致`).toBe(f.params.length);
     }
-  });
-
-  it('家庭标签筛选', () => {
-    const f = buildFamilyTagFilter([19], 'p');
-    expect(f.where).toContain('family_tag');
-    expect(f.params).toEqual([19]);
   });
 
   it('年龄区间生成出生日期范围', () => {

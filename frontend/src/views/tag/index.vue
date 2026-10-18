@@ -36,7 +36,7 @@
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
             <el-select v-model="query.objectType" placeholder="对象类型" clearable style="width: 120px" @change="doSearch">
-              <el-option label="个人" value="PERSON" /><el-option label="家庭" value="FAMILY" />
+              <el-option label="个人" value="PERSON" />
             </el-select>
             <el-select v-model="query.enabled" placeholder="状态" clearable style="width: 110px" @change="doSearch">
               <el-option label="启用" :value="1" /><el-option label="停用" :value="0" />
@@ -170,7 +170,7 @@
         <el-tab-pane label="标签历史" name="history">
           <div class="vp-search-bar">
             <el-select v-model="historyQuery.objectType" placeholder="对象类型" clearable style="width: 120px" @change="doSearchHistory">
-              <el-option label="个人" value="PERSON" /><el-option label="家庭" value="FAMILY" />
+              <el-option label="个人" value="PERSON" />
             </el-select>
             <el-select v-model="historyQuery.action" placeholder="动作" clearable style="width: 120px" @change="doSearchHistory">
               <el-option label="添加" value="ADD" /><el-option label="移除" value="REMOVE" />
@@ -233,7 +233,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12"><el-form-item label="所属分类"><el-select v-model="form.categoryId" filterable style="width: 100%"><el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="对象类型"><el-radio-group v-model="form.objectType"><el-radio value="PERSON">个人</el-radio><el-radio value="FAMILY">家庭</el-radio></el-radio-group></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="对象类型">个人</el-form-item></el-col>
           <el-col :span="12"><el-form-item label="别名"><el-input v-model="form.alias" placeholder="如 五保户" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="标签颜色"><el-color-picker v-model="form.color" /></el-form-item></el-col>
           <el-col :span="24"><el-form-item label="标签说明"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item></el-col>

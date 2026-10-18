@@ -150,3 +150,28 @@ describe('V025 家庭成员关联随人员状态收口', () => {
     expect(sql).not.toMatch(/DELETE\s+FROM/i);
   });
 });
+
+describe('V026 下线家庭标签功能', () => {
+  const sql = read('V026__drop_family_tags.sql');
+
+  it('先删引用（family_tag、变更流水）再删定义（tag_definition）', () => {
+    const dropTag = sql.indexOf('DROP TABLE IF EXISTS `family_tag`');
+    const delLog = sql.indexOf("DELETE FROM `tag_change_log` WHERE `object_type` = 'FAMILY'");
+    const delDef = sql.indexOf("DELETE FROM `tag_definition` WHERE `object_type` = 'FAMILY'");
+    expect(dropTag).toBeGreaterThan(-1);
+    expect(delLog).toBeGreaterThan(dropTag);
+    expect(delDef).toBeGreaterThan(delLog);
+  });
+
+  it('可重跑：DROP 带 IF EXISTS，DELETE 不依赖先决状态', () => {
+    expect(sql).toContain('DROP TABLE IF EXISTS');
+    // 删除条件都是静态值，第二次执行影响 0 行
+    expect(sql).toMatch(/WHERE `object_type` = 'FAMILY'/);
+  });
+
+  it('只删家庭维度，不触碰人口标签与家庭档案', () => {
+    expect(sql).not.toMatch(/DELETE FROM `?person_tag`?/i);
+    expect(sql).not.toMatch(/DELETE FROM `?family`?\s*;|DELETE FROM `?family`?\s*\n/i);
+    expect(sql).not.toMatch(/DROP TABLE IF EXISTS `?(family|person)`/);
+  });
+});

@@ -25,9 +25,6 @@ export const SYSTEM_TAG_CODES: readonly string[] = Object.freeze([
   FLOATING_POP_CODE,
   // 重点人群（工作台卡片 + 快捷入口 + 导出标志列）
   ...allFocusTagCodes(),
-  // 家庭维度（工作台「低保」按家庭标签统计）
-  'LOW_INCOME_FAMILY',
-  'EXTREME_POVERTY_FAMILY',
 ]);
 
 /** 系统编码集合，供高频判断用（比数组 includes 快，且不受调用方误改影响） */

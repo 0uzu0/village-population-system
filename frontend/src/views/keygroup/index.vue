@@ -36,9 +36,6 @@
           <el-radio-button value="ANY">并集</el-radio-button>
           <el-radio-button value="ALL">交集</el-radio-button>
         </el-radio-group>
-        <el-select v-model="query.familyTagIds" placeholder="家庭标签" multiple filterable collapse-tags style="width: 220px">
-          <el-option v-for="t in familyTags" :key="t.id" :label="t.name" :value="t.id" />
-        </el-select>
         <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 130px">
           <el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" />
         </el-select>
@@ -206,7 +203,6 @@ const quickNote = ref('注：各人群人数存在交叉，不可简单相加');
 const searched = ref(false);
 const filterCard = ref<HTMLElement | null>(null);
 const personTags = ref<any[]>([]);
-const familyTags = ref<any[]>([]);
 const grids = ref<any[]>([]);
 const stats = ref<any>({ gender: [], grids: [] });
 const hitTagIds = ref<number[]>([]);
@@ -237,7 +233,6 @@ const {
     pageSize: 20,
     tagIds: [] as number[],
     tagMode: 'ANY',
-    familyTagIds: [] as number[],
     gridId: null as number | null,
     minAge: null as number | null,
     maxAge: null as number | null,
@@ -245,7 +240,6 @@ const {
   fields: [
     { key: 'tagIds', type: 'numberArray' },
     { key: 'tagMode', defaultValue: 'ANY', parse: pickOne(TAG_MODES) },
-    { key: 'familyTagIds', type: 'numberArray' },
     { key: 'gridId', type: 'number' },
     { key: 'minAge', type: 'number' },
     { key: 'maxAge', type: 'number' },
@@ -270,7 +264,6 @@ function levelTag(level: string): any {
 }
 
 function tagName(id: number) { return personTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
-function familyTagName(id: number) { return familyTags.value.find((t: any) => t.id === id)?.name || `#${id}`; }
 function gridName(id: number) { return grids.value.find((g: any) => g.id === id)?.name || `#${id}`; }
 function isHitTag(id: number) { return hitTagIds.value.includes(id); }
 
@@ -282,9 +275,6 @@ const activeChips = computed(() => {
       key: 'tagIds',
       text: `个人标签（${query.tagMode === 'ALL' ? '交集' : '并集'}）：${query.tagIds.map(tagName).join('、')}`,
     });
-  }
-  if (query.familyTagIds.length) {
-    chips.push({ key: 'familyTagIds', text: `家庭标签：${query.familyTagIds.map(familyTagName).join('、')}` });
   }
   if (query.gridId) chips.push({ key: 'gridId', text: `网格：${gridName(query.gridId)}` });
   if (query.minAge != null || query.maxAge != null) {
@@ -312,7 +302,6 @@ function isQuickActive(g: any) {
 
 function removeChip(key: string) {
   if (key === 'tagIds') query.tagIds = [];
-  else if (key === 'familyTagIds') query.familyTagIds = [];
   else if (key === 'gridId') query.gridId = null;
   else if (key === 'age') { query.minAge = null; query.maxAge = null; }
   // 条件被拆完就回到未筛查状态，而不是退回全量人口
@@ -342,7 +331,6 @@ const gridStats = computed(() => {
 const hasFilter = computed(
   () =>
     query.tagIds.length > 0 ||
-    query.familyTagIds.length > 0 ||
     query.gridId != null ||
     query.minAge != null ||
     query.maxAge != null
@@ -396,7 +384,6 @@ function focusFilter() {
 function setQuickTag(g: any) {
   query.tagIds = [];
   query.tagMode = 'ANY';
-  query.familyTagIds = [];
   query.gridId = null;
   query.minAge = null;
   query.maxAge = null;
@@ -426,16 +413,14 @@ function quickTagIds(g: any) {
 }
 
 onMounted(async () => {
-  const [q, pt, ft, g] = await Promise.all([
+  const [q, pt, g] = await Promise.all([
     keyGroupApi.quick(),
     tagApi.definitions({ pageSize: 200, objectType: 'PERSON' }),
-    tagApi.definitions({ pageSize: 200, objectType: 'FAMILY' }),
     gridApi.list({ pageSize: 100 }),
   ]);
   quick.value = q.data.list;
   if (q.data.note) quickNote.value = `注：${q.data.note}`;
   personTags.value = pt.data.list;
-  familyTags.value = ft.data.list;
   grids.value = g.data.list;
   // 地址栏带条件时（从人员详情返回、或打开分享链接）直接还原筛查结果；
   // 否则停在引导态，等用户设置条件，避免一进页面就拉全量人口

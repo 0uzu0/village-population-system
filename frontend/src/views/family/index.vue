@@ -44,11 +44,6 @@
         <el-table-column prop="address" label="家庭地址" min-width="160" show-overflow-tooltip />
         <el-table-column prop="grid_name" label="所属网格" width="110" />
         <el-table-column prop="member_count" label="人数" width="70" />
-        <el-table-column label="家庭标签" min-width="180">
-          <template #default="{ row }">
-            <TagPill v-for="t in row.tags" :key="t.id" :name="t.name" :color="t.color" style="margin-right: 4px" />
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
@@ -102,7 +97,11 @@
           description="档案与成员关联都保留，人员改回「正常/迁入」后本户会自动恢复。"
         />
         <el-table :data="detail.members" size="small">
-          <el-table-column prop="person.name" label="姓名" width="90" />
+          <el-table-column prop="person.name" label="姓名" width="90">
+            <template #default="{ row }">
+              <el-link type="primary" :underline="false" @click="openPerson(row.person.id)">{{ row.person.name }}</el-link>
+            </template>
+          </el-table-column>
           <el-table-column prop="relation" label="与户主关系" width="100">
             <template #default="{ row }">{{ relationLabel(row.relation) }}</template>
           </el-table-column>
@@ -127,7 +126,11 @@
             <span class="sub-note">共 {{ detail.formerMembers.length }} 人，不计入家庭人口</span>
           </div>
           <el-table :data="detail.formerMembers" size="small" class="former-table">
-            <el-table-column prop="person.name" label="姓名" width="90" />
+            <el-table-column prop="person.name" label="姓名" width="90">
+              <template #default="{ row }">
+                <el-link type="primary" :underline="false" @click="openPerson(row.person.id)">{{ row.person.name }}</el-link>
+              </template>
+            </el-table-column>
             <el-table-column prop="relation" label="与户主关系" width="100">
               <template #default="{ row }">{{ relationLabel(row.relation) }}</template>
             </el-table-column>
@@ -157,17 +160,6 @@
             <el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" />
           </el-select>
           <el-button type="primary" @click="addMember">添加</el-button>
-        </div>
-
-        <div class="section-title">家庭标签</div>
-        <div class="fam-tags">
-          <el-tag v-for="t in detail.tags" :key="t.linkId" closable :color="t.color" style="color: #fff; margin: 4px" @close="removeFamilyTag(t.linkId)">{{ t.name }}</el-tag>
-        </div>
-        <div v-if="auth.hasPermission('tag:manage')" class="add-member" style="margin-top: 8px">
-          <el-select v-model="famTagForm.tagId" placeholder="选择家庭标签" filterable style="flex: 1">
-            <el-option v-for="t in familyTags" :key="t.id" :label="t.name" :value="t.id" />
-          </el-select>
-          <el-button type="primary" @click="addFamilyTag">添加标签</el-button>
         </div>
       </div>
     </el-drawer>
@@ -247,11 +239,10 @@
 import { ref, reactive, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { familyApi, gridApi, personApi, tagApi } from '@/api';
+import { familyApi, gridApi, personApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { isActiveStatus as isActive, statusLabel, type TagType } from '@/utils/personStatus';
 import { toPersonDetail } from '@/utils/nav';
-import TagPill from '@/components/TagPill.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -262,7 +253,6 @@ const list = ref<any[]>([]);
 const total = ref(0);
 const grids = ref<any[]>([]);
 const persons = ref<any[]>([]);
-const familyTags = ref<any[]>([]);
 
 const query = reactive({ page: 1, pageSize: 20, keyword: '', gridId: null as number | null });
 const formVisible = ref(false);
@@ -270,7 +260,6 @@ const form = reactive<any>({ id: null, address: '', gridId: null, headPersonId: 
 const detailVisible = ref(false);
 const detail = ref<any>(null);
 const memberForm = reactive({ personId: null as number | null, relation: 'OTHER' });
-const famTagForm = reactive({ tagId: null as number | null });
 
 // 按门牌号自动归户
 const autoVisible = ref(false);
@@ -348,7 +337,7 @@ async function saveForm() {
 async function removeFamily(row: any) {
   try {
     await ElMessageBox.confirm(
-      `将删除家庭「${row.family_no}」及其成员关系与家庭标签，且不可恢复（成员的人员档案会保留，仅解除家庭归属）。是否继续？`,
+      `将删除家庭「${row.family_no}」及其成员关系，且不可恢复（成员的人员档案会保留，仅解除家庭归属）。是否继续？`,
       '删除确认',
       { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
     );
@@ -387,29 +376,15 @@ async function removeMember(memberId: number) {
   ElMessage.success('成员已移除');
   openDetail({ id: detail.value.id });
 }
-async function addFamilyTag() {
-  if (!detail.value || !famTagForm.tagId) return;
-  await familyApi.addTag(detail.value.id, { tagId: famTagForm.tagId });
-  ElMessage.success('标签已添加');
-  openDetail({ id: detail.value.id });
-}
-async function removeFamilyTag(linkId: number) {
-  if (!detail.value) return;
-  await familyApi.removeTag(detail.value.id, linkId);
-  ElMessage.success('标签已移除');
-  openDetail({ id: detail.value.id });
-}
 
 onMounted(async () => {
   load();
-  const [g, p, t] = await Promise.all([
+  const [g, p] = await Promise.all([
     gridApi.list({ pageSize: 100 }),
     personApi.list({ pageSize: 200 }),
-    tagApi.definitions({ pageSize: 200, objectType: 'FAMILY' }),
   ]);
   grids.value = g.data.list;
   persons.value = p.data.list;
-  familyTags.value = t.data.list;
 });
 </script>
 
@@ -430,5 +405,4 @@ onMounted(async () => {
 .sub-note { font-size: var(--font-size-xs); font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
 .former-table { opacity: 0.92; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
-.fam-tags { min-height: 20px; }
 </style>

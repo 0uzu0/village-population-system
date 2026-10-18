@@ -67,8 +67,9 @@ describe('在册家庭口径（utils/familySql.ts）', () => {
     expect(offenders, '请改用 activeFamilySql(alias)，否则家庭数会把已灭户算进去').toEqual([]);
   });
 
-  it('工作台、网格、标签页的家庭计数已切换到统一口径', () => {
-    for (const f of ['modules/statistics.ts', 'modules/grid.ts', 'modules/tag.ts']) {
+  it('工作台、网格的家庭计数已切换到统一口径', () => {
+    // modules/tag.ts 曾统计家庭标签数（family_count），V026 下线家庭标签后不再查 family 表，故移出清单
+    for (const f of ['modules/statistics.ts', 'modules/grid.ts']) {
       const src = fs.readFileSync(path.join(SRC_DIR, f), 'utf8');
       expect(src, `${f} 未使用 activeFamilySql`).toContain('activeFamilySql(');
     }

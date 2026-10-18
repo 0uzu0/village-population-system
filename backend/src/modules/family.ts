@@ -4,7 +4,6 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
-import { buildFamilyTagFilter } from '../utils/tagQuery';
 import { activeFamilySql, activeMemberCountSql } from '../utils/familySql';
 import { memberLeaveReason } from '../utils/familyMembership';
 import { isActiveStatus, STATUS_LABELS } from '../utils/personStatus';
@@ -23,7 +22,6 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(500).default(20),
   keyword: z.string().optional(),
   gridId: z.coerce.number().optional(),
-  tagIds: z.string().optional(),
 });
 
 /** 家庭列表 */
@@ -44,15 +42,6 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
     params.push(q.gridId);
   }
 
-  if (q.tagIds) {
-    const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const ft = buildFamilyTagFilter(tagIds, 'f');
-    if (ft.where) {
-      where.push(ft.where.replace(/^ AND /, '').replace(/p\./g, 'f.'));
-      params.push(...ft.params);
-    }
-  }
-
   const whereSql = where.join(' AND ');
   const totalRow = await queryOne<any>(`SELECT COUNT(DISTINCT f.id) AS cnt FROM family f LEFT JOIN person p ON p.id = f.head_person_id WHERE ${whereSql}`, params);
   const total = Number(totalRow?.cnt || 0);
@@ -71,23 +60,7 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
 
-  // 家庭标签
-  const familyIds = rows.map((r: any) => r.id);
-  const tagMap: Map<number, any[]> = new Map();
-  if (familyIds.length) {
-    const tags = await query<any>(
-      `SELECT ft.family_id, td.id, td.name, td.code, td.color
-       FROM family_tag ft JOIN tag_definition td ON td.id = ft.tag_id
-       WHERE ft.family_id IN (${familyIds.map(() => '?').join(',')}) AND ft.status = 'ACTIVE'`,
-      familyIds
-    );
-    for (const t of tags) {
-      if (!tagMap.has(t.family_id)) tagMap.set(t.family_id, []);
-      tagMap.get(t.family_id)!.push({ id: t.id, name: t.name, code: t.code, color: t.color });
-    }
-  }
-
-  const list = rows.map((r: any) => ({ ...r, tags: tagMap.get(r.id) || [] }));
+  const list = rows.map((r: any) => ({ ...r }));
   const result: PageResult<any> = { list, total, page: q.page, pageSize: q.pageSize };
   return okPage(res, result);
 });
@@ -316,12 +289,6 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
   fam.activeMemberCount = fam.members.length;
   fam.dissolved = fam.members.length === 0;
 
-  const tags = await query<any>(
-    `SELECT ft.id AS linkId, td.id, td.name, td.code, td.color, ft.effect_date, ft.expire_date, ft.status, ft.basis, ft.created_at
-     FROM family_tag ft JOIN tag_definition td ON td.id = ft.tag_id WHERE ft.family_id = ? ORDER BY ft.created_at DESC`,
-    [id]
-  );
-  fam.tags = tags;
   return ok(res, fam);
 });
 
@@ -414,7 +381,7 @@ router.post('/:id/members', requirePermission('family:manage'), async (req: Requ
   return ok(res, null, '成员已添加');
 });
 
-/** 删除家庭（物理删除，事务内清理成员关系与家庭标签；成员人员档案保留，仅解除归属） */
+/** 删除家庭（物理删除，事务内清理成员关系；成员人员档案保留，仅解除归属） */
 router.delete('/:id', requirePermission('family:manage'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const family = await queryOne<any>('SELECT id, family_no FROM family WHERE id = ?', [id]);
@@ -422,7 +389,6 @@ router.delete('/:id', requirePermission('family:manage'), async (req: Request, r
 
   await withTransaction(async (conn) => {
     // 清理关联数据（库内无外键约束，需手动处理）
-    await conn.query('DELETE FROM family_tag WHERE family_id = ?', [id]);
     await conn.query('DELETE FROM family_member WHERE family_id = ?', [id]);
     // 标签变更日志按 object_id 记录家庭，不清会在「标签历史」里残留悬空对象 ID
     await conn.query("DELETE FROM tag_change_log WHERE object_type = 'FAMILY' AND object_id = ?", [id]);
@@ -475,45 +441,6 @@ router.post('/:id/head', requirePermission('family:manage'), async (req: Request
   });
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'family:change_head', request: { fid, personId }, result: 'SUCCESS', ip: req.ip });
   return ok(res, null, '户主已变更');
-});
-
-const familyTagSchema = z.object({
-  tagId: z.coerce.number(),
-  effectDate: z.string().nullable().optional(),
-  basis: z.string().max(500).nullable().optional(),
-});
-
-/** 家庭添加标签 */
-router.post('/:id/tags', requirePermission('tag:manage'), async (req: Request, res: Response) => {
-  const fid = Number(req.params.id);
-  const body = familyTagSchema.parse(req.body);
-  const tag = await queryOne<any>('SELECT * FROM tag_definition WHERE id = ? AND object_type = \'FAMILY\'', [body.tagId]);
-  if (!tag) throw new AppError('标签不存在或非家庭标签', 404, 'NOT_FOUND');
-
-  if (!tag.allow_duplicate) {
-    const dup = await queryOne<any>(`SELECT id FROM family_tag WHERE family_id = ? AND tag_id = ? AND status = 'ACTIVE'`, [fid, body.tagId]);
-    if (dup) throw new AppError('该家庭已关联此标签', 409, 'DUPLICATE_TAG');
-  }
-  await execute(
-    'INSERT INTO family_tag (family_id, tag_id, effect_date, status, basis, created_by) VALUES (?,?,?,?,?,?)',
-    [fid, body.tagId, body.effectDate || null, tag.need_audit ? 'PENDING' : 'ACTIVE', body.basis || null, req.user!.id]
-  );
-  await execute(
-    'INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES (\'FAMILY\', ?, ?, \'ADD\', ?)',
-    [fid, body.tagId, req.user!.id]
-  );
-  return ok(res, null, '标签已添加');
-});
-
-/** 移除家庭标签 */
-router.delete('/:id/tags/:linkId', requirePermission('tag:manage'), async (req: Request, res: Response) => {
-  const fid = Number(req.params.id);
-  const linkId = Number(req.params.linkId);
-  const link = await queryOne<any>('SELECT * FROM family_tag WHERE id = ? AND family_id = ?', [linkId, fid]);
-  if (!link) throw new AppError('标签关联不存在', 404, 'NOT_FOUND');
-  await execute(`UPDATE family_tag SET status = 'INACTIVE', expire_date = CURDATE() WHERE id = ?`, [linkId]);
-  await execute('INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES (\'FAMILY\', ?, ?, \'REMOVE\', ?)', [fid, link.tag_id, req.user!.id]);
-  return ok(res, null, '标签已移除');
 });
 
 export default router;

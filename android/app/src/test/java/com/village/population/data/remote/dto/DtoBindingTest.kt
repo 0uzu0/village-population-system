@@ -118,7 +118,7 @@ class DtoBindingTest {
               "hukouCount": 3610, "floatingCount": 2980,
               "partyCount": 61, "veteranCount": 55, "preferentialCount": 21,
               "lowIncomePersonCount": 88, "extremePovertyCount": 12,
-              "disabledCount": 47, "lowIncomeFamilyCount": 40
+              "disabledCount": 47
             }
         """.trimIndent()
 
@@ -130,7 +130,6 @@ class DtoBindingTest {
         // 这两个最容易被写错：党员不是 partyMemberCount，低保对象不是 lowIncomeCount
         assertEquals(61, d.partyCount)
         assertEquals(88, d.lowIncomePersonCount)
-        assertEquals(40, d.lowIncomeFamilyCount)
     }
 
     /**

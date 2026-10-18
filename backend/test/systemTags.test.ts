@@ -86,8 +86,14 @@ describe('V023 合并迁移与代码里的系统编码清单保持一致', () =>
    * 迁移是静态 SQL，没法 import 常量，所以编码清单在迁移里抄了一份。
    * 这条用例防止「代码里新增了系统标签，迁移忘了同步」——那种漂移
    * 会让新标签的同名副本继续漏网。
+   *
+   * 断言是**超集**而非全等：V023 抄的是当时的系统编码清单，其中
+   * 家庭维度两个编码（LOW_INCOME_FAMILY / EXTREME_POVERTY_FAMILY）随
+   * V026 下线家庭标签功能从代码清单移除了，但 V023 是已执行的历史迁移，
+   * 不回改。此后代码里新增系统编码时，仍必须回到 V023 语义的保护范围
+   * ——若新增的编码也不在 V023 里，需要在这里同步补白名单。
    */
-  it('迁移里所有 IN 列表的编码集合 === SYSTEM_TAG_CODES', () => {
+  it('V023 的 IN 列表覆盖全部 SYSTEM_TAG_CODES（超集）', () => {
     const file = path.join(__dirname, '../src/db/migrations/V023__merge_duplicate_system_tags.sql');
     const sql = fs.readFileSync(file, 'utf-8');
     const lists = [...sql.matchAll(/\bIN\s*\(([^)]*)\)/gi)].map((m) => m[1]);
@@ -98,7 +104,8 @@ describe('V023 合并迁移与代码里的系统编码清单保持一致', () =>
       for (const m of list.matchAll(/'([A-Z0-9_]+)'/g)) fromSql.add(m[1]);
     }
 
-    expect([...fromSql].sort()).toEqual([...SYSTEM_TAG_CODES].sort());
+    const missing = [...SYSTEM_TAG_CODES].filter((c) => !fromSql.has(c));
+    expect(missing, `V023 迁移缺这些系统编码，合并去重会漏掉它们: ${missing.join(',')}`).toEqual([]);
   });
 
   it('迁移必须可重跑：不使用 ADD COLUMN 之类不可重复的 DDL', () => {

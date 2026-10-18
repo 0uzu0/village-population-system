@@ -5,7 +5,6 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
-import { activeFamilySql } from '../utils/familySql';
 import { tagPersonCountExclusiveGuard } from '../utils/tagExclusive';
 import { SYSTEM_TAG_CODES, checkNewTagCode, checkTagCodeChange, isSystemTagCode } from '../utils/systemTags';
 import { z } from 'zod';
@@ -67,8 +66,8 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
   const total = Number(totalRow?.cnt || 0);
 
   const rows = await query<any>(
-    // 关联人数与重点人群/工作台同口径：个人标签只数在册人员（死亡/迁出不计入），
-    // 家庭标签数在册家庭。删除前的引用计数见下方 DELETE，那里不过滤状态——
+    // 关联人数与重点人群/工作台同口径：个人标签只数在册人员（死亡/迁出不计入）。
+    // 删除前的引用计数见下方 DELETE，那里不过滤状态——
     // 只要有人引用过就不能删，避免删掉带历史数据的标签。
     // 互斥标签按「组内优先级」只数最优先的那一枚（utils/tagExclusive.ts）：
     // 否则历史上同时挂了户籍/流动两类标签的人会被两边各数一次，
@@ -83,9 +82,7 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
           WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
             AND EXISTS (SELECT 1 FROM person p
               WHERE p.id = pt.person_id AND ${activeSql('p')})
-            ${tagPersonCountExclusiveGuard('td.code', 'pt.person_id')}) AS person_count,
-       (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
-          WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND ${activeFamilySql('f')}) AS family_count
+            ${tagPersonCountExclusiveGuard('td.code', 'pt.person_id')}) AS person_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id
      WHERE ${whereSql} ORDER BY td.category_id, td.id LIMIT ? OFFSET ?`,
     [...SYSTEM_TAG_CODES, ...params, q.pageSize, (q.page - 1) * q.pageSize]
@@ -101,8 +98,8 @@ const defSchema = z.object({
   alias: z.string().max(255).nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色需为 #RRGGBB').default('#3978F6'),
   description: z.string().max(500).nullable().optional(),
-  // 写接口：objectType 必填（PERSON/FAMILY），不允许空值落库为 NULL
-  objectType: z.enum(['PERSON', 'FAMILY'], { message: 'objectType 只能为 PERSON 或 FAMILY' }),
+  // 写接口：家庭标签功能已整体下线（V026），标签只允许人员维度
+  objectType: z.literal('PERSON'),
   allowDuplicate: z.coerce.number().min(0).max(1).default(0),
   isSensitive: z.coerce.number().min(0).max(1).default(0),
   needAudit: z.coerce.number().min(0).max(1).default(0),
@@ -177,7 +174,7 @@ router.put('/definitions/:id', requirePermission('tag:manage'), async (req: Requ
   return ok(res, { id }, '标签已更新');
 });
 
-/** 删除标签定义（物理删除；已被人员/家庭引用的标签拒绝删除，建议先停用） */
+/** 删除标签定义（物理删除；已被人员引用的标签拒绝删除，建议先停用） */
 router.delete('/definitions/:id', requirePermission('tag:manage'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const tag = await queryOne<any>('SELECT id, name FROM tag_definition WHERE id = ?', [id]);
@@ -185,8 +182,8 @@ router.delete('/definitions/:id', requirePermission('tag:manage'), async (req: R
 
   const used = Number(
     (await queryOne<any>(
-      'SELECT (SELECT COUNT(*) FROM person_tag WHERE tag_id = ?) + (SELECT COUNT(*) FROM family_tag WHERE tag_id = ?) AS cnt',
-      [id, id]
+      'SELECT COUNT(*) AS cnt FROM person_tag WHERE tag_id = ?',
+      [id]
     ))?.cnt || 0
   );
   if (used > 0) {
