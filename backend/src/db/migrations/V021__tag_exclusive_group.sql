@@ -76,10 +76,11 @@ UPDATE `tag_definition` SET `exclusive_group` = 'HUKOU_FLOATING', `exclusive_pri
 
 -- 3. 存量一次性收口：同组内有多枚生效标签的人员，只保留优先级最高的那枚。
 -- 与 V017/V019 同样的口径：先留痕、再停用，operator_id 为 NULL 表示系统迁移自动处理。
--- 自连接会因「同一个人有多个更高优先级标签」而出现重复行，用 GROUP BY 主键去重；
--- pt_lose.id 是主键，MySQL 的 ONLY_FULL_GROUP_BY 认可这种函数依赖，不用把列都塞进 GROUP BY。
+-- 自连接会因「同一个人有多个更高优先级标签」而出现重复行，用 SELECT DISTINCT 去重。
+-- 这里刻意不用 GROUP BY：DISTINCT 的去重语义完全够用，而且不依赖 sql_mode 里的
+-- ONLY_FULL_GROUP_BY 是否认可「按主键分组 → 其余列函数依赖」这条推断。
 INSERT INTO `tag_change_log` (object_type, object_id, tag_id, action, operator_id, remark)
-SELECT 'PERSON', pt_lose.person_id, pt_lose.tag_id, 'REMOVE', NULL,
+SELECT DISTINCT 'PERSON', pt_lose.person_id, pt_lose.tag_id, 'REMOVE', NULL,
        '标签互斥组修复：同一人在同组内存在更高优先级的标签，按优先级停用本条'
 FROM `person_tag` pt_lose
 JOIN `tag_definition` td_lose ON td_lose.id = pt_lose.tag_id
@@ -90,8 +91,7 @@ JOIN `tag_definition` td_keep
  AND td_keep.exclusive_group = td_lose.exclusive_group
  AND td_keep.exclusive_priority < td_lose.exclusive_priority
 WHERE pt_lose.status = 'ACTIVE'
-  AND td_lose.exclusive_group IS NOT NULL
-GROUP BY pt_lose.id;
+  AND td_lose.exclusive_group IS NOT NULL;
 
 UPDATE `person_tag` pt_lose
 JOIN `tag_definition` td_lose ON td_lose.id = pt_lose.tag_id
