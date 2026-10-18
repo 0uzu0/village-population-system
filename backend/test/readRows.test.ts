@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { SPECIAL_IMPORT_SPECS, mapRowFields } from '../src/utils/specialImport';
+import { readRows, IMPORT_COLUMNS } from '../src/modules/excel/shared';
 
 /**
  * Excel 列读取的回归测试。
@@ -147,5 +151,63 @@ describe('按表头定位列（导入错位回归）', () => {
     expect(() =>
       readRowsFromSheet(makeSheet(oldHeaders), spec.columns, ['姓名', '身份证号', '残疾类别', '残疾等级'])
     ).toThrow(/TEMPLATE_MISSING_COLUMNS/);
+  });
+});
+/**
+ * 人口导入模板在 v2.3 末尾追加了「户籍归属」「人员状态」两列。
+ *
+ * 这两列必须加在**末尾**：readRowsByColumns 按表头匹配，缺列时会回退到
+ * 模板位置取值——插在中间会让旧模板的列整体错位（V008 那次事故的翻版）。
+ */
+describe('人口导入模板新增列（v2.3）', () => {
+  async function writeXlsx(headers: string[], values: any[]): Promise<string> {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('人口导入模板');
+    ws.addRow(headers);
+    ws.addRow(values);
+    const file = path.join(
+      os.tmpdir(),
+      `import-${Date.now()}-${Math.random().toString(36).slice(2)}.xlsx`
+    );
+    await wb.xlsx.writeFile(file);
+    return file;
+  }
+
+  it('新模板：户籍归属与人员状态按表头正确读到', async () => {
+    const values = [
+      '张三', '男', '1990-01-01', '320102199001011234', '13800000000',
+      '示例村一巷1号', '示例村一巷1号', '幸福村', 'G001', 'F001', '户主', '13900000000',
+      '流动人口', '迁出',
+    ];
+    const file = await writeXlsx(IMPORT_COLUMNS, values);
+    try {
+      const rows = await readRows(file);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]['户籍归属']).toBe('流动人口');
+      expect(rows[0]['人员状态']).toBe('迁出');
+      // 原有列不受影响
+      expect(rows[0]['姓名']).toBe('张三');
+      expect(rows[0]['备用手机号']).toBe('13900000000');
+    } finally {
+      fs.unlinkSync(file);
+    }
+  });
+
+  it('旧 12 列模板：新列读成空串，原有列不错位（向后兼容）', async () => {
+    const values = [
+      '李四', '女', '1985-06-01', '320102198506011234', '13700000000',
+      '示例村二巷2号', '示例村二巷2号', '幸福村', 'G002', 'F002', '妻', '13600000000',
+    ];
+    const file = await writeXlsx(IMPORT_COLUMNS.slice(0, 12), values);
+    try {
+      const rows = await readRows(file);
+      expect(rows[0]['姓名']).toBe('李四');
+      expect(rows[0]['备用手机号']).toBe('13600000000');
+      // 缺列必须是空串，绝不能回退去读相邻列（那就成了错位）
+      expect(rows[0]['户籍归属']).toBe('');
+      expect(rows[0]['人员状态']).toBe('');
+    } finally {
+      fs.unlinkSync(file);
+    }
   });
 });

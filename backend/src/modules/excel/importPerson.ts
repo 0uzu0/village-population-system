@@ -8,6 +8,8 @@ import { ok, fail, AppError } from '../../utils/response';
 import { writeAudit } from '../../middleware/audit';
 import { upload, readRows, safeUnlink, WRITE_CHUNK, insertImportErrors } from './shared';
 import { markImportFailed } from '../../services/importTask';
+import { isActiveStatus, parsePersonStatus, PERSON_STATUS_HINT } from '../../utils/personStatus';
+import { loadPopulationTagDefs, parsePopulationTagCode, type PopulationTagDef } from '../../utils/populationTags';
 
 // ===== 以下内容自 modules/excel.ts 机械搬迁，未改动逻辑 =====
 
@@ -30,6 +32,26 @@ async function validateImportRow(
   else if (genderText === '女') gender = 'FEMALE';
   else if (genderText) return { ok: false, message: `性别必须为「男」或「女」，实际为「${genderText}」` };
 
+  /**
+   * 人员状态：空按「正常」（与升级前行为一致），写了但识别不了就整行报错。
+   * 不能默认成「正常」——把迁出人员当在册导入，会让他在所有人口统计里复活。
+   */
+  const statusText = String(row['人员状态'] || '').trim();
+  const status = statusText ? parsePersonStatus(statusText) : 'NORMAL';
+  if (!status) {
+    return { ok: false, message: `人员状态「${statusText}」无法识别，应填：${PERSON_STATUS_HINT}` };
+  }
+
+  /**
+   * 户籍归属：空表示暂不归类（导入结果会单独报「未填」人数）；写了但识别不了就报错。
+   * 同样不猜——把流动人口当成户籍人口，户籍人口数会虚高且没人看得出来。
+   */
+  const populationText = String(row['户籍归属'] || '').trim();
+  const populationCode = populationText ? parsePopulationTagCode(populationText) : null;
+  if (populationText && !populationCode) {
+    return { ok: false, message: `户籍归属「${populationText}」无法识别，只能填「户籍人口」或「流动人口」` };
+  }
+
   /** 待核查记录的基础字段：身份证不可用时原样留存，供人工补录后确认入库 */
   const basePending = {
     name: row['姓名'],
@@ -44,6 +66,8 @@ async function validateImportRow(
     grid_no: row['网格编号'] || null,
     family_no: row['家庭编号'] || null,
     relation: row['与户主关系'] || null,
+    status,
+    population_code: populationCode,
     raw_data: JSON.stringify(row),
   };
 
@@ -102,15 +126,19 @@ async function validateImportRow(
       grid_id: gridId,
       family_id: familyId,
       relation: row['与户主关系'] ? (row['与户主关系'] === '户主' ? 'HEAD' : row['与户主关系']) : null,
+      status,
+      population_code: populationCode,
     },
   };
 }
 
 /**
- * person 单行值模板（17 列）：13 个占位符 + status/data_source 两个字面量 + 2 个占位符。
+ * person 单行值模板（17 列）：16 个占位符 + data_source 这个字面量。
+ * status 从 v2.3 起改为占位符——导入模板新增「人员状态」列后，
+ * 迁出/死亡人员不能再一律写成 NORMAL（否则他们会回到所有人口统计里）。
  * 列顺序必须与 insertPersons 里的列名清单严格一致。
  */
-const PERSON_ROW_VALUES = `(?,?,?,?,?,?,?,?,?,?,?,?,?, 'NORMAL', 'EXCEL_IMPORT', ?, ?)`;
+const PERSON_ROW_VALUES = `(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'EXCEL_IMPORT', ?, ?)`;
 
 /**
  * 批量写入人员并回查主键。
@@ -141,6 +169,8 @@ async function insertPersons(conn: PoolConnection, persons: any[], userId: numbe
         p.grid_id,
         p.family_id,
         p.relation,
+        // 「人员状态」列：空值在校验阶段已归一为 NORMAL，这里一定有值
+        p.status || 'NORMAL',
         userId,
         userId
       );
@@ -196,6 +226,69 @@ interface ImportOutcome {
   success: number;
   errors: { rowNo: number; message: string; raw: string }[];
   pendingCount: number;
+  /** 按「户籍归属」列打上人口标签的人数 */
+  populationTagged: number;
+  /** 迁出/死亡人员按口径未打人口标签的人数 */
+  populationSkipped: number;
+  /** 在册但没填户籍归属的人数（工作台户籍/流动人口统计不会计入） */
+  populationUntagged: number;
+}
+
+/**
+ * 按「户籍归属」列给新导入的人员打人口标签。
+ *
+ * 两条约束来自 utils/populationTags.ts 的不变式：
+ * - 迁出/死亡人员**不打**（打了就出现「迁出 + 户籍人口」的矛盾）；
+ * - 在册人员最多一枚（户籍/流动互斥由唯一取值保证）。
+ *
+ * 三种计数全部返回给导入结果：打了多少、按口径没打多少、没填多少。
+ * 导入最容易出的问题是「静默少算」——数字不报出来，没人会发现。
+ */
+async function linkPopulationTags(
+  conn: PoolConnection,
+  persons: any[],
+  idByNo: Map<string, number>,
+  defs: PopulationTagDef[],
+  userId: number,
+  batchNo: string
+): Promise<{ tagged: number; skippedInactive: number; untagged: number }> {
+  const byCode = new Map(defs.map((d) => [d.code, d]));
+  const links: { personId: number; tagId: number }[] = [];
+  let skippedInactive = 0;
+  let untagged = 0;
+
+  for (const p of persons) {
+    const active = isActiveStatus(p.status);
+    if (!active) {
+      if (p.population_code) skippedInactive++;
+      continue;
+    }
+    if (!p.population_code) {
+      untagged++;
+      continue;
+    }
+    const def = byCode.get(p.population_code);
+    const personId = idByNo.get(String(p.person_no));
+    if (!def || !personId) continue;
+    links.push({ personId, tagId: def.id });
+  }
+  if (!links.length) return { tagged: 0, skippedInactive, untagged };
+
+  const basis = `人口档案导入（批次 ${batchNo}）`;
+  for (let i = 0; i < links.length; i += WRITE_CHUNK) {
+    const chunk = links.slice(i, i + WRITE_CHUNK);
+    await conn.query(
+      `INSERT INTO person_tag (person_id, tag_id, status, basis, created_by)
+       VALUES ${chunk.map(() => '(?,?,?,?,?)').join(', ')}`,
+      chunk.flatMap((it) => [it.personId, it.tagId, 'ACTIVE', basis, userId])
+    );
+    await conn.query(
+      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)
+       VALUES ${chunk.map(() => `('PERSON', ?, ?, 'ADD', ?, ?)`).join(', ')}`,
+      chunk.flatMap((it) => [it.personId, it.tagId, userId, basis])
+    );
+  }
+  return { tagged: links.length, skippedInactive, untagged };
 }
 
 /**
@@ -215,9 +308,16 @@ async function processImportRows(p: {
 
   const seenIdCards = new Set<string>();
   let success = 0;
+  let populationTagged = 0;
+  let populationSkipped = 0;
+  let populationUntagged = 0;
   const errors: { rowNo: number; message: string; raw: string }[] = [];
   const pendings: { rowNo: number; pending: any }[] = [];
   const validPersons: { person: any }[] = [];
+
+  // 人口标签定义只查一次：导入是批量路径，逐行查库会把万行导入拖成分钟级
+  const populationDefs = await loadPopulationTagDefs({ query });
+  const populationDefByCode = new Map(populationDefs.map((d) => [d.code, d]));
 
   for (let i = 0; i < rows.length; i++) {
     const rowNo = i + 2; // Excel 实际行号（含表头）
@@ -231,12 +331,16 @@ async function processImportRows(p: {
     }
   }
 
-  // 写入有效行（事务）：批量 INSERT + 批量建家庭成员关联
+  // 写入有效行（事务）：批量 INSERT + 批量建家庭成员关联 + 按户籍归属打人口标签
   if (validPersons.length) {
     const persons = validPersons.map((v) => v.person);
     await withTransaction(async (conn) => {
       const idByNo = await insertPersons(conn, persons, userId);
       await linkFamilyMembers(conn, persons, idByNo);
+      const linked = await linkPopulationTags(conn, persons, idByNo, populationDefs, userId, batchNo);
+      populationTagged = linked.tagged;
+      populationSkipped = linked.skippedInactive;
+      populationUntagged = linked.untagged;
       success = idByNo.size;
     });
   }
@@ -251,6 +355,16 @@ async function processImportRows(p: {
         const chunk = pendings.slice(i, i + WRITE_CHUNK);
         const values: any[] = [];
         for (const { rowNo, pending } of chunk) {
+          /**
+           * 待核查行也要把状态与户籍归属带过去（v2.3）：
+           * 补录身份证后确认入库若一律建成 NORMAL，迁出/死亡的人会重新回到统计里，
+           * 户籍人口这类信息也会彻底丢失。户籍归属以 tag_ids 形式带过去，
+           * 确认入库时由 syncPersonTags 回挂（非在册人员不带，避免又造出矛盾）。
+           */
+          const populationDef =
+            pending.population_code && isActiveStatus(pending.status)
+              ? populationDefByCode.get(pending.population_code)
+              : undefined;
           values.push(
             batchNo,
             rowNo,
@@ -268,21 +382,31 @@ async function processImportRows(p: {
             pending.grid_no,
             pending.family_no,
             pending.relation,
+            pending.status || 'NORMAL',
+            populationDef ? String(populationDef.id) : null,
             pending.raw_data,
             userId
           );
         }
         await conn.query(
           `INSERT INTO import_pending (batch_no, row_no, reason, reason_text, name, gender, birth_date, id_card,
-             phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation, raw_data, created_by)
-           VALUES ${chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(', ')}`,
+             phone, phone_backup, hukou_address, live_address, village, grid_no, family_no, relation,
+             person_status, tag_ids, raw_data, created_by)
+           VALUES ${chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(', ')}`,
           values
         );
       }
     });
   }
 
-  return { success, errors, pendingCount: pendings.length };
+  return {
+    success,
+    errors,
+    pendingCount: pendings.length,
+    populationTagged,
+    populationSkipped,
+    populationUntagged,
+  };
 }
 
 /** 导入人口（同步处理，记录批次与错误） */
@@ -324,7 +448,14 @@ router.post(
     }
 
     try {
-      const { success, errors, pendingCount } = await processImportRows({
+      const {
+        success,
+        errors,
+        pendingCount,
+        populationTagged,
+        populationSkipped,
+        populationUntagged,
+      } = await processImportRows({
         rows,
         taskId,
         batchNo,
@@ -346,16 +477,47 @@ router.post(
         userId: req.user!.id,
         username: req.user!.username,
         action: 'excel:import',
-        request: { batchNo, total: rows.length, success, fail: errors.length, pending: pendingCount },
+        request: {
+          batchNo,
+          total: rows.length,
+          success,
+          fail: errors.length,
+          pending: pendingCount,
+          populationTagged,
+          populationSkipped,
+          populationUntagged,
+        },
         result: 'SUCCESS',
         ip: req.ip,
       });
+
+      // 人口标签的三种结果必须都报出来：
+      // 「没填户籍归属」和「按口径没打」都不影响导入成功，但都影响工作台的人口数。
+      const tagNote = [
+        populationTagged ? `已按户籍归属打标签 ${populationTagged} 人` : '',
+        populationSkipped ? `${populationSkipped} 人为迁出/死亡，按口径未打人口标签` : '',
+        populationUntagged ? `${populationUntagged} 人未填户籍归属（不计入户籍/流动人口）` : '',
+      ]
+        .filter(Boolean)
+        .join('；');
+
+      const base = pendingCount
+        ? `导入完成：成功 ${success} 条，失败 ${errors.length} 条，${pendingCount} 条转入待核查`
+        : `导入完成：成功 ${success} 条，失败 ${errors.length} 条`;
       return ok(
         res,
-        { taskId, total: rows.length, success, fail: errors.length, pending: pendingCount, status: finalStatus },
-        pendingCount
-          ? `导入完成：成功 ${success} 条，失败 ${errors.length} 条，${pendingCount} 条转入待核查`
-          : '导入完成'
+        {
+          taskId,
+          total: rows.length,
+          success,
+          fail: errors.length,
+          pending: pendingCount,
+          status: finalStatus,
+          populationTagged,
+          populationSkipped,
+          populationUntagged,
+        },
+        tagNote ? `${base}；${tagNote}` : base
       );
     } catch (err) {
       // 导入中途失败（SQL 报错、连接中断等）：整批未生效，任务必须落为失败，不能停在「处理中」

@@ -46,9 +46,26 @@ router.get('/template', requirePermission('excel:import'), async (_req: Request,
     'F001',
     '户主',
     '13900000000',
+    '户籍人口',
+    '正常',
   ]);
   ws.getRow(1).font = { bold: true };
   ws.getRow(2).getCell('身份证号').numFmt = '@';
+
+  // 第二张表：填写说明（导入只解析第一个工作表，不影响解析）
+  const help = wb.addWorksheet('填写说明');
+  help.columns = [
+    { header: '列名', key: 'col', width: 16 },
+    { header: '填写要求', key: 'note', width: 76 },
+  ];
+  [
+    ['姓名 / 身份证号 / 性别', '必填。身份证号缺失或不合法的行会转入「待核查」，不影响同一批其它行。'],
+    ['户籍归属', '填「户籍人口」或「流动人口」。户籍人口与流动人口互斥，空缺表示暂不归类。'],
+    ['人员状态', '填「正常」「迁入」「迁出」「死亡」，空缺按「正常」处理。'],
+    ['迁出 / 死亡人员', '档案会保留但不再计入任何人口统计，且不会打「户籍人口 / 流动人口」标签。'],
+    ['所属村庄 / 网格编号 / 家庭编号', '必须与系统内已有记录一致，否则该行导入失败。'],
+  ].forEach(([col, note]) => help.addRow({ col, note }));
+  help.getRow(1).font = { bold: true };
 
   const buf = await wb.xlsx.writeBuffer();
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

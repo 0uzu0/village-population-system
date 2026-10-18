@@ -161,14 +161,16 @@ describe('INSERT 语句形状校验（列数 = 值数）', () => {
       'status', 'data_source', 'created_by', 'updated_by',
     ]);
 
-    // 单行值模板 PERSON_ROW_VALUES：15 个占位符 + status/data_source 两个字面量
+    // 单行值模板 PERSON_ROW_VALUES：16 个占位符 + data_source 一个字面量
     const m = src.match(/const PERSON_ROW_VALUES\s*=\s*`([^`]+)`/);
     expect(m).toBeTruthy();
     const rowValues = m![1];
     const placeholders = (rowValues.match(/\?/g) || []).length;
     const literals = rowValues.split(',').filter((v) => v.trim() && !v.includes('?')).length;
-    expect(placeholders).toBe(15);
-    expect(literals).toBe(2);
+    // v2.3 起 status 从字面量改成占位符（导入模板新增「人员状态」列），
+    // 所以占位符 15 → 16、字面量 2 → 1，合计仍是 17 列。
+    expect(placeholders).toBe(16);
+    expect(literals).toBe(1);
     expect(placeholders + literals).toBe(cols.length);
   });
 
@@ -178,9 +180,10 @@ describe('INSERT 语句形状校验（列数 = 值数）', () => {
       fs.readFileSync(path.join(SRC_DIR, 'modules/excel/importPerson.ts'), 'utf8'),
       fs.readFileSync(path.join(SRC_DIR, 'modules/excel/importKeyGroup.ts'), 'utf8'),
     ].join('\n');
-    // import_pending 18 列 → 单行模板 18 个占位符；person_tag 6 列；tag_change_log 6 列
+    // import_pending 20 列 → 单行模板 20 个占位符；person_tag 6 列；tag_change_log 6 列
+    // （v2.3 给 import_pending 追加了 person_status / tag_ids 两列，18 → 20）
     const cases: { cols: number; re: RegExp }[] = [
-      { cols: 18, re: /import_pending \(batch_no[\s\S]*?VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },
+      { cols: 20, re: /import_pending \(batch_no[\s\S]*?VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },
       { cols: 6, re: /person_tag \(person_id, tag_id, effect_date, status, basis, created_by\)\s*\n\s*VALUES \$\{chunk\.map\(\(\) => '(\([^']*\))'\)/ },
     ];
     for (const c of cases) {

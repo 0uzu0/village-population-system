@@ -95,3 +95,34 @@ describe('全部迁移的自引用子查询检查', () => {
     expect(v009).toMatch(/ON DUPLICATE KEY|INSERT\s+IGNORE/i);
   });
 });
+
+describe('V024 人口标签随状态联动', () => {
+  const sql = read('V024__population_tags_status_sync.sql');
+
+  it('给 import_pending 补 person_status，且带「列已存在则跳过」守卫', () => {
+    expect(sql).toContain('`import_pending`');
+    expect(sql).toContain('`person_status`');
+    // 可重跑：MySQL 8.0 没有 ADD COLUMN IF NOT EXISTS，必须查元数据
+    expect(sql).toContain('information_schema.COLUMNS');
+    expect(sql).toMatch(/PREPARE\s+\w+\s+FROM/i);
+  });
+
+  it('先留痕再停用（顺序错了就追溯不到本来要动哪些行）', () => {
+    const logAt = sql.indexOf('INSERT INTO tag_change_log');
+    const updateAt = sql.indexOf('UPDATE person_tag pt');
+    expect(logAt).toBeGreaterThan(-1);
+    expect(updateAt).toBeGreaterThan(logAt);
+  });
+
+  it('只处理非在册人员，且按编码定位而不是硬编码主键', () => {
+    expect(sql).toMatch(/p\.status\s+IN\s*\('MOVED_OUT',\s*'DEAD'\)/);
+    expect(sql).toContain("td.code IN ('HUKOU_POP', 'FLOATING_POP')");
+    // 硬编码标签 id 会在换了环境（自增序列不同）后静默改错标签
+    expect(sql).not.toMatch(/tag_id\s*=\s*\d+/);
+    expect(sql).not.toMatch(/pt\.tag_id\s*IN\s*\(\s*\d/);
+  });
+
+  it('停用条件收敛到 ACTIVE，重复执行影响 0 行', () => {
+    expect(sql).toMatch(/WHERE pt\.status = 'ACTIVE'/);
+  });
+});

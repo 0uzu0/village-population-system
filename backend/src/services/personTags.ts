@@ -3,6 +3,7 @@ import {
   pickExclusiveWinners,
   findStrongerGroupPeer,
 } from '../utils/tagExclusive';
+import { assertPopulationTagsAllowed } from '../utils/populationTags';
 
 /**
  * 人员标签的写入服务。
@@ -73,6 +74,16 @@ export async function syncPersonTags(
   tagIds: number[],
   userId: number,
 ) {
+  /**
+   * 非在册人员不得持有人口归属标签（户籍人口 / 流动人口）。
+   *
+   * 放在这个函数里是因为它是「全量覆盖」的唯一入口——建档、编辑、
+   * 待核查确认入库都从这里过。把它放在路由层，新增一个调用方就会漏。
+   * 明确报错而不是静默丢弃：用户点了这枚标签却没生效，比报错更难排查。
+   * （tagIds 为空时守卫直接返回，不会多查一次库。）
+   */
+  await assertPopulationTagsAllowed(conn, personId, tagIds);
+
   const [curRows] = (await conn.query(
     `SELECT tag_id FROM person_tag WHERE person_id = ? AND status = 'ACTIVE'`,
     [personId]

@@ -39,6 +39,24 @@ export function isActiveStatus(status: string): boolean {
   return (ACTIVE_STATUSES as readonly string[]).includes(status);
 }
 
+/**
+ * 把导入模板/台账里的文字解析成状态编码。
+ *
+ * 只认「正常 / 迁入 / 迁出 / 死亡」与编码本身；空串返回 null 由调用方决定默认值，
+ * 识别不了也返回 null —— 导入时前者按「正常」处理、后者报错，绝不猜。
+ * （猜错的后果是迁出人员被当成在册，悄悄回到所有人口统计里。）
+ */
+export function parsePersonStatus(text: unknown): PersonStatus | null {
+  const key = String(text ?? '').replace(/[\s　]/g, '').toUpperCase();
+  if (!key) return null;
+  if ((PERSON_STATUSES as readonly string[]).includes(key)) return key as PersonStatus;
+  const hit = Object.entries(STATUS_LABELS).find(([, label]) => label === key);
+  return hit ? (hit[0] as PersonStatus) : null;
+}
+
+/** 导入模板里「人员状态」列的可填值（报错提示、模板说明共用） */
+export const PERSON_STATUS_HINT = PERSON_STATUSES.map((s) => STATUS_LABELS[s]).join(' / ');
+
 /** 转为非在册时需要解除该人员的家庭成员关联（家庭本身保留） */
 export function isInactiveStatus(status: string): boolean {
   return !isActiveStatus(status);

@@ -16,6 +16,8 @@ import {
 } from './shared';
 import { markImportFailed } from '../../services/importTask';
 import { repairExclusiveGroups } from '../../utils/tagExclusive';
+import { isActiveStatus } from '../../utils/personStatus';
+import { isPopulationTagCode } from '../../utils/populationTags';
 
 import { validateIdCard } from '../../utils/idcard';
 import { WRITE_CHUNK } from './shared';
@@ -71,7 +73,9 @@ router.post(
       const linked = new Set<string>(linkRows.map((l: any) => `${l.person_id}:${l.tag_id}`));
 
       // 人员索引：身份证 -> 人员；姓名唯一 -> 人员（用于无身份证的老名单）
-      const personRows = await query<any>('SELECT id, name, id_card FROM person');
+      // 一并带出 status：名单里若写了「户籍人口」这类人口归属标签，
+      // 已迁出/死亡的人不能再打（否则又造出「迁出 + 户籍人口」的矛盾）。
+      const personRows = await query<any>('SELECT id, name, id_card, status FROM person');
       const byIdCard = new Map<string, any>();
       const nameCount = new Map<string, number>();
       for (const p of personRows) {
@@ -89,6 +93,8 @@ router.post(
       const fileSeen = new Set<string>();
       let matched = 0;
       let skipped = 0;
+      // 名单里带人口标签、但本人已迁出/死亡 → 按口径跳过（不是填写错误）
+      let inactiveSkipped = 0;
 
       for (let i = 0; i < rows.length; i++) {
         const rowNo = i + 2;
@@ -164,6 +170,13 @@ router.post(
             errors.push({ rowNo, message: `标签「${def.name}」已停用，请先在人口标签中启用`, raw });
             continue;
           }
+          // 人口归属标签只对在册人员有效：名单常来自历史台账，
+          // 里面有已迁出/死亡的人很正常。这里跳过并计数，
+          // 不当作填写错误（文件没写错，是口径不允许）。
+          if (isPopulationTagCode(def.code) && !isActiveStatus(String(person.status))) {
+            inactiveSkipped++;
+            continue;
+          }
           const key = `${person.id}:${def.id}`;
           if (fileSeen.has(key) || linked.has(key)) {
             skipped++;
@@ -222,17 +235,23 @@ router.post(
         userId: req.user!.id,
         username: req.user!.username,
         action: 'excel:import_key_group',
-        request: { batchNo, total: rows.length, matched, tagged, skipped, fail: errors.length },
+        request: { batchNo, total: rows.length, matched, tagged, skipped, inactiveSkipped, fail: errors.length },
         result: 'SUCCESS',
         ip: req.ip,
       });
 
+      // 人口标签因状态被跳过的条数必须单独说明：否则操作者会以为名单里
+      // 写的「户籍人口」都打上了，实际少了几个已迁出的人。
+      const inactiveNote = inactiveSkipped
+        ? `；${inactiveSkipped} 条人口标签因人员已迁出/死亡按口径跳过`
+        : '';
+
       return ok(
         res,
-        { taskId, total: rows.length, matched, tagged, skipped, fail: errors.length, status: finalStatus },
+        { taskId, total: rows.length, matched, tagged, skipped, inactiveSkipped, fail: errors.length, status: finalStatus },
         errors.length
-          ? `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条，已存在跳过 ${skipped} 条，失败 ${errors.length} 条`
-          : `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条${skipped ? `，已存在跳过 ${skipped} 条` : ''}`
+          ? `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条，已存在跳过 ${skipped} 条，失败 ${errors.length} 条${inactiveNote}`
+          : `导入完成：匹配 ${matched} 人，新增标签 ${tagged} 条${skipped ? `，已存在跳过 ${skipped} 条` : ''}${inactiveNote}`
       );
     } catch (err) {
       await markImportFailed(taskId, rows.length, err);

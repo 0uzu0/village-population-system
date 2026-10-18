@@ -232,7 +232,7 @@
                     placeholder="可多选；空表示不打标签"
                     @change="onFormTagsChange"
                   />
-                  <div class="form-tip">流动人口 = 户籍不在本村、暂住本村的人员；户籍人口与流动人口互斥，同时选择时保留户籍人口</div>
+                  <div class="form-tip">流动人口 = 户籍不在本村、暂住本村的人员；户籍人口与流动人口互斥，同时选择时保留户籍人口。人口归属随状态联动：迁出、死亡后自动停用，改回在册时自动恢复。</div>
                 </el-form-item>
               </el-col>
               <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>

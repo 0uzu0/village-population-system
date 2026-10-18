@@ -7,6 +7,8 @@ import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { formatDate } from '../utils/date';
 import { syncPersonTags } from '../services/personTags';
+import { PERSON_STATUSES, isActiveStatus } from '../utils/personStatus';
+import { pickPopulationTags } from '../utils/populationTags';
 import { z } from 'zod';
 
 const router = Router();
@@ -97,6 +99,8 @@ const updateSchema = z.object({
   gridNo: z.string().nullable().optional(),
   familyNo: z.string().nullable().optional(),
   relation: z.string().nullable().optional(),
+  /** 导入时带过来的状态（v2.3）：确认入库沿用，避免迁出/死亡人员在入库时「复活」成正常 */
+  personStatus: z.enum(PERSON_STATUSES).nullable().optional(),
   handleNote: z.string().max(255).nullable().optional(),
 });
 
@@ -115,6 +119,7 @@ router.put('/:id', requirePermission('excel:import'), async (req: Request, res: 
     phone: 'phone', phoneBackup: 'phone_backup', hukouAddress: 'hukou_address',
     liveAddress: 'live_address', village: 'village', gridNo: 'grid_no',
     familyNo: 'family_no', relation: 'relation', handleNote: 'handle_note',
+    personStatus: 'person_status',
   };
   for (const [k, col] of Object.entries(map)) {
     const v = (body as any)[k];
@@ -181,6 +186,9 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
   const gender = p.gender || genderFromIdCard(idCard) || 'MALE';
 
   const personNo = `P${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  // 导入时记下的状态：迁出/死亡人员在补录身份证后仍然保持原状态，
+  // 不能因为「确认入库」这一步就变回正常（否则他会重新出现在所有人口统计里）。
+  const personStatus = p.person_status || 'NORMAL';
 
   await withTransaction(async (conn) => {
     const r: any = await conn.query(
@@ -190,7 +198,7 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
       [
         personNo, p.name, gender, birthDate, idCard, p.phone || null, p.phone_backup || null,
         p.hukou_address || null, p.live_address || null, p.village || null,
-        gridId, familyId, relation, 'NORMAL', 'PENDING_CONFIRM', req.user!.id, req.user!.id,
+        gridId, familyId, relation, personStatus, 'PENDING_CONFIRM', req.user!.id, req.user!.id,
       ]
     );
     const newId = (r[0] as any).insertId;
@@ -210,10 +218,16 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
     // syncPersonTags 自带互斥组裁决（tag_definition.exclusive_group），
     // 与新建档同一套口径。
     if (p.tag_ids) {
-      const tagIds = String(p.tag_ids)
+      let tagIds = String(p.tag_ids)
         .split(',')
         .map((s) => parseInt(s, 10))
         .filter((n) => Number.isInteger(n) && n > 0);
+      // 非在册人员不带人口归属标签（导入侧已过滤过；这里再兜一次，
+      // 保证「直接改数据库 tag_ids」也绕不过不变式）
+      if (tagIds.length && !isActiveStatus(personStatus)) {
+        const popIds = new Set((await pickPopulationTags(conn, tagIds)).map((d) => d.id));
+        tagIds = tagIds.filter((id) => !popIds.has(id));
+      }
       if (tagIds.length) await syncPersonTags(conn, newId, tagIds, req.user!.id);
     }
 

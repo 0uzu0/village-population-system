@@ -7,12 +7,17 @@ import { writeAudit } from '../middleware/audit';
 import { formatDate, today } from '../utils/date';
 import { genPersonNo } from '../utils/id';
 import { DISABILITY_LEVELS } from '../utils/disability';
-import { PERSON_STATUSES, STATUS_LABELS, isInactiveStatus } from '../utils/personStatus';
+import { PERSON_STATUSES, STATUS_LABELS, isActiveStatus, isInactiveStatus } from '../utils/personStatus';
 import { z } from 'zod';
 import { prepareIdentity, toPersonVO, listQuerySchema, buildPersonListQuery } from '../services/personQuery';
 import { syncPersonTags, resolveTagExclusivity } from '../services/personTags';
 import { saveDisability } from '../services/personDisability';
 import { deactivateGroupPeers } from '../utils/tagExclusive';
+import {
+  assertPopulationTagsAllowed,
+  loadPopulationTagDefs,
+  syncPopulationTagsOnStatusChange,
+} from '../utils/populationTags';
 
 const router = Router();
 router.use(authMiddleware);
@@ -464,6 +469,10 @@ const statusSchema = z.object({
  * 人员状态变更（迁入/迁出/死亡登记，不删除档案）。
  * 死亡与迁出一律走这里：档案、标签与变更记录全部保留，
  * 仅在人口统计中被排除（在册口径 NORMAL/MOVED_IN）。
+ *
+ * v2.3 起多一步联动：户籍人口 / 流动人口这两枚**归属类**标签会随状态停用
+ * （它们描述的是当前归属，不是历史身份；党员、低保、残疾这类标签照旧保留），
+ * 改回在册时自动恢复原来那一枚。规则见 utils/populationTags.ts。
  */
 router.post('/:id/status', requirePermission('person:status'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
@@ -479,7 +488,7 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
     ? null
     : statusDate || (isInactiveStatus(status) ? today() : null);
 
-  await withTransaction(async (conn) => {
+  const tagSync = await withTransaction(async (conn) => {
     await conn.query(
       'UPDATE person SET status = ?, status_date = ?, change_reason = ?, updated_by = ? WHERE id = ?',
       [status, effectiveDate, reason || null, req.user!.id, id]
@@ -500,10 +509,18 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
         [id]
       );
     }
+    // 人口归属标签随状态联动（v2.3）：迁出/死亡停用户籍/流动人口标签，
+    // 改回在册时恢复最近一次被联动停用的那一枚。
+    // 与 family_member 的标记放在同一事务：状态改成功而标签没改会造成口径矛盾。
+    return syncPopulationTagsOnStatusChange(conn, id, status, req.user!.id);
   });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:status', request: { id, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { id, status, statusDate: effectiveDate }, `已变更为「${STATUS_LABELS[status]}」`);
+  return ok(
+    res,
+    { id, status, statusDate: effectiveDate, tagCleared: tagSync.cleared, tagRestored: tagSync.restored },
+    `已变更为「${STATUS_LABELS[status]}」`
+  );
 });
 
 const batchStatusSchema = z.object({
@@ -528,6 +545,9 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
 
   let changed = 0;
   let skipped = 0;
+  // 人口标签联动条数：返回给前端，便于提示「同时停用了 N 条户籍/流动人口标签」
+  let tagCleared = 0;
+  let tagRestored = 0;
   const inactive = isInactiveStatus(status);
 
   await withTransaction(async (conn) => {
@@ -549,6 +569,11 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
       } else {
         await conn.query('UPDATE family_member SET status = 1, leave_date = NULL WHERE person_id = ? AND status = 0', [pid]);
       }
+      // 与单条状态变更共用同一个联动函数：批量接口曾因「只改单条」漏过口径，
+      // 这里不允许再各写一份。
+      const tagSync = await syncPopulationTagsOnStatusChange(conn, pid, status, req.user!.id);
+      tagCleared += tagSync.cleared;
+      tagRestored += tagSync.restored;
       changed++;
     }
   });
@@ -556,7 +581,7 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:batch-status', request: { count: personIds.length, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
   return ok(
     res,
-    { changed, skipped, status },
+    { changed, skipped, status, tagCleared, tagRestored },
     skipped ? `已变更 ${changed} 人，${skipped} 人已是「${STATUS_LABELS[status]}」或不存在` : `已变更 ${changed} 人为「${STATUS_LABELS[status]}」`
   );
 });
@@ -583,6 +608,10 @@ router.post('/:id/tags', requirePermission('tag:manage'), async (req: Request, r
   const body = schema.parse(req.body);
   const tag = await queryOne<any>('SELECT * FROM tag_definition WHERE id = ? AND object_type = \'PERSON\'', [body.tagId]);
   if (!tag) throw new AppError('标签不存在或非个人标签', 404, 'NOT_FOUND');
+
+  // 人口归属标签只对在册人员有效：迁出/死亡的人再打「户籍人口」，
+  // 会立刻造出「详情页写着迁出、标签写着户籍人口」的矛盾（v2.3）。
+  await assertPopulationTagsAllowed(pool, id, [body.tagId]);
 
   // 默认不允许重复有效关联
   if (!tag.allow_duplicate) {
@@ -651,8 +680,22 @@ const batchTagSchema = z.object({
 router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request, res: Response) => {
   const { personIds, tagIds, action, basis } = batchTagSchema.parse(req.body);
 
-  // 被互斥规则挡下的「人员×标签」条数，返回给前端提示用
+  // 被跳过（互斥压制 / 非在册人员的人口标签）的「人员×标签」条数，返回给前端提示
   let skipped = 0;
+
+  // 人口标签与非在册人员：批量操作不能因为其中几个人已迁出就整批失败，
+  // 也不能静默给人打上永远不生效的标签。先一次性载入标签定义与人员状态，
+  // 在内存里摘掉，最后把条数汇总进 skipped。
+  const populationTagIds = new Set((await loadPopulationTagDefs(pool)).map((d) => d.id));
+  const statusById = new Map<number, string>();
+  if (action === 'ADD' && populationTagIds.size) {
+    const rows = await query<any>(
+      `SELECT id, status FROM person WHERE id IN (${personIds.map(() => '?').join(',')})`,
+      personIds
+    );
+    for (const r of rows) statusById.set(Number(r.id), String(r.status));
+  }
+
   await withTransaction(async (conn) => {
     // 标签互斥（数据驱动）：同一批里同组只留优先级最高的一枚，再按每个人的
     // 现有标签裁决「谁该被压制」——同一批标签对不同人的结果可能不同
@@ -661,7 +704,14 @@ router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request,
     for (const pid of personIds) {
       let personTagIds = tagIds;
       if (action === 'ADD') {
-        const exclusivity = await resolveTagExclusivity(conn, pid, tagIds);
+        const status = statusById.get(Number(pid));
+        if (status && !isActiveStatus(status)) {
+          const before = personTagIds.length;
+          personTagIds = personTagIds.filter((tid) => !populationTagIds.has(Number(tid)));
+          skipped += before - personTagIds.length;
+        }
+        if (!personTagIds.length) continue;
+        const exclusivity = await resolveTagExclusivity(conn, pid, personTagIds);
         personTagIds = exclusivity.writable;
         skipped += exclusivity.blocked.length;
         // 写入前先停用同组旧标签：keep 里是本批将写入的标签，不会被自己停掉
@@ -700,7 +750,13 @@ router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request,
   });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: `person:batch_tags:${action}`, request: { personIds: personIds.length, tagIds }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { total: personIds.length, processed: personIds.length, skipped }, '批量操作完成');
+  return ok(
+    res,
+    { total: personIds.length, processed: personIds.length, skipped },
+    // 跳过条数必须报出来：可能来自互斥压制，也可能来自「人员已迁出/死亡，
+    // 人口归属标签按口径不打」——不说清楚，操作者会以为全都成功了
+    skipped ? `批量操作完成，${skipped} 条按口径跳过（互斥，或人员已迁出/死亡）` : '批量操作完成'
+  );
 });
 
 /** 人员下拉选项（网格、家庭） */
