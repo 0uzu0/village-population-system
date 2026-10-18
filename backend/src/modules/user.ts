@@ -79,7 +79,12 @@ router.put('/:id', requirePermission('user:manage'), async (req: Request, res: R
       await conn.query('UPDATE sys_user SET real_name = ?, phone = ?, email = ? WHERE id = ?', [body.realName ?? null, body.phone ?? null, body.email ?? null, id]);
     }
     if (body.password) {
-      await conn.query('UPDATE sys_user SET password_hash = ? WHERE id = ?', [hashPassword(body.password), id]);
+      // 管理员重置密码 = 令牌版本 +1：该用户所有已登录设备立即掉线。
+      // 「重置密码」的语义本来就是「怀疑旧密码泄露」，不连带作废旧 token 等于没改。
+      await conn.query(
+        'UPDATE sys_user SET password_hash = ?, token_version = token_version + 1 WHERE id = ?',
+        [hashPassword(body.password), id]
+      );
     }
     if (isAdmin !== undefined) {
       await conn.query('UPDATE sys_user SET is_admin = ? WHERE id = ?', [isAdmin ? 1 : 0, id]);
@@ -87,8 +92,9 @@ router.put('/:id', requirePermission('user:manage'), async (req: Request, res: R
       if (roleId) await conn.query('INSERT IGNORE INTO sys_user_role (user_id, role_id) VALUES (?,?)', [id, roleId]);
     }
   });
-  // 角色/管理员开关变更后必须让权限缓存立即失效，否则最长 1 分钟内仍按旧权限放行
-  if (isAdmin !== undefined) invalidateAuthCache(id);
+  // 角色/管理员开关变更、重置密码后必须让权限缓存立即失效，
+  // 否则最长 1 分钟内仍按旧权限/旧版本放行
+  if (isAdmin !== undefined || body.password) invalidateAuthCache(id);
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'user:edit', request: { id, isAdmin }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id }, '用户已更新');
 });
@@ -100,7 +106,11 @@ router.post('/:id/toggle', requirePermission('user:manage'), async (req: Request
   const u = await queryOne<any>('SELECT status FROM sys_user WHERE id = ?', [id]);
   if (!u) throw new AppError('用户不存在', 404, 'NOT_FOUND');
   const next = u.status ? 0 : 1;
-  await execute('UPDATE sys_user SET status = ? WHERE id = ?', [next, id]);
+  // 停用与启用都 +1：
+  // - 停用：让手里的 token 立刻作废，而不是等它自然过期；
+  // - 启用：不 +1 的话，停用期间未过期的旧 token 会在重新启用的瞬间「复活」，
+  //   等于停用只能挡住「重新登录」，挡不住已经存在的会话。
+  await execute('UPDATE sys_user SET status = ?, token_version = token_version + 1 WHERE id = ?', [next, id]);
   // 停用/启用立即生效（authMiddleware 每次请求校验 active）
   invalidateAuthCache(id);
   return ok(res, { id, status: !!next }, next ? '用户已启用' : '用户已停用');

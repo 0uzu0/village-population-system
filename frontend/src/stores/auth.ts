@@ -23,6 +23,15 @@ export const useAuthStore = defineStore('auth', {
       localStorage.setItem('vp_token', token);
       localStorage.setItem('vp_user', JSON.stringify(user));
     },
+    /**
+     * 只替换 token，不动用户信息。
+     * 用在改密码之后：服务端会把其他设备的旧 token 作废，同时给本机换发一张
+     * 新 token，前端存下来才不会在改完密码后被自己的操作踢下线。
+     */
+    setToken(token: string) {
+      this.token = token;
+      localStorage.setItem('vp_token', token);
+    },
     logout() {
       this.token = '';
       this.user = null;

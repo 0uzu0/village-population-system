@@ -32,7 +32,9 @@ class AuthRepository(
     }
 
     suspend fun changePassword(oldPassword: String, newPassword: String) {
-        exec.run { api.changePassword(ChangePasswordRequest(oldPassword, newPassword)) }
+        val result = exec.data { api.changePassword(ChangePasswordRequest(oldPassword, newPassword)) }
+        // 后端已作废本机旧 token，必须换上响应里这张新的，否则下一步就 401
+        if (result.token.isNotBlank()) session.updateToken(result.token)
     }
 
     suspend fun logout() {

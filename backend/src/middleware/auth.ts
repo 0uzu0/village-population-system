@@ -8,11 +8,17 @@ import { AuthUser } from '../types';
 interface JwtPayload {
   uid: number;
   username: string;
+  /**
+   * 令牌版本（token version）。
+   * 老版本签发的 token 没有这个字段，按 0 处理 —— 与迁移后的默认值一致，
+   * 所以升级本身不会把已登录的用户踢下线，只有改密码/停用才会。
+   */
+  tv?: number;
 }
 
 /** 签发 JWT */
-export function signToken(user: { id: number; username: string }): string {
-  const payload: JwtPayload = { uid: user.id, username: user.username };
+export function signToken(user: { id: number; username: string; tokenVersion?: number }): string {
+  const payload: JwtPayload = { uid: user.id, username: user.username, tv: user.tokenVersion ?? 0 };
   return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn } as jwt.SignOptions);
 }
 
@@ -58,7 +64,10 @@ export async function loadAuthContext(userId: number): Promise<AuthUser> {
   const hit = authCache.get(userId);
   if (hit && hit.expireAt > now) return hit.ctx;
 
-  const user = await queryOne<any>('SELECT id, username, real_name, is_admin, status FROM sys_user WHERE id = ?', [userId]);
+  const user = await queryOne<any>(
+    'SELECT id, username, real_name, is_admin, status, token_version FROM sys_user WHERE id = ?',
+    [userId]
+  );
   if (!user) {
     // 用户已被删除：顺手清掉可能存在的脏缓存
     authCache.delete(userId);
@@ -85,6 +94,7 @@ export async function loadAuthContext(userId: number): Promise<AuthUser> {
     realName: user.real_name,
     isAdmin: !!user.is_admin,
     active: user.status === 1,
+    tokenVersion: Number(user.token_version ?? 0),
     roles: roles.map((r: any) => r.code),
     permissions: new Set<string>(perms.map((p: any) => p.code)),
   };
@@ -122,6 +132,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // 否则停用只是「登录拦得住、旧 token 拦不住」。
     if (!ctx.active) {
       fail(res, '账号已被停用', 403, 'ACCOUNT_DISABLED');
+      return;
+    }
+    // 令牌版本校验：改密码 / 停用账号时库里 token_version +1，手里还没过期的
+    // 旧 token 立刻作废。缺 tv 的老 token 按 0 处理，与迁移默认值一致，
+    // 所以升级本身不会把正在使用的用户踢下线。
+    if ((payload.tv ?? 0) !== ctx.tokenVersion) {
+      fail(res, '登录状态已失效，请重新登录', 401, 'TOKEN_REVOKED');
       return;
     }
     req.user = ctx;

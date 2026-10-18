@@ -91,6 +91,14 @@ data class TagDto(
     val name: String = "",
     val code: String = "",
     val color: String? = null,
+    /**
+     * 互斥组：同一个人在同组内只能保留一个标签；null 表示不互斥。
+     * 规则来自标签字典（后端 tag_definition），客户端不再认识具体编码——
+     * 以后新增互斥组只要在数据里配一下，这里自动生效。
+     */
+    @SerialName("exclusive_group") val exclusiveGroup: String? = null,
+    /** 组内优先级，数字越小越优先；缺省 100（与数据库默认值一致） */
+    @SerialName("exclusive_priority") val exclusivePriority: Int = 100,
 )
 
 // ---------------------------------------------------------------------------

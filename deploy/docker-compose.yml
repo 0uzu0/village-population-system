@@ -39,6 +39,10 @@ services:
       ADMIN_INIT_USERNAME: ${ADMIN_INIT_USERNAME:-admin}
       ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD}
       ADMIN_INIT_NAME: ${ADMIN_INIT_NAME:-系统管理员}
+      # 默认留空 = 不放开跨域。生产是同源部署（frontend 的 nginx 把 /api 反代到
+      # backend:8080，backend 不对外暴露端口），本来就不需要 CORS。
+      # 只有把前端单独部署在另一个域名下时才需要填，多个来源用英文逗号分隔。
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
       UPLOAD_DIR: /app/uploads
     volumes:
       # 「绑到宿主机目录」而不是 docker named volume —— 附件（现场照片、合同扫描件）

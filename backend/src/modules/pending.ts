@@ -6,7 +6,7 @@ import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
 import { formatDate } from '../utils/date';
-import { syncPersonTags } from './person';
+import { syncPersonTags } from '../services/personTags';
 import { z } from 'zod';
 
 const router = Router();
@@ -207,7 +207,8 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
 
     // 回挂建档时选择的标签（v2.1.1）：转待核查分支此前会丢掉 tagIds，
     // 确认入库后档案上没有任何标签，「流动人口」等在列表里就消失了。
-    // syncPersonTags 自带户籍/流动互斥，与新建档同一套口径。
+    // syncPersonTags 自带互斥组裁决（tag_definition.exclusive_group），
+    // 与新建档同一套口径。
     if (p.tag_ids) {
       const tagIds = String(p.tag_ids)
         .split(',')

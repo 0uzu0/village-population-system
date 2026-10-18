@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 
 const personSrc = fs.readFileSync(path.resolve(__dirname, '../src/modules/person.ts'), 'utf8');
+// v2.2 起 toPersonVO 抽到读侧服务（modules/person.ts → services/personQuery.ts）
+const querySrc = fs.readFileSync(path.resolve(__dirname, '../src/services/personQuery.ts'), 'utf8');
 const keygroupSrc = fs.readFileSync(path.resolve(__dirname, '../src/modules/keygroup.ts'), 'utf8');
 
 /**
@@ -37,7 +39,7 @@ describe('人员详情接口残疾档案 SELECT 完整性', () => {
   it('toPersonVO 读取的残疾字段与 SELECT 列名一一对应', () => {
     const voFields = ['disability_type', 'disability_level', 'disability_card', 'guardian_name', 'guardian_phone', 'disability_remark'];
     for (const f of voFields) {
-      expect(personSrc).toContain(`row.${f}`);
+      expect(querySrc).toContain(`row.${f}`);
     }
   });
 });

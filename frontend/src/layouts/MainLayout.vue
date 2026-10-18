@@ -183,7 +183,9 @@ async function submitPassword() {
   }
   pwdLoading.value = true;
   try {
-    await authApi.changePassword(pwdForm.value);
+    const res: any = await authApi.changePassword(pwdForm.value);
+    // 后端改密后作废其他设备的旧 token，并为当前设备换发新 token
+    if (res?.data?.token) auth.setToken(res.data.token);
     ElMessage.success('密码修改成功');
     pwdVisible.value = false;
   } finally {

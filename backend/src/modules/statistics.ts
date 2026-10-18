@@ -6,7 +6,8 @@ import { ok } from '../utils/response';
 import { markStaleImportTasks } from '../services/importTask';
 import { activeSql } from '../utils/personStatus';
 import { FOCUS_GROUPS, allFocusTagCodes } from '../utils/focusGroups';
-import { FLOATING_POP_CODE, HUKOU_POP_CODE, notHukouPersonSql } from '../utils/hukouFloating';
+import { FLOATING_POP_CODE, HUKOU_POP_CODE } from '../config/tagCodes';
+import { notSupersededByCodeSql } from '../utils/tagExclusive';
 
 const router = Router();
 router.use(authMiddleware);
@@ -33,10 +34,11 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
         (SELECT COUNT(*) FROM family f WHERE f.status = 1) AS family_count,
         (SELECT COUNT(*) FROM grid g WHERE g.status = 1) AS grid_count,
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
-            WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code = '${HUKOU_POP_CODE}')) AS hukou_count,
+            WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code = '${HUKOU_POP_CODE}'))
+          AND ${notSupersededByCodeSql(HUKOU_POP_CODE, 'p.id')} AS hukou_count,
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}          AND EXISTS (SELECT 1 FROM person_tag pt JOIN tag_definition td ON td.id=pt.tag_id
             WHERE pt.person_id=p.id AND pt.status='ACTIVE' AND td.code = '${FLOATING_POP_CODE}'))
-          AND ${notHukouPersonSql('p.id')}) AS floating_count
+          AND ${notSupersededByCodeSql(FLOATING_POP_CODE, 'p.id')} AS floating_count
       `,
     ),
     // 个人类标签：只数在册人员。死亡/迁出的档案保留标签可追溯，但不计入当前服务名单。

@@ -47,6 +47,8 @@ data class PersonDto(
 
     val dataSource: String? = null,
     val updatedAt: String? = null,
+    /** 乐观锁版本号：编辑提交时原样带回，防止覆盖他人刚做的修改 */
+    val rowVersion: Int = 0,
     val tags: List<PersonTagDto> = emptyList(),
     val changes: List<PersonChangeDto> = emptyList(),
 )
@@ -126,6 +128,11 @@ data class PersonCreateRequest(
      * 与后端的「未传 = 不动标签」口径一致；要清空就传 emptyList()。
      */
     val tagIds: List<Int>? = null,
+    /**
+     * 乐观锁版本号（V022）：编辑时必带，新增时为 null（不校验）。
+     * 服务端比对不一致返回 409，避免把别人刚保存的改动静默覆盖。
+     */
+    val rowVersion: Int? = null,
 )
 
 /**

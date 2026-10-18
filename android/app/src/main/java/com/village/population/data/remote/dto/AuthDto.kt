@@ -39,3 +39,14 @@ data class ChangePasswordRequest(
     val oldPassword: String,
     val newPassword: String,
 )
+
+/**
+ * 改密码的返回。
+ *
+ * 后端在改密时会把该用户所有旧 token 作废（令牌版本 +1），同时给这次请求
+ * 的来源设备换发一张新 token。不回存的话，本机下一次请求就会 401 被踢回登录页。
+ */
+@Serializable
+data class ChangePasswordResponse(
+    val token: String = "",
+)

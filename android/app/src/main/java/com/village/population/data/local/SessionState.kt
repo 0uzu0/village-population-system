@@ -67,6 +67,18 @@ class SessionState(private val store: SettingsStore) {
         store.saveSession(tokenValue.orEmpty(), AppJson.encodeToString(UserDto.serializer(), user))
     }
 
+    /**
+     * 只换 token（改密码后服务端换发）。
+     *
+     * 后端改密时会把该用户所有旧 token 作废，只有本次响应里的这张有效；
+     * 不回存的话下一次请求就 401，用户会以为「改完密码就被登出了」。
+     */
+    suspend fun updateToken(token: String) {
+        tokenValue = token
+        val json = userValue?.let { AppJson.encodeToString(UserDto.serializer(), it) } ?: return
+        store.saveSession(token, json)
+    }
+
     /** 主动登出 */
     suspend fun clear() {
         tokenValue = null

@@ -453,25 +453,69 @@ const personTagOptions = computed(() =>
 );
 
 /**
- * 户籍/流动口径互斥（2026-10 v2.1.0）：流动人口 = 户籍不在本村、暂住本村，
- * 总人口 = 户籍人口 + 流动人口，两个标签不允许同时生效。
- * 前端在选择时就按「户籍优先」过滤，后端三处打标签入口还有同样的兜底。
+ * 标签互斥（数据驱动）：
+ * 后端在标签字典里下发了 exclusive_group（互斥组）与 exclusive_priority
+ *（组内优先级，数字越小越优先），前端只按这两列过滤，不再认识
+ * HUKOU_POP / FLOATING_POP 之类的具体编码。以后新增互斥组，
+ * 在标签管理里配一下就生效，不用改这一页。
+ *
+ * 同组里保留优先级最高的一枚；优先级并列时保留先选的（用户先点的那侧）。
  */
-function preferHukouTags(ids: number[]): number[] {
-  const codeOf = new Map(personTags.value.map((t: any) => [t.id, t.code]));
-  if (!ids.some((id) => codeOf.get(id) === 'HUKOU_POP')) return ids;
-  return ids.filter((id) => codeOf.get(id) !== 'FLOATING_POP');
+function applyTagExclusivity(ids: number[]): { kept: number[]; removed: number[] } {
+  const info = new Map(personTags.value.map((t: any) => [t.id, t]));
+  const winnerOf = new Map<string, number>();
+  const kept: number[] = [];
+  const removed: number[] = [];
+
+  for (const id of ids) {
+    const tag: any = info.get(id);
+    const group = tag?.exclusive_group;
+    if (!group) {
+      kept.push(id);
+      continue;
+    }
+    const winnerId = winnerOf.get(group);
+    if (winnerId === undefined) {
+      winnerOf.set(group, id);
+      kept.push(id);
+      continue;
+    }
+    const winner: any = info.get(winnerId);
+    const myPriority = Number(tag?.exclusive_priority ?? 100);
+    const winnerPriority = Number(winner?.exclusive_priority ?? 100);
+    if (myPriority < winnerPriority) {
+      const at = kept.indexOf(winnerId);
+      if (at >= 0) kept[at] = id;
+      removed.push(winnerId);
+      winnerOf.set(group, id);
+    } else {
+      removed.push(id);
+    }
+  }
+  return { kept, removed };
 }
+
+function tagNamesOf(ids: number[]): string {
+  return ids
+    .map((id) => personTags.value.find((t: any) => t.id === id)?.name)
+    .filter(Boolean)
+    .join('、');
+}
+
 function onFormTagsChange(val: number[]) {
-  const filtered = preferHukouTags(val || []);
-  if (filtered.length !== (val || []).length) ElMessage.warning('户籍人口与流动人口互斥，已自动移除流动人口标签');
-  form.tagIds = filtered;
+  const { kept, removed } = applyTagExclusivity(val || []);
+  if (removed.length) {
+    ElMessage.warning(`标签互斥：已自动取消「${tagNamesOf(removed)}」`);
+  }
+  form.tagIds = kept;
 }
 function onBatchTagsChange(val: number[]) {
   if (batchTagForm.action !== 'ADD') return;
-  const filtered = preferHukouTags(val || []);
-  if (filtered.length !== (val || []).length) ElMessage.warning('户籍人口与流动人口互斥，已自动移除流动人口标签');
-  batchTagForm.tagIds = filtered;
+  const { kept, removed } = applyTagExclusivity(val || []);
+  if (removed.length) {
+    ElMessage.warning(`标签互斥：已自动取消「${tagNamesOf(removed)}」`);
+  }
+  batchTagForm.tagIds = kept;
 }
 
 /* 列显隐：默认不展示「编号」「所属家庭」，改为展示户籍/居住地址 */
@@ -541,6 +585,12 @@ const emptyForm = () => ({
   // 残疾档案（V008）：全部为空表示非残疾人，保存时后端会清除档案
   disabilityType: '', disabilityLevel: '', disabilityCard: '',
   guardianName: '', guardianPhone: '', disabilityRemark: '',
+  /**
+   * 乐观锁版本号（V022）：编辑时从详情接口带回来，保存时原样提交。
+   * 后端比对不一致会返回 409——说明打开表单之后有人改过这份档案，
+   * 直接覆盖会把对方的改动静默抹掉。新增时没有版本号，传 undefined。
+   */
+  rowVersion: undefined as number | undefined,
 });
 const form = reactive<any>(emptyForm());
 
@@ -639,6 +689,8 @@ async function openEdit(row: any) {
     guardianName: p.disability?.guardianName || '',
     guardianPhone: p.disability?.guardianPhone || '',
     disabilityRemark: p.disability?.remark || '',
+    // 打开表单这一刻的版本号，保存时带回给后端做并发校验
+    rowVersion: p.rowVersion,
   });
   formVisible.value = true;
 }

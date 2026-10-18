@@ -15,7 +15,7 @@ import {
   kgTagLabels,
 } from './shared';
 import { markImportFailed } from '../../services/importTask';
-import { repairHukouFloatingExclusive } from '../../utils/hukouFloating';
+import { repairExclusiveGroups } from '../../utils/tagExclusive';
 
 import { validateIdCard } from '../../utils/idcard';
 import { WRITE_CHUNK } from './shared';
@@ -200,7 +200,7 @@ router.post(
           // 导入是按文件里的标签直接 INSERT，绕过了 person.ts 的互斥逻辑：
           // 同一个人既标「户籍人口」又标「流动人口」时，工作台的流动人口与
           // 标签页的人数就会对不上。这里按「户籍优先」收口（幂等）。
-          await repairHukouFloatingExclusive(
+          await repairExclusiveGroups(
             conn,
             toInsert.map((it) => it.personId),
             req.user!.id,

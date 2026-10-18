@@ -11,7 +11,7 @@ describe('标签筛选 SQL 构建', () => {
   it('并集（ANY）生成 EXISTS IN 条件', () => {
     const f = buildPersonTagFilter({ tags: [1, 2, 3], mode: 'ANY' }, 'p');
     expect(f.where).toContain('pt.tag_id IN (?,?,?)');
-    // 前 N 个参数是标签 ID 本身，之后是户籍守卫（见下方专项用例）
+    // 参数就是标签 ID 本身；互斥判定写在 SQL 里（见下方专项用例）
     expect(f.params.slice(0, 3)).toEqual([1, 2, 3]);
   });
 
@@ -27,14 +27,18 @@ describe('标签筛选 SQL 构建', () => {
     expect(buildPersonTagFilter(undefined).where).toBe('');
   });
 
-  it('户籍/流动守卫：所选标签里含流动人口', () => {
+  it('互斥判定来自标签字典，不写死具体编码', () => {
     const f = buildPersonTagFilter({ tags: [14], mode: 'ANY' }, 'p');
-    // 需要三件事：所选含户籍（并集语义不排除）、所选不含流动（放行）、人不持户籍
-    expect(f.where).toContain('FLOATING_POP');
-    expect(f.where).toContain('HUKOU_POP');
+    // v2.2 起不再在 SQL 里出现 HUKOU_POP / FLOATING_POP 字面量，
+    // 而是关联 tag_definition 的互斥组与优先级来裁决；
+    // 新增一组互斥只要改数据，这里不用动代码
+    expect(f.where).toContain('td_g.exclusive_group');
+    expect(f.where).toContain('td_g.exclusive_priority < td_self.exclusive_priority');
+    expect(f.where).not.toContain('FLOATING_POP');
+    expect(f.where).not.toContain('HUKOU_POP');
   });
 
-  it('户籍/流动守卫：任何组合下占位符与参数都对齐', () => {
+  it('任何标签组合下占位符与参数都对齐', () => {
     const cases: Array<{ tags: number[]; mode: 'ANY' | 'ALL' }> = [
       { tags: [1], mode: 'ANY' },
       { tags: [1, 2, 3], mode: 'ANY' },

@@ -6,6 +6,12 @@ export interface AuthUser {
   isAdmin: boolean;
   /** 账号是否启用（sys_user.status）。停用后即使持有未过期的 token 也应被拒。 */
   active: boolean;
+  /**
+   * 令牌版本（sys_user.token_version）。
+   * 签发时写进 payload，每次请求比对；改密码 / 停用账号时 +1，
+   * 已签发的旧 token 立即失效。
+   */
+  tokenVersion: number;
   roles: string[];
   permissions: Set<string>;
 }

@@ -1,6 +1,6 @@
 {
   "name": "village-population-backend",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "村级人口与重点人群精细化管理系统 - 后端服务（Node.js + Express + MySQL）",
   "main": "dist/index.js",
   "scripts": {
@@ -20,6 +20,7 @@
     "cors": "^2.8.5",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
     "mysql2": "^3.11.0",

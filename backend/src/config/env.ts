@@ -56,7 +56,10 @@ export const env = {
   adminInitPassword: req('ADMIN_INIT_PASSWORD', DEV_DEFAULTS.adminPassword),
   adminInitName: req('ADMIN_INIT_NAME', '系统管理员'),
 
-  corsOrigin: req('CORS_ORIGIN', '*'),
+  // 允许跨域的来源（逗号分隔）。默认为空 = 不放开跨域：
+  // 生产是同源部署（nginx 把 /api 反代到后端），浏览器不会发起跨域请求；
+  // 开发走 vite 的 proxy，同样是同源。只有前后端分域名部署时才需要填。
+  corsOrigin: req('CORS_ORIGIN', ''),
   uploadDir: req('UPLOAD_DIR', './uploads'),
 };
 

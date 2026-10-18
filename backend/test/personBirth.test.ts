@@ -6,6 +6,8 @@ const SRC = path.resolve(__dirname, '../src');
 const read = (p: string) => fs.readFileSync(path.join(SRC, p), 'utf8');
 
 const personSrc = read('modules/person.ts');
+// v2.2 起 prepareIdentity / toPersonVO 抽到读侧服务，源码断言跟着走
+const querySrc = read('services/personQuery.ts');
 const excelSrc = read('modules/excel/importPerson.ts');
 const pendingSrc = read('modules/pending.ts');
 const migSrc = read('db/migrations/V013__person_birth_from_idcard.sql');
@@ -48,8 +50,8 @@ describe('人员写入：出生日期以身份证为准（person.ts）', () => {
   });
 
   it('prepareIdentity 只在解析出合法日期时才产出 birth_date', () => {
-    expect(personSrc).toContain('const birth = birthFromIdCard(normalized);');
-    expect(personSrc).toContain('if (birth) result.birth_date = birth;');
+    expect(querySrc).toContain('const birth = birthFromIdCard(normalized);');
+    expect(querySrc).toContain('if (birth) result.birth_date = birth;');
   });
 });
 

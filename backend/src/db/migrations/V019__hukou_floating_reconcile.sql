@@ -14,8 +14,10 @@
 --    （数据本来就干净时影响 0 行，可安全重复执行）；
 -- 2) 口径描述回填，保证标签字典里看到的就是最终定义。
 --
--- 写入侧已在同一版本补上「导入后收口」（utils/hukouFloating.ts 的
--- repairHukouFloatingExclusive），正常不会再有新脏数据。
+-- 写入侧已在同一版本补上「导入后收口」（当时是 utils/hukouFloating.ts 的
+-- repairHukouFloatingExclusive；v2.2 起该文件并入 utils/tagExclusive.ts，
+-- 函数改名为 repairExclusiveGroups，按互斥组裁决）。
+-- 正常不会再有新脏数据。
 
 -- 1a. 留痕（先记后改，失败也能看出本来要动哪些行）
 INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)

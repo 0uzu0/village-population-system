@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>村级人口管理系统 · 代码审计报告</title>
+<style>
+  :root{
+    --bg:#F4F6FA; --card:#FFFFFF; --ink:#1A1D24; --ink2:#4A5160; --ink3:#7A8291;
+    --line:#E4E8EF; --brand:#3978F6; --brand-bg:#EAF1FE;
+    --p0:#D93B3B; --p0bg:#FDECEC; --p1:#C2690A; --p1bg:#FEF3E6; --p2:#0E7C6B; --p2bg:#E4F4F0;
+    --ok:#0E7C6B; --okbg:#E4F4F0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:40px 20px 80px; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.7; font-size:15px;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  header{margin-bottom:32px}
+  h1{font-size:26px;margin:0 0 8px;letter-spacing:-.3px}
+  .sub{color:var(--ink3);font-size:13px;margin:0}
+  .lede{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:22px 24px;margin:22px 0 30px;
+  }
+  .lede p{margin:0 0 10px}
+  .lede p:last-child{margin:0}
+  .scores{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0 0}
+  .score{background:var(--brand-bg);border-radius:10px;padding:12px 10px;text-align:center}
+  .score b{display:block;font-size:20px;color:var(--brand);line-height:1.2}
+  .score span{font-size:12px;color:var(--ink2)}
+  h2{font-size:19px;margin:38px 0 6px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h2 .n{color:var(--brand);margin-right:8px}
+  h2 + .hint{color:var(--ink3);font-size:13px;margin:8px 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:14px}
+  .card h3{margin:0 0 4px;font-size:16px;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+  .tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;letter-spacing:.3px;flex-shrink:0;margin-top:3px}
+  .t0{background:var(--p0bg);color:var(--p0)}
+  .t1{background:var(--p1bg);color:var(--p1)}
+  .t2{background:var(--p2bg);color:var(--p2)}
+  .loc{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--ink3);margin:2px 0 12px;word-break:break-all}
+  .row{display:grid;grid-template-columns:74px 1fr;gap:12px;padding:7px 0;border-top:1px dashed var(--line);font-size:14px}
+  .row:first-of-type{border-top:none}
+  .row .k{color:var(--ink3);font-size:13px}
+  .row .v{color:var(--ink)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;
+    background:#F1F3F7;padding:1px 5px;border-radius:4px;color:#2C3542}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;overflow:hidden;font-size:13.5px;margin:14px 0}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#F7F9FC;font-weight:600;color:var(--ink2);font-size:12.5px}
+  tr:last-child td{border-bottom:none}
+  .good{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:12px;padding:18px 22px}
+  .good ul{margin:0;padding-left:20px}
+  .good li{margin-bottom:7px}
+  .good li:last-child{margin-bottom:0}
+  footer{margin-top:44px;color:var(--ink3);font-size:12.5px;text-align:center}
+  @media (max-width:720px){
+    .scores{grid-template-columns:repeat(2,1fr)}
+    .row{grid-template-columns:1fr;gap:2px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>村级人口与重点人群管理系统 · 代码审计报告</h1>
+  <p class="sub">审计范围：backend（8,154 行 TS）· frontend（6,929 行 Vue/TS）· android（9,349 行 Kotlin）｜审计日期 2026-10-18｜当前版本 v2.1.2</p>
+</header>
+
+<div class="lede">
+  <p><b>总体判断：工程质量明显高于同类乡村政务项目，问题集中在「权限粒度」与「单文件体量」，不涉及架构性返工。</b></p>
+  <p>值得先说的三点不是问题而是底子：全项目 <b>零处 SQL 字符串拼接</b>（77 个路由全部参数化）；<b>全局审计中间件</b>覆盖所有写操作；文件落盘有 <code>resolveInsideUploadDir</code> 二次锚定，目录名来自人名仍不被信任。这些是多数项目要到出事才补的东西。</p>
+  <p>本次共 17 条建议，其中 <b>P0 四条</b>都属于「几十行代码、风险直线下降」的类型，建议本周内处理。</p>
+  <div class="scores">
+    <div class="score"><b>B</b><span>模块化</span></div>
+    <div class="score"><b>B-</b><span>冗余</span></div>
+    <div class="score"><b>B+</b><span>易用性</span></div>
+    <div class="score"><b>B</b><span>复用性</span></div>
+    <div class="score"><b>B</b><span>安全性</span></div>
+  </div>
+</div>
+
+<!-- ========== 1 安全性 ========== -->
+<h2><span class="n">01</span>安全性</h2>
+<p class="hint">按「可被利用的难易 × 影响面」排序。前四条是 P0。</p>
+
+<div class="card">
+  <h3>待核查模块 9 个接口全部复用 <code>excel:import</code> 权限 <span class="tag t0">P0</span> <span class="tag t1">已确认跳过</span></h3>
+  <div class="loc">backend/src/modules/pending.ts:31,59,75,104,148,246,259,281,301</div>
+  <div class="row"><div class="k">问题</div><div class="v">「补录身份证 / 确认入库 / 忽略」与「Excel 批量导入」共用一个权限码。两件事的风险等级差一个数量级：前者改一个人，后者可覆盖全库。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">① 为实现补录功能，管理员不得不给人开 Excel 导入权（最小权限失守）；② 只给了 <code>person:create</code> 的自定义角色，建档人<b>看不到自己刚建的待核查记录</b>——这正是 v2.1.1 遗留在提交正文里的待决问题，根因就在这里。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">新增两个权限码 <code>pending:view</code>（列表/详情）、<code>pending:review</code>（补录/确认/忽略/删除），V0xx 迁移里给 USER 角色补授，代码里把 9 处 <code>requirePermission</code> 换掉。建档路径本身不动。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">约 1 小时。1 个迁移 + 9 行替换 + 前端 pending 页 2 处 <code>hasPermission</code>。</div></div>
+</div>
+
+<div class="card">
+  <h3>普通用户默认被授予全部业务权限，含批量导入 <span class="tag t0">P0</span> <span class="tag t1">已确认跳过</span></h3>
+  <div class="loc">backend/src/db/migrations/V002__seed_data.sql:47-51</div>
+  <div class="row"><div class="k">问题</div><div class="v">授权模型是「黑名单」：<code>SELECT 2,id FROM sys_permission WHERE code NOT IN (user:*, system:*, audit:view)</code>。除删除人员外，普通用户拥有一切——包括 <code>excel:import</code>（批量写入）、<code>tag:manage</code>（改他人标签）、<code>person:export</code>（导出全库含身份证号）。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">一个网格员账号泄露即可导出全库个人敏感信息，或通过导入接口批量篡改档案。黑名单模型每新增一个权限码都会自动授予所有人，属于「默认不安全」。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">改成白名单 + 分角色：新增「网格员」角色只给 <code>person:view/create/edit/status</code> + <code>family:view</code> + <code>pending:view/review</code>；「村务管理员」再给导入导出与标签管理。迁移里先把现有 USER 用户的权限固化（避免升级后突然无权），再调整为白名单。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">半天。需要一次上线沟通（用户会感知到权限变化），建议与 P0 第一条一起做。</div></div>
+</div>
+
+<div class="card">
+  <h3>bcrypt 同步 API 阻塞事件循环 <span class="tag t0">P0</span> <span class="tag t1">未采用（实测无收益）</span></h3>
+  <div class="loc">backend/src/utils/crypto.ts:5,9 · 调用点：auth.ts 登录/改密、user.ts 建号改密</div>
+  <div class="row"><div class="k">问题</div><div class="v"><code>bcrypt.hashSync / compareSync</code> 在 cost=10 下单次约 60–100ms，期间<b>整个 Node 进程停摆</b>。本项目是单容器单进程部署，没有多副本分担。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">早晨集中上班时 20 人同时登录 → 串行阻塞约 1.6 秒，期间所有人的请求（包括正在拍照上传的现场作业）全部排队。这恰好是村务系统最典型的使用峰值。登录限流按 IP 计，挡不住这种「正常并发」。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">改用 <code>bcrypt.hash()</code> / <code>bcrypt.compare()</code>（Promise 版），把 <code>crypto.ts</code> 的两个函数改成 async，同步调整 4 处调用点（都是 async 路由，改动局部）。顺带把 cost 提到 12（异步后单次耗时不再影响吞吐，可以换更强哈希）。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">30 分钟。注意 <code>verifyPassword</code> 在登录失败分支里被调用，签名变更要一并改。</div></div>
+  <div class="row"><div class="k">复核</div><div class="v"><b>本条建议经实测后未采用。</b><code>bcryptjs</code> 的异步实现按 <code>MAX_EXECUTION_TIME = 100ms</code> 切片、每片之间用 <code>nextTick</code> 让出，而 cost=10 单次 hash 实测约 90ms、compare 约 74ms——<b>不到 100ms 就不会让出，整段仍是同步跑完</b>。实测 async 版 cost=10 总耗时 82ms、期间事件循环只 tick 了 1 次，与同步版无差别。要让分片真正生效必须把 cost 提到 11–12（实测 148–326ms），但那会让每次登录更慢，在「数人使用、登录并发极低」的场景下得不偿失。<b>结论：改 async 是假修复，保持 <code>hashSync/compareSync</code> + cost=10。</b>若将来换用原生 <code>bcrypt</code>（C++ 绑定，跑在线程池）或改用 argon2，此条应重开。</div></div>
+</div>
+
+<div class="card">
+  <h3>缺少安全响应头 + CORS 配置自相矛盾 <span class="tag t0">P0</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/app.ts:28-30（无 helmet）· <code>cors({origin: … , credentials: true})</code></div>
+  <div class="row"><div class="k">问题</div><div class="v">① 未引入 helmet，全局缺 <code>X-Frame-Options</code>、<code>X-Content-Type-Options</code>、<code>Referrer-Policy</code>（只有 file.ts:457 对单个响应设了 nosniff）；② <code>CORS_ORIGIN</code> 默认 <code>'*'</code> 时代码走 <code>origin: true</code>（反射任意来源）却同时开了 <code>credentials: true</code>。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">缺 X-Frame-Options → 后台可被第三方页面 iframe 套嵌（点击劫持：诱导管理员点「确认删除」）。CORS 反射任意来源意味着任何网站都能读取本系统的 API 响应——目前用 Bearer token 存 localStorage，攻击者拿不到 token 就调不通，风险因此被压住，但这层防护是「碰巧有效」而非设计如此。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">① <code>npm i helmet</code> 后 <code>app.use(helmet())</code>；② 把 <code>CORS_ORIGIN</code> 默认值改成空（不配即不允许跨域，同源部署本就无需 CORS），<code>credentials</code> 直接置 false（本项目不用 cookie）。共 3 行改动。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">20 分钟。唯一风险是现有反向代理若跨域部署需在 .env 显式配置——deploy/.env.example 里加注释说明即可。</div></div>
+</div>
+
+<div class="card">
+  <h3>JWT 无撤销机制，改密码后旧 token 仍有效 7 天 <span class="tag t1">P1</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/middleware/auth.ts:14-17（payload 仅 uid/username）· auth.ts:76 改密不失效</div>
+  <div class="row"><div class="k">问题</div><div class="v">token 签名里不含任何「凭据版本」。停用账号靠每次请求查 <code>active</code> 挡住了，但<b>改密码不会让已签发的 token 失效</b>。有效期刚从 12h 延长到 7d，这个窗口也放大了 14 倍。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">手机丢失后改密码，捡到手机的人仍能继续使用整整 7 天（离线队列还会继续往服务端写数据）。这是延长有效期带来的直接副作用，需要配套机制。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">在 <code>sys_user</code> 加 <code>token_version INT DEFAULT 0</code>，signToken 时写入 payload，authMiddleware 里与缓存中的用户版本比对，不一致即 401；改密码 / 停用 / 重置密码时 <code>token_version + 1</code> 并失效缓存。App 与 PC 都已有统一的 401 处理，无需改客户端。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">2 小时（含一个迁移、一次 loadAuthContext 的字段扩展、2 条单测）。</div></div>
+</div>
+
+<div class="card">
+  <h3>上传接口不限制文件大小 <span class="tag t1">P1</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/modules/file.ts:281-290</div>
+  <div class="row"><div class="k">问题</div><div class="v">代码注释明确写「不限制文件大小（由 nginx client_max_body_size 与磁盘空间约束）」。这个假设只在流量必经 nginx 时成立。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">容器端口若被直接暴露（或 nginx 配置被改），一个 10GB 请求即可打满磁盘，且 multer 是流式落盘，攻击者无需通过鉴权之外的任何门槛（权限只需 person:edit）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v"><code>multer({ limits: { fileSize: 20 * 1024 * 1024, files: 1 } })</code>。现场照片单张 2–5MB、合同 PDF 通常 &lt;10MB，20MB 足够；超出时加一条「文件过大，单张不超过 20MB」的中文提示（multer 默认错误文案是英文）。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">15 分钟。需在 errorHandler 里识别 <code>LIMIT_FILE_SIZE</code> 才不暴露英文报错。</div></div>
+</div>
+
+<div class="card">
+  <h3>审计日志原样存储身份证号与手机号 <span class="tag t2">P2</span></h3>
+  <div class="loc">backend/src/middleware/audit.ts:5（SENSITIVE_KEYS 只含凭证）+ :71 全量 req.body</div>
+  <div class="row"><div class="k">问题</div><div class="v">脱敏白名单只有 password/token/secret，身份证号、手机号、住址原样进 <code>audit_log</code>。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">审计表成了第二份全量敏感信息副本（数据量还随每次编辑翻倍）。查看权限已收在 <code>audit:view</code>（仅管理员），所以不是越权问题，而是「最小必要」与「一处泄露变两处」的问题。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">把 <code>idCard</code>、<code>phone</code>、<code>liveAddress</code> 等加入脱敏规则，保留后 4 位（<code>3301********1234</code>）。审计的用途是「谁在什么时候改了什么字段」，不需要原值。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">20 分钟 + 需要确认审计列表页是否需要展示原文。</div></div>
+</div>
+
+<div class="card">
+  <h3>密码策略偏弱 <span class="tag t2">P2</span></h3>
+  <div class="loc">backend/src/modules/user.ts:34 · auth.ts:69（均为 <code>min(8)</code>，无复杂度、无首次改密）</div>
+  <div class="row"><div class="k">问题</div><div class="v">只校验长度。初始口令 <code>Admin@123456</code> 虽已从登录页撤下（v2.1.2），但仍会写进部署文档，且没有「首次登录强制改密」。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">加最小复杂度（大小写+数字，或长度 ≥10 二选一，避免乡村用户被复杂度折腾）；<code>sys_user</code> 加 <code>must_change_password</code>，登录响应带上标记，前端首次登录跳到改密页。优先级低于上面几条——用户被密码规则挡住后写在便签上贴显示器，安全性反而下降。</div></div>
+</div>
+
+<!-- ========== 2 模块化 ========== -->
+<h2><span class="n">02</span>模块化</h2>
+<p class="hint">后端模块划分是按业务切的（12 个模块），边界清晰；主要问题是单文件体量。</p>
+
+<div class="card">
+  <h3><code>person.ts</code> 985 行承担 5 类职责 <span class="tag t1">P1</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/modules/person.ts（13 个路由 + 4 个内部函数）</div>
+  <div class="row"><div class="k">问题</div><div class="v">这一个文件里同时有：列表查询构建（:121-234，114 行 SQL 拼装 + 标签筛选 + 户籍守卫）、详情 VO 映射（:51）、残疾档案子资源（:295）、标签全量同步与互斥（:341-511）、CRUD（:512-709）、状态变更与批量（:762-858）。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">改「列表筛选」和改「标签互斥」落在同一个文件里，后者是写路径、前者是读路径，review 时容易漏看另一半；<code>syncPersonTags</code> 已被 pending.ts 跨模块导入，说明它其实是领域服务而非路由私有函数。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">按「薄路由 + 服务层」拆四块，<b>不追求文件数少，只求职责单一</b>：<br>
+    ① <code>services/person/query.ts</code>（列表条件构建 + VO 映射，:51-234，可与现有 tagQuery 单测合并）；<br>
+    ② <code>services/person/tags.ts</code>（syncPersonTags / deactivateHukouFloatingCounterpart，:341-511，已有跨模块消费者，本就该独立）；<br>
+    ③ <code>services/person/disability.ts</code>（:295-340）；<br>
+    ④ <code>person.ts</code> 只留路由声明与事务边界（目标 &lt;400 行）。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">3–4 小时，纯搬运 + 导出调整，无逻辑变更。建议在跑通 <code>vitest</code> 的前提下做，用现有 308 条单测当安全网。</div></div>
+</div>
+
+<div class="card">
+  <h3>Android <code>Common.kt</code> 单文件 23 个组件 <span class="tag t2">P2</span></h3>
+  <div class="loc">android/.../ui/components/Common.kt（1,089 行）</div>
+  <div class="row"><div class="k">问题</div><div class="v">从 <code>AppTopBar</code> 到 <code>parseHexColor</code> 全在一处，跨 4 类语义：反馈态（Loading/Error/Empty/OfflineBanner）、展示（StatCard/SectionCard/InfoRow/TagPill）、表单（FieldBox/FormField/PlainField/SearchField/InlineSearchField/PickerField）、按钮（PrimaryButton/ActionButton）。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">目前还能接受（单文件组件库在 Compose 项目里常见，跳转靠 IDE 搜索即可）；但当文件超过 1500 行后会明显拖慢定位。不改也能活，属于技术债观察项。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">下次新增组件时顺手按 4 类拆成 <code>Feedback.kt</code> / <code>Display.kt</code> / <code>Form.kt</code> / <code>Buttons.kt</code>，同包内 <code>private</code> 改 <code>internal</code> 即可，调用点无需改 import。不要专门为此开一次迭代。</div></div>
+</div>
+
+<div class="card">
+  <h3>值得保留的结构 <span class="tag t2">参考</span></h3>
+  <div class="loc">backend/src/modules/excel/（8 个文件按「模板/校验/导入/导出/任务」拆分）</div>
+  <div class="row"><div class="k">说明</div><div class="v">这是全项目拆分得最好的一处：<code>shared.ts</code> 放公共校验、<code>importPerson / importKeyGroup / importSpecial</code> 各自独立、<code>tasks.ts</code> 管任务状态。其它模块要拆时照着这个粒度走即可。</div></div>
+</div>
+
+<!-- ========== 3 冗余 ========== -->
+<h2><span class="n">03</span>冗余</h2>
+<p class="hint">最该处理的是第一条：它不是「代码重复」，而是「口径重复」，v2.1.2 用户报的 bug 正是它的产物。</p>
+
+<div class="card">
+  <h3>「户籍/流动互斥」规则存在三份独立实现 <span class="tag t1">P1</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/utils/hukouFloating.ts（SQL 判定）· frontend/src/views/person/index.vue:462-475（preferHukouTags）· android/.../PersonEditScreen.kt（chip 互斥）</div>
+  <div class="row"><div class="k">问题</div><div class="v">同一个业务规则，后端用 SQL 子查询查 <code>tag_definition.code</code> 实现，PC 用 <code>codeOf.get(id) === 'HUKOU_POP'</code> 实现，APP 用 Kotlin 再写一遍。三份代码里都硬编码了这两个 code。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">这就是 v2.1.2「后端流动人口与前端标签对不上」的根因类型——同一规则三处实现，改一处必然漂移。下次若加第三组互斥（比如「在册/迁出」），要改三个仓库位置 + 3 次发布（后端、PC、APP 各自独立发版，APP 还有用户不升级的长尾）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">改成<b>数据驱动</b>：<code>tag_definition</code> 加 <code>exclusive_group VARCHAR(32) NULL</code>，给 FLOATING_POP 与 HUKOU_POP 都设 <code>'DOMICILE'</code>。<code>/api/tags</code> 原样带出该字段；后端 SQL 守卫改成按 group 判断；PC 与 APP 拿到标签列表后按 group 做单选（同一 group 只保留一个），不再认识任何具体 code。以后新增互斥组只需一条 UPDATE。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">后端 2 小时（迁移 + 守卫改写 + 单测更新）；前端各 1 小时。可与 P0 权限改造同批发布。</div></div>
+</div>
+
+<div class="card">
+  <h3>分页参数 schema 在 11 个模块里各写一遍 <span class="tag t2">P2</span></h3>
+  <div class="loc">audit / excel/tasks / family / file / grid / keygroup / ledger / pending / person / tag / user</div>
+  <div class="row"><div class="k">问题</div><div class="v"><code>page: z.coerce.number().int().min(1).default(1)</code> + <code>pageSize: …max(N)</code>，差异只在 max 值（100/200/500）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">在 <code>utils/response.ts</code> 旁边加 <code>utils/pagination.ts</code>：<code>pageSchema(maxPageSize = 100)</code> 返回 <code>{page, pageSize}</code>，各模块 <code>z.object({...pageSchema(200), keyword: …})</code>。同时把 <code>(q.page - 1) * q.pageSize</code> 收敛成 <code>offsetOf(q)</code>——这行在 11 处重复，是「深翻页算出负数 offset」这类 bug 的高发点。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">1 小时，机械替换，风险极低。</div></div>
+</div>
+
+<div class="card">
+  <h3><code>SELECT *</code> 20 处 <span class="tag t2">P2</span></h3>
+  <div class="loc">grep "SELECT \*" backend/src → 20 处（file.ts:448,469、person.ts、pending.ts 等）</div>
+  <div class="row"><div class="k">问题</div><div class="v">把行内所有列读进内存再取其中几个。<code>person</code> 表含身份证号、手机号、住址；<code>file_info</code> 含 <code>storage_path</code> 绝对路径。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">① 后续若有人直接把行对象塞进响应，敏感字段无意识外泄（file.ts 已验证过：<code>SELECT *</code> 后手工挑字段返回，靠自觉）；② 表加列后所有 <code>SELECT *</code> 的传输量自动变大。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">只改「会返回给客户端」的那些查询，明确列出列名。<code>SELECT *</code> 在「取整行做内部处理」的场景（如 DELETE 前查 storage_path）可保留。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">1–2 小时，纯改写。</div></div>
+</div>
+
+<div class="card">
+  <h3>前端 12 个列表页各自实现「加载 / 分页 / 弹窗 / 提交」 <span class="tag t2">P2</span></h3>
+  <div class="loc">frontend/src/views/*/index.vue（31 处 <code>async function load</code> / <code>const loading = ref</code>）</div>
+  <div class="row"><div class="k">问题</div><div class="v">已抽了 <code>useListUrlSync</code>（筛选条件与 URL 同步，做得很好），但 load/分页/loading 标志/保存 loading 仍是逐页手写，细节各不相同：有的页 <code>saving</code>，有的 <code>submitting</code>，有的没有防重复提交。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">在现有 <code>useListUrlSync</code> 旁加 <code>useCrudList</code>：接收 <code>fetcher</code>、<code>filters</code>，返回 <code>{list, total, loading, query, reload, onPageChange}</code>，并把「提交中禁用按钮」做成 <code>withSubmitting()</code>。先改造 2 个页面验证，再逐步迁移——不要一次全改。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">4–6 小时（含逐个迁移），属于结构性优化，收益在中长期。</div></div>
+</div>
+
+<!-- ========== 4 复用性 ========== -->
+<h2><span class="n">04</span>复用性</h2>
+
+<div class="card">
+  <h3>前后端 DTO 三处手写维护 <span class="tag t1">P1</span></h3>
+  <div class="loc">backend zod schema · frontend/src/types · android/.../dto/（MetaDto.kt 198 行、PersonDto.kt 等）</div>
+  <div class="row"><div class="k">问题</div><div class="v">同一份契约三处手抄，无任何自动校验。字段改名（如 <code>residentCount → floatingCount</code>，v2.0.2 实际发生过）时，靠人记得改三处。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">v2.0.2 那次改名靠 DtoBindingTest 兜住了（做得好），但那条测试是手写的断言，本身也要跟着改——闭环靠人。APP 还有用户不升级的长尾，字段不兼容时会静默丢字段（Gson/Moshi 默认忽略未知字段），表现为「某个数字一直是 0」。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">分两步，代价递增：<br>
+    ① <b>低成本（推荐先做）</b>：给 zod schema 加一次 <code>toJSONSchema</code> 导出 <code>docs/api-contract.json</code>，CI 里比对该文件是否有未提交变更——契约变了却忘了同步就红。半小时，立刻能挡住「改了后端忘改前端」。<br>
+    ② <b>根治</b>：接 OpenAPI 生成 TS 类型与 Kotlin data class（openapi-generator 的 kotlin 模板）。需 1–2 天，且要给 Kotlin 生成物加 <code>@Serializable</code> 适配，建议排到下个版本。<br>
+    ③ 无论如何保留 <code>DtoBindingTest</code>，它现在是唯一的运行时网。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">① 半小时 · ② 1–2 天。</div></div>
+</div>
+
+<div class="card">
+  <h3>「where + params」拼接模式散在 11 个模块 <span class="tag t2">P2</span></h3>
+  <div class="loc">每个模块都有 <code>const where = ['1=1']; const params = []; if (…) { where.push(…); params.push(…) }</code></div>
+  <div class="row"><div class="k">问题</div><div class="v">模式完全一致但各写各的，占位符与参数靠人工对齐。这是最难靠 review 发现的一类 bug（参数错位 → 查出别人的数据，且不报错）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">抽 <code>utils/queryBuilder.ts</code>：<code>const qb = new Where(); qb.eq('p.status', st); qb.like('p.name', kw); qb.raw(sql, params); qb.toSql()</code>，内部可断言 <code>占位符数 === params.length</code>（这次修 tagQuery 单测时验证过这个不变量确实能抓错）。改动量比想象小：每个模块是把重复的 3 行换成 1 行。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">先做 1 个模块试点（建议 person 列表，最复杂），验证后再推广。试点 2 小时。</div></div>
+</div>
+
+<div class="card">
+  <h3>已有良好复用，应继续沿用的模式 <span class="tag t2">参考</span></h3>
+  <div class="row"><div class="k">说明</div><div class="v"><code>utils/hukouFloating.ts</code>、<code>utils/tagQuery.ts</code>、<code>utils/focusGroups.ts</code>、<code>utils/idcard.ts</code>、<code>utils/date.ts</code>、<code>file.ts</code> 里的 <code>buildFileNames / stampOf</code>——这些都是「纯函数 + 单测」的写法，正是本项目测试能到 308 条的原因。<b>新逻辑优先走这个模式</b>，而不是塞进路由处理器里。</div></div>
+</div>
+
+<!-- ========== 5 易用性 ========== -->
+<h2><span class="n">05</span>易用性</h2>
+<p class="hint">先肯定：权限判断覆盖是完整的（12 个页面共 47 处 <code>hasPermission</code>，删除/导入等高危按钮都有 v-if），筛选条件同步进 URL，APP 有离线队列 + 断点续传 + 返回保位置。以下都是细节缺口。</p>
+
+<div class="card">
+  <h3>并发编辑无冲突提示（后写覆盖先写） <span class="tag t1">P1</span> <span class="tag t2">已修 v2.2.0</span></h3>
+  <div class="loc">backend/src/modules/person.ts:618（PUT 全量 UPDATE，无 version 校验）</div>
+  <div class="row"><div class="k">问题</div><div class="v">PC 端两个窗口同时编辑同一人、或网格员离线补录的记录晚于他人修改入库——后到的直接覆盖，无任何提示。<code>SyncEngine</code> 对<b>队列内</b>失败处理得很细（可恢复/不可恢复/网络中断分别处理），但对<b>服务端已被他人修改</b>这种情况没有感知。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">村务场景里两人同时走访同一户很常见（网格员 + 村干部）。被覆盖的一方看不到任何痕迹，只在「变更记录」里留下一条不知道谁对谁错的 UPDATE。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">乐观锁：<code>person</code> 表已有 <code>updated_at</code>，PUT 请求带上它，<code>UPDATE … WHERE id = ? AND updated_at = ?</code>；影响行数为 0 时返回 409 <code>CONFLICT</code> + 当前最新值，前端提示「该记录已被 {修改人} 于 {时间} 修改，是否覆盖？」。APP 侧在 SyncEngine 里把 409 归为「不可恢复 + 需人工处理」（复用现有 <code>exhausted</code> 机制即可）。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">后端 2 小时（注意 <code>updated_at</code> 需精确到秒且由 DB 维护）；前端提示 1 小时；APP 半小时。</div></div>
+</div>
+
+<div class="card">
+  <h3>工作台首屏无加载态，3 个页面无空状态 <span class="tag t2">P2</span></h3>
+  <div class="loc">dashboard/index.vue（无 v-loading，数字初值为 0）· family / ledger / user/index.vue（无 <code>el-empty</code>）</div>
+  <div class="row"><div class="k">问题</div><div class="v">dashboard 在数据回来前会先渲染 10 张卡片、全部显示 <code>0</code>；表格页筛不到数据时显示空白表格而非「没有符合条件的记录」。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">「0」是一个<b>看起来有效</b>的值，用户会以为真的没人——比空白更误导。村务系统里数字本身就是结论（「常住人口 0」会引发误判）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">① dashboard 卡片在 <code>loading</code> 时显示 <code>—</code>（不是 0），并给统计区加 <code>v-loading</code>；② 三个页面补 <code>el-empty description="没有符合条件的数据"</code> + 一个「清空筛选」按钮。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">1 小时。</div></div>
+</div>
+
+<div class="card">
+  <h3>401 处理用整页跳转，丢当前上下文 <span class="tag t2">P2</span></h3>
+  <div class="loc">frontend/src/api/request.ts:32-36</div>
+  <div class="row"><div class="k">问题</div><div class="v"><code>window.location.href = '/login'</code> —— 整页刷新，未携带 <code>redirect</code>，登录后统一回工作台；多个并发请求同时 401 会连续跳转多次。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">正在填写的表单内容全丢（村务场景里录入一个人的信息可能花 3–5 分钟）。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">改用 router 跳转并带上 <code>?redirect=当前路由</code>（login/index.vue:55 本来就已支持读这个参数，只是没人传）；加一个模块级 <code>redirecting</code> 标志防止重复跳转。表单内容可考虑存 sessionStorage 草稿——但先做前两条更划算。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">30 分钟。</div></div>
+</div>
+
+<div class="card">
+  <h3>列表请求无竞态防护 <span class="tag t2">P2</span></h3>
+  <div class="loc">frontend/src/views/*/index.vue 的 load() · request.ts（未配 AbortController）</div>
+  <div class="row"><div class="k">问题</div><div class="v">快速切换筛选条件 / 连续翻页时，多个请求并发在途，先发后到的旧响应会覆盖新结果。</div></div>
+  <div class="row"><div class="k">影响</div><div class="v">用户看到「筛选了 A，列表显示的还是 B」——在数据量大的村（3000+ 人）里响应时间不一致，这个概率不低。这类问题用户通常描述为「筛选有时候不好使」，极难复现。</div></div>
+  <div class="row"><div class="k">建议</div><div class="v">在 <code>get()</code> 里支持传 <code>signal</code>；页面侧用请求序号（<code>const seq = ++counter; if (seq !== counter) return;</code>）是最省事的写法，不用改 axios 配置。</div></div>
+  <div class="row"><div class="k">代价</div><div class="v">20 分钟（配合上面 <code>useCrudList</code> 一起做，一次到位）。</div></div>
+</div>
+
+<!-- ========== 6 路线 ========== -->
+<h2><span class="n">06</span>建议的执行顺序</h2>
+<p class="hint">按「风险下降 / 工时」排序。P0 四条互不依赖，可并行；原建议合成一个 v2.2.0 发布——<b>已按此执行，前三批全部落地在 v2.2.0</b>（第二批的权限模型部分按用户要求跳过）。</p>
+
+<table>
+  <thead>
+    <tr><th style="width:70px">批次</th><th style="width:32%">内容</th><th>为什么放这个位置</th><th style="width:70px">工时</th><th style="width:76px">落地</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>第一批</b><br><span style="color:var(--ok);font-size:12px">已完成</span></td>
+      <td>helmet + CORS 收紧<br>上传大小限制（20MB + 中文提示）<br>bcrypt 改异步（<b>实测无收益，未采用</b>）</td>
+      <td>改动极小、风险下降明显，且不触碰业务逻辑。已并入 v2.2.0 一起发布（未单开小版本）。</td>
+      <td>约 1 h</td>
+      <td><span class="tag t2">v2.2.0</span></td>
+    </tr>
+    <tr>
+      <td><b>第二批</b><br><span style="color:var(--ok);font-size:12px">已完成<br>（缩减）</span></td>
+      <td><b>已做</b>：JWT token_version 撤销<br><s>待核查权限码拆分（pending:view / pending:review）</s><br><s>角色白名单化 + 新增「网格员」角色</s></td>
+      <td><b>权限模型部分经确认不做</b>：该部署场景仅数人使用，不划分网格员权限。只保留其中与权限模型无关、且能解决真实问题（改密后旧 token 仍然有效）的 token 撤销机制。</td>
+      <td>约 1 h<br><span style="font-size:12px;color:var(--ink3)">原估 4 h</span></td>
+      <td><span class="tag t2">v2.2.0</span></td>
+    </tr>
+    <tr>
+      <td><b>第三批</b><br><span style="color:var(--ok);font-size:12px">已完成</span></td>
+      <td>户籍/流动互斥改数据驱动（exclusive_group）<br>person.ts 拆服务层（993 → 676 行）<br>乐观锁 409</td>
+      <td>结构性问题，需要一次完整回归；此时第一批的安全网（helmet 等）已就位。</td>
+      <td>约 8 h</td>
+      <td><span class="tag t2">v2.2.0</span></td>
+    </tr>
+    <tr>
+      <td><b>第四批</b><br><span style="color:var(--p2);font-size:12px">有空再说</span></td>
+      <td>分页 schema 收敛 · SELECT * 收敛 · 前端 useCrudList<br>dashboard 加载态 / 空状态 / 401 跳转 / 请求竞态<br>审计脱敏 · 密码策略 · OpenAPI 契约校验</td>
+      <td>都是局部改良，可随日常功能迭代顺手带，不必单开一批。</td>
+      <td>约 10 h</td>
+      <td><span class="tag t1">未开始</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 style="margin-top:26px">v2.2.0 实际改动与审计建议的偏差</h3>
+<div class="good">
+  <ul>
+    <li><b>bcrypt 改异步未采用（保持同步 + cost=10）。</b>实测 <code>bcryptjs</code> 的异步版本按 <code>MAX_EXECUTION_TIME = 100ms</code> 切片让出，而 cost=10 单次 hash 只需约 90ms、compare 约 74ms，<b>整段根本不会让出事件循环</b>——改 async 只多出一层 Promise，收益为零。真要分片生效须把 cost 提到 11–12（单次 148–326ms），但那样每次登录都更慢，而本项目登录并发极低。结论：<b>改 async 是个假修复，不做</b>。</li>
+    <li><b>helmet 关掉了 CSP 与 HSTS。</b>CSP 作用于 HTML 文档，而本服务只返 JSON 和附件字节（页面由 nginx 提供）；HSTS 会把「局域网 HTTP 部署」直接锁在门外。只开其余默认项即可。</li>
+    <li><b>上传上限刻意留在后端 multer，nginx 的 <code>client_max_body_size</code> 保持 0。</b>multer 是流式落盘，超限立即中止并删临时文件，且能返回带数值的中文提示；nginx 的 413 只会吐 HTML 错误页，前端 axios 取不到 message。</li>
+    <li><b>互斥口径用「数据驱动」而非「编码判断」。</b><code>tag_definition</code> 新增 <code>exclusive_group</code> / <code>exclusive_priority</code>，HUKOU_POP=10、FLOATING_POP=20 同组，因此仍保持「户籍优先」，但代码里不再出现这两个编码。读侧（统计/标签人数/列表筛选）与写侧（建档/编辑/单加/批量/两条 Excel 导入/存量迁移）全部读同一份数据，此前「工作台数字 ≠ 标签页数字」的口径分裂随之消除。</li>
+  </ul>
+</div>
+
+<h2><span class="n">07</span>不需要改的地方</h2>
+<div class="good">
+  <ul>
+    <li><b>不要为了「分层」而引入 Prisma / TypeORM / NestJS。</b>现在的 <code>mysql2 + 手写参数化 SQL</code> 在 77 个路由规模下完全够用，且 SQL 可读、EXPLAIN 方便。ORM 会带来「查出来的 SQL 不可控」这个新问题，而本项目没有跨库/多方言需求。</li>
+    <li><b>不要给所有接口加限流。</b>只有登录需要——业务接口都要求鉴权，且网格员批量上传照片是正常行为，限流会伤真实用户。真要防刷，先做「同一 token 的文件上传并发上限」。</li>
+    <li><b>不要把 token 从 localStorage 搬到 httpOnly cookie。</b>看似更安全，但 APP 端要改 OkHttp 拦截器、PC 要处理 CSRF，投入产出比很差。真正该做的是保持「无 v-html」这条纪律（当前全项目 0 处，很好）并补 CSP。</li>
+    <li><b>不要重写 Android 的离线队列。</b><code>OfflineQueue + SyncEngine</code> 的分层（纯逻辑可测、失败分可恢复/不可恢复、网络中断即中止整轮省电）比多数商业 App 做得细，只在上面补乐观锁冲突识别即可。</li>
+  </ul>
+</div>
+
+<footer>
+  审计基于 v2.1.2（commit 9a27638）源码静态阅读，未连接真实数据库与真机。<br>
+  涉及运行时行为的结论（并发、磁盘、渲染）均标注为推断，需部署后验证。<br>
+  <b>2026-10-18 追记：</b>前三批已落地并随 <b>v2.2.0</b> 发布；第二批的权限模型部分（权限码拆分 / 角色白名单 / 网格员角色）经确认不做——该部署场景仅数人使用，不划分网格员权限。各条标题后的标记即为当前状态。
+</footer>
+
+</div>
+</body>
+</html>

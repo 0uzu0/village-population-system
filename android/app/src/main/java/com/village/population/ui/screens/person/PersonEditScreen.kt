@@ -93,6 +93,8 @@ data class PersonEditUiState(
     val relation: String = "",
     val remark: String = "",
     val idCardHint: String? = null,
+    /** 读取档案时拿到的版本号，保存时原样带回（乐观锁） */
+    val rowVersion: Int = 0,
     /** 读取档案失败（整页错误） */
     val loadError: String? = null,
     /** 表单校验/保存失败（表单内提示） */
@@ -157,6 +159,9 @@ class PersonEditViewModel(
                         liveAddress = p.liveAddress.orEmpty(),
                         relation = p.relation.orEmpty(),
                         remark = p.remark.orEmpty(),
+                        // 编辑期间的并发保护：保存时带回这个版本号，
+                        // 有人先改过就会 409 而不是被静默覆盖
+                        rowVersion = p.rowVersion,
                     )
                 }
             } catch (e: Exception) {
@@ -226,6 +231,8 @@ class PersonEditViewModel(
             // 全量覆盖语义：把多选框里的值原样提交。
             // 编辑时 tagIds 已回填，用户没改动也会原样发回，不会被清空
             tagIds = s.tagIds,
+            // 新增时不带版本号（后端跳过校验），编辑时必须带
+            rowVersion = if (isEdit) s.rowVersion else null,
         )
 
         viewModelScope.launch {
@@ -433,15 +440,38 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                                 selected = tag.id in state.tagIds,
                                 onClick = {
                                     vm.onField { s ->
-                                        val toggled = if (tag.id in s.tagIds) s.tagIds - tag.id else s.tagIds + tag.id
-                                        val ids = if (tag.code == "HUKOU_POP" || tag.code == "FLOATING_POP") {
-                                            val counterpartIds = state.personTags
-                                                .filter { it.code == (if (tag.code == "HUKOU_POP") "FLOATING_POP" else "HUKOU_POP") }
-                                                .map { it.id }
-                                                .toSet()
-                                            if (tag.id in s.tagIds) toggled else toggled - counterpartIds
-                                        } else toggled
-                                        s.copy(tagIds = ids)
+                                        if (tag.id in s.tagIds) {
+                                            s.copy(tagIds = s.tagIds - tag.id)
+                                        } else {
+                                            // 标签互斥（数据驱动）：互斥组与组内优先级都来自
+                                            // 后端标签字典，客户端不再判断具体编码。
+                                            // 同组已有更高优先级的标签时不加这一枚——
+                                            // 后端同样会拒绝，在这里就先给出正确结果。
+                                            val group = tag.exclusiveGroup
+                                            if (group == null) {
+                                                s.copy(tagIds = s.tagIds + tag.id)
+                                            } else {
+                                                val stronger = s.personTags.any {
+                                                    it.exclusiveGroup == group &&
+                                                        it.id != tag.id &&
+                                                        it.exclusivePriority < tag.exclusivePriority &&
+                                                        it.id in s.tagIds
+                                                }
+                                                if (stronger) {
+                                                    s
+                                                } else {
+                                                    val weaker = s.personTags
+                                                        .filter {
+                                                            it.exclusiveGroup == group &&
+                                                                it.id != tag.id &&
+                                                                it.exclusivePriority > tag.exclusivePriority
+                                                        }
+                                                        .map { it.id }
+                                                        .toSet()
+                                                    s.copy(tagIds = (s.tagIds + tag.id) - weaker)
+                                                }
+                                            }
+                                        }
                                     }
                                 },
                             )

@@ -4,6 +4,7 @@ import com.village.population.data.remote.dto.AddTagRequest
 import com.village.population.data.remote.dto.ApiEnvelope
 import com.village.population.data.remote.dto.BatchIdsRequest
 import com.village.population.data.remote.dto.ChangePasswordRequest
+import com.village.population.data.remote.dto.ChangePasswordResponse
 import com.village.population.data.remote.dto.DashboardDto
 import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.LoginRequest
@@ -52,7 +53,7 @@ interface ApiService {
     suspend fun me(): ApiEnvelope<UserDto>
 
     @PUT("api/auth/password")
-    suspend fun changePassword(@Body body: ChangePasswordRequest): VoidEnvelope
+    suspend fun changePassword(@Body body: ChangePasswordRequest): ApiEnvelope<ChangePasswordResponse>
 
     // ---------------- 人员 ----------------
 

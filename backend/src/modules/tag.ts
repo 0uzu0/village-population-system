@@ -5,7 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
-import { tagPersonCountExclusiveGuard } from '../utils/hukouFloating';
+import { tagPersonCountExclusiveGuard } from '../utils/tagExclusive';
 import { z } from 'zod';
 
 const router = Router();
@@ -68,8 +68,10 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
     // 关联人数与重点人群/工作台同口径：个人标签只数在册人员（死亡/迁出不计入），
     // 家庭标签数在册家庭。删除前的引用计数见下方 DELETE，那里不过滤状态——
     // 只要有人引用过就不能删，避免删掉带历史数据的标签。
-    // 「流动人口」另加户籍优先守卫（utils/hukouFloating.ts）：否则历史上
-    // 同时挂了户籍/流动两类标签的人会被两边各数一次，工作台与标签页对不上。
+    // 互斥标签按「组内优先级」只数最优先的那一枚（utils/tagExclusive.ts）：
+    // 否则历史上同时挂了户籍/流动两类标签的人会被两边各数一次，
+    // 工作台与标签页的数字就对不上。判定来自 tag_definition 的互斥列，
+    // 以后新增互斥组这里不用改。
     `SELECT td.*, c.name AS category_name,
        (SELECT COUNT(*) FROM person_tag pt
           WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'

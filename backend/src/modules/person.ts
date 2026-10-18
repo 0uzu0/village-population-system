@@ -4,193 +4,27 @@ import { authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
-import { validateIdCard, birthFromIdCard, genderFromIdCard } from '../utils/idcard';
-import { calcAge } from '../utils/age';
 import { formatDate, today } from '../utils/date';
 import { genPersonNo } from '../utils/id';
-import { buildPersonTagFilter, buildAgeFilter } from '../utils/tagQuery';
-import { DISABILITY_LEVELS, disabilityLevelLabel } from '../utils/disability';
-import {
-  PERSON_STATUSES,
-  activeSql,
-  STATUS_LABELS,
-  isInactiveStatus,
-} from '../utils/personStatus';
+import { DISABILITY_LEVELS } from '../utils/disability';
+import { PERSON_STATUSES, STATUS_LABELS, isInactiveStatus } from '../utils/personStatus';
 import { z } from 'zod';
-import { queryEnum } from '../utils/schema';
+import { prepareIdentity, toPersonVO, listQuerySchema, buildPersonListQuery } from '../services/personQuery';
+import { syncPersonTags, resolveTagExclusivity } from '../services/personTags';
+import { saveDisability } from '../services/personDisability';
+import { deactivateGroupPeers } from '../utils/tagExclusive';
 
 const router = Router();
 router.use(authMiddleware);
-
-/**
- * 处理身份证/手机号：校验 + 提取出生日期/性别（明文存储）。
- * 身份证是出生日期与性别的权威来源：提取不到（无证/日期不合法）时才由调用方回退到表单值。
- */
-function prepareIdentity(body: any) {
-  const result: Record<string, string | null> = {};
-  if (body.idCard) {
-    const check = validateIdCard(body.idCard.trim().toUpperCase());
-    if (!check.valid) throw new AppError(`身份证号：${check.message}`);
-    const normalized = check.normalized!;
-    result.id_card = normalized;
-    const birth = birthFromIdCard(normalized);
-    if (birth) result.birth_date = birth;
-    const gender = genderFromIdCard(normalized);
-    if (gender) result.gender = gender;
-  }
-  if (body.phone) {
-    result.phone = body.phone;
-  }
-  if (body.phoneBackup) {
-    result.phone_backup = body.phoneBackup;
-  }
-  return result;
-}
-
-/** 将 DB 行转为前端展示结构 */
-function toPersonVO(row: any): any {
-  return {
-    id: row.id,
-    personNo: row.person_no,
-    name: row.name,
-    formerName: row.former_name,
-    gender: row.gender,
-    birthDate: formatDate(row.birth_date),
-    age: calcAge(row.birth_date),
-    idCard: row.id_card,
-    phone: row.phone,
-    phoneBackup: row.phone_backup,
-    hukouAddress: row.hukou_address,
-    liveAddress: row.live_address,
-    village: row.village,
-    gridId: row.grid_id,
-    gridName: row.grid_name,
-    familyId: row.family_id,
-    familyName: row.family_name,
-    relation: row.relation,
-    status: row.status,
-    statusDate: formatDate(row.status_date),
-    remark: row.remark,
-    // 重点人群服务台账
-    bankAccount: row.bank_account,
-    subsidyAmount: row.subsidy_amount != null ? Number(row.subsidy_amount) : null,
-    familyCondition: row.family_condition,
-    healthAssessment: row.health_assessment,
-    // 残疾专项档案：只有 person_disability 有记录时才返回对象，
-    // 列名与 person_disability 字段同名（无歧义，person 表无同名列）
-    disability: row.disability_person_id
-      ? {
-          type: row.disability_type,
-          level: row.disability_level,
-          levelLabel: disabilityLevelLabel(row.disability_level),
-          card: row.disability_card,
-          guardianName: row.guardian_name,
-          guardianPhone: row.guardian_phone,
-          remark: row.disability_remark,
-        }
-      : null,
-    dataSource: row.data_source,
-    updatedAt: row.updated_at,
-    tags: row.tags || [],
-  };
-}
-
-const listQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(20),
-  keyword: z.string().optional(),
-  gender: z.string().optional(),
-  gridId: z.coerce.number().optional(),
-  familyId: z.coerce.number().optional(),
-  village: z.string().optional(),
-  status: z.string().optional(),
-  /**
-   * 只看在册（默认开启）：排除死亡/迁出人员，避免日常翻名单时混进历史档案。
-   * 显式按 status 筛选时以 status 为准；前端传 activeOnly=false 可查看全部。
-   */
-  activeOnly: z.enum(['true', 'false']).optional().default('true'),
-  minAge: z.coerce.number().optional(),
-  maxAge: z.coerce.number().optional(),
-  tagIds: z.string().optional(),
-  tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
-  sortBy: z.string().optional(),
-  sortOrder: queryEnum(['asc', 'desc'], 'asc'),
-});
 
 /** 人员列表（分页 + 多条件筛选 + 标签筛选） */
 router.get('/', requirePermission('person:view'), async (req: Request, res: Response) => {
   const q = listQuerySchema.parse(req.query);
   const { page, pageSize } = q;
 
-  const where: string[] = ['1=1'];
-  const params: any[] = [];
-
-  if (q.keyword) {
-    // 姓名 / 身份证号 / 手机号（含备用）模糊匹配
-    where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
-    params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`);
-  }
-  if (q.gender) {
-    where.push('p.gender = ?');
-    params.push(q.gender);
-  }
-  if (q.gridId) {
-    where.push('p.grid_id = ?');
-    params.push(q.gridId);
-  }
-  if (q.familyId) {
-    where.push('p.family_id = ?');
-    params.push(q.familyId);
-  }
-  if (q.village) {
-    where.push('p.village = ?');
-    params.push(q.village);
-  }
-  if (q.status) {
-    where.push('p.status = ?');
-    params.push(q.status);
-  } else if (q.activeOnly !== 'false') {
-    where.push(activeSql('p'));
-  }
-
-  // 年龄区间
-  const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');
-  if (ageFilter.where) {
-    where.push(ageFilter.where.replace(/^ AND /, ''));
-    params.push(...ageFilter.params);
-  }
-
-  // 标签筛选
-  if (q.tagIds) {
-    const tagIds = q.tagIds.split(',').map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
-    const tagFilter = buildPersonTagFilter({ tags: tagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
-    if (tagFilter.where) {
-      where.push(tagFilter.where.replace(/^ AND /, ''));
-      params.push(...tagFilter.params);
-    }
-  }
-
-  const whereSql = where.join(' AND ');
-
-  // 排序字段白名单：sortBy 来自前端查询参数，禁止直接拼接进 SQL，否则可被注入。
-  // key 同时接受前端表格的 snake_case 与 camelCase 写法
-  const SORTABLE: Record<string, string> = {
-    id: 'p.id',
-    name: 'p.name',
-    person_no: 'p.person_no',
-    personNo: 'p.person_no',
-    age: 'p.birth_date',
-    birth_date: 'p.birth_date',
-    birthDate: 'p.birth_date',
-    gender: 'p.gender',
-    grid_id: 'p.grid_id',
-    gridId: 'p.grid_id',
-    status: 'p.status',
-    updated_at: 'p.updated_at',
-    updatedAt: 'p.updated_at',
-  };
-  const orderBy = q.sortBy && SORTABLE[q.sortBy] ? SORTABLE[q.sortBy] : 'p.id';
-  const direction = q.sortOrder === 'desc' ? 'DESC' : 'ASC';
+  // 条件拼装与排序白名单都在 services/personQuery.ts（读侧服务），
+  // 路由这里只需要拿到 where / 排序，专注在「取数 + 组装响应」上。
+  const { whereSql, params, orderBy, direction } = buildPersonListQuery(q);
 
   // 计数与取页互不依赖，并行发出（原先串行，列表接口要等两次往返）
   const [totalRow, rows] = await Promise.all([
@@ -288,168 +122,7 @@ router.get('/:id', requirePermission('person:view'), async (req: Request, res: R
   return ok(res, vo);
 });
 
-/**
- * 残疾专项档案读写（person_disability 与 person 一对一）。
- * 全空视为「不是残疾人」→ 删除记录；否则 upsert（INSERT ... ON DUPLICATE KEY UPDATE）。
- */
-async function saveDisability(
-  conn: { query: (sql: string, params?: any[]) => Promise<any> },
-  personId: number,
-  d: NonNullable<z.infer<typeof personSchema>['disability']>,
-) {
-  const values = [
-    d.disabilityType || null,
-    d.disabilityLevel || null,
-    d.disabilityCard || null,
-    d.guardianName || null,
-    d.guardianPhone || null,
-    d.remark || null,
-  ];
-  const empty = values.every((v) => v === null);
-  if (empty) {
-    await conn.query('DELETE FROM person_disability WHERE person_id = ?', [personId]);
-    return;
-  }
-  await conn.query(
-    `INSERT INTO person_disability
-       (person_id, disability_type, disability_level, disability_card, guardian_name, guardian_phone, remark)
-     VALUES (?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE
-       disability_type = VALUES(disability_type),
-       disability_level = VALUES(disability_level),
-       disability_card  = VALUES(disability_card),
-       guardian_name   = VALUES(guardian_name),
-       guardian_phone  = VALUES(guardian_phone),
-       remark          = VALUES(remark)`,
-    [personId, ...values]
-  );
-}
 
-/**
- * 户籍/流动口径互斥（2026-10 v2.1.0）：
- * 流动人口 = 户籍不在本村、暂住本村的人员；总人口 = 户籍人口 + 流动人口，
- * 两个口径**不存在交叉**，因此一人身上两个标签不允许同时生效。
- *
- * 冲突时的裁决规则是「户籍优先」：户籍是事实属性、流动是暂态，
- * 同时声明两类时保留户籍、停用流动。
- */
-
-/** 增量打标签后，按「户籍优先」停用该人对侧的生效标签并留痕。
- *  db 为 mysql2 风格连接（pool / 事务 conn 均可，query 返回 [rows, fields]）。
- *  用于 POST /:id/tags（单加）与 /batch-tags（批量 ADD）；
- *  全量覆盖语义的 syncPersonTags 靠 next 过滤天然互斥，不走这里。 */
-async function deactivateHukouFloatingCounterpart(
-  db: { query: (sql: string, params?: any[]) => Promise<any> },
-  personId: number,
-  addedTagIds: number[],
-  userId: number
-) {
-  const defRes = await db.query(
-    `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
-  );
-  const defRows: any[] = Array.isArray(defRes[0]) ? defRes[0] : defRes;
-  const hukouIds = new Set<number>();
-  const floatingIds = new Set<number>();
-  for (const r of defRows) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
-
-  // 户籍优先：同一批同时声明两类时只保留户籍（前端漏拦时的兜底）
-  const addedHukou = addedTagIds.some((id) => hukouIds.has(id));
-  if (addedHukou) addedTagIds = addedTagIds.filter((id) => !floatingIds.has(id));
-  const addedFloating = addedTagIds.some((id) => floatingIds.has(id));
-
-  const counterpart = addedHukou ? floatingIds : addedFloating ? hukouIds : null;
-  if (!counterpart || counterpart.size === 0) return;
-
-  const ids = [...counterpart];
-  const ph = ids.map(() => '?').join(',');
-  const selRes = await db.query(
-    `SELECT id, tag_id FROM person_tag WHERE person_id = ? AND tag_id IN (${ph}) AND status = 'ACTIVE'`,
-    [personId, ...ids]
-  );
-  const rows: any[] = Array.isArray(selRes[0]) ? selRes[0] : selRes;
-  if (!rows?.length) return;
-  await db.query(
-    `UPDATE person_tag SET status = 'INACTIVE', expire_date = CURDATE()
-     WHERE person_id = ? AND tag_id IN (${ph}) AND status = 'ACTIVE'`,
-    [personId, ...ids]
-  );
-  for (const r of rows) {
-    await db.query(
-      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark)
-       VALUES ('PERSON', ?, ?, 'REMOVE', ?, ?)`,
-      [personId, r.tag_id, userId, '户籍/流动口径互斥，自动移除']
-    );
-  }
-}
-
-/**
- * 把人员的标签同步成给定的 tagIds —— **全量覆盖**语义。
- *
- * 传 `[]` 表示清空标签，未传该字段（undefined）才表示「不动标签」，
- * 因此调用方要先判断 `body.tagIds !== undefined` 再调这里。
- *
- * 放进人员主表写入的同一个事务：标签挂不上有可能失败（标签 id 不存在等），
- * 分开写会留下「人建好了但标签没挂上」的残缺档案。
- * update 路由本身不在事务里，此时传入 pool（与 saveDisability 的做法一致）。
- *
- * 每一处增删都写 tag_change_log，与批量打标签保持同样的留痕口径。
- * 待核查确认入库（pending.ts）也用它回挂建档时选择的标签。
- */
-export async function syncPersonTags(
-  conn: { query: (sql: string, params?: any[]) => Promise<any> },
-  personId: number,
-  tagIds: number[],
-  userId: number,
-) {
-  const [curRows] = (await conn.query(
-    `SELECT tag_id FROM person_tag WHERE person_id = ? AND status = 'ACTIVE'`,
-    [personId]
-  )) as any[];
-  const current = new Set<number>((curRows || []).map((r: any) => Number(r.tag_id)));
-  const next = new Set<number>(tagIds);
-
-  // 户籍/流动互斥：全量覆盖下「不在 next 里的一律停用」本身就保证了互斥，
-  // 唯一要处理的是新集合同时声明两类 —— 按户籍优先剔除流动标签
-  // （被剔除的流动标签从未写入，无需留痕）。
-  const [defRows] = (await conn.query(
-    `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
-  )) as any[];
-  const hukouIds = new Set<number>();
-  const floatingIds = new Set<number>();
-  for (const r of defRows || []) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
-  if (tagIds.some((id) => hukouIds.has(id))) {
-    for (const fid of floatingIds) next.delete(fid);
-  }
-
-  // 移除：当前有、新列表里没有 → 置为 INACTIVE（保留历史，不物理删除）
-  for (const tagId of current) {
-    if (next.has(tagId)) continue;
-    await conn.query(
-      `UPDATE person_tag SET status = 'INACTIVE', expire_date = CURDATE()
-       WHERE person_id = ? AND tag_id = ? AND status = 'ACTIVE'`,
-      [personId, tagId]
-    );
-    await conn.query(
-      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES ('PERSON', ?, ?, 'REMOVE', ?)`,
-      [personId, tagId, userId]
-    );
-  }
-
-  // 新增：新列表里有、当前没有生效记录 → 插入 ACTIVE
-  for (const tagId of next) {
-    if (current.has(tagId)) continue;
-    await conn.query(
-      `INSERT INTO person_tag (person_id, tag_id, status, created_by)
-       SELECT ?, ?, 'ACTIVE', ? FROM DUAL
-       WHERE NOT EXISTS (SELECT 1 FROM person_tag WHERE person_id = ? AND tag_id = ? AND status = 'ACTIVE')`,
-      [personId, tagId, userId, personId, tagId]
-    );
-    await conn.query(
-      `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id) VALUES ('PERSON', ?, ?, 'ADD', ?)`,
-      [personId, tagId, userId]
-    );
-  }
-}
 
 const personSchema = z.object({
   name: z.string().min(1, '姓名必填').max(64),
@@ -506,6 +179,11 @@ status: z.enum(PERSON_STATUSES).optional(),
    * 「人建好了但标签没挂上」的中间态。
    */
   tagIds: z.array(z.coerce.number().int().positive()).max(50, '标签数量过多').optional(),
+  /**
+   * 乐观锁版本号（V022）：编辑时带回打开表单时读到的值。
+   * 可选是为了向后兼容——老客户端不带就不校验；新客户端一律带。
+   */
+  rowVersion: z.coerce.number().int().min(0).optional(),
 });
 
 /** 新增人员 */
@@ -621,6 +299,13 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   if (!existing) throw new AppError('人员不存在', 404, 'NOT_FOUND');
 
   const body = personSchema.partial().parse(req.body);
+
+  // 乐观锁前置检查（V022）：版本对不上说明打开表单之后有人改过这行，
+  // 这时连一个字段都不该写——真正的兜底在同一事务的 UPDATE 条件里。
+  // 不传 rowVersion 的老客户端跳过校验（向后兼容）。
+  if (body.rowVersion !== undefined && Number(existing.row_version ?? 0) !== body.rowVersion) {
+    throw new AppError('该人员档案已被他人修改，请刷新后重试', 409, 'VERSION_CONFLICT');
+  }
   /**
    * 只把「非空」的身份证/手机号交给 prepareIdentity 做校验与派生。
    * 注意必须区分 undefined（未提交，保持原值）与 ''（用户清空）：
@@ -672,29 +357,50 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
   // 发放金额：0 是合法值（享受但金额为 0），故用 ?? 而非 || 判断
   if (body.subsidyAmount !== undefined) { sets.push('subsidy_amount = ?'); params.push(body.subsidyAmount ?? null); }
 
-  // 残疾档案与人员主表一并写入：独立 upsert，不影响 sets 动态更新的判定
-  if (body.disability !== undefined) {
-    await saveDisability(pool, id, body.disability);
-  }
+  // 整段写入放进一个事务：主表、残疾档案、标签、变更流水要么全成、要么全不动。
+  // 之前是四条独立语句，中途失败会留下「主表改了、标签没改」这种半截状态。
+  await withTransaction(async (conn) => {
+    const hasFieldChanges = sets.length > 0;
 
-  // 标签全量覆盖：未传该字段表示不动标签（避免「只想改地址却把标签清了」）
-  if (body.tagIds !== undefined) {
-    await syncPersonTags(pool, id, body.tagIds, req.user!.id);
-  }
-
-  if (sets.length) {
+    sets.push('row_version = row_version + 1');
     sets.push('updated_by = ?');
     params.push(req.user!.id);
     params.push(id);
-    await execute(`UPDATE person SET ${sets.join(', ')} WHERE id = ?`, params);
 
-    // 记录变更
-    await execute(
-      `INSERT INTO person_change_log (person_id, change_type, reason, operator_id)
-       VALUES (?, 'UPDATE', ?, ?)`,
-      [id, body.changeReason || null, req.user!.id]
+    // 版本守卫：即使前置检查通过，到真正 UPDATE 之间仍有极短的并发窗口，
+    // 所以条件里再比一次。affectedRows 为 0 说明这行已被别人改过。
+    let versionSql = '';
+    if (body.rowVersion !== undefined) {
+      versionSql = ' AND row_version = ?';
+      params.push(body.rowVersion);
+    }
+    const [updateResult] = await conn.query(
+      `UPDATE person SET ${sets.join(', ')} WHERE id = ?${versionSql}`,
+      params
     );
-  }
+    if (body.rowVersion !== undefined && Number((updateResult as any)?.affectedRows ?? 0) === 0) {
+      // 抛出去由 withTransaction 回滚，残疾/标签的写入一起撤销
+      throw new AppError('该人员档案已被他人修改，请刷新后重试', 409, 'VERSION_CONFLICT');
+    }
+
+    // 残疾档案与人员主表一并写入：独立 upsert，不影响 sets 动态更新的判定
+    if (body.disability !== undefined) {
+      await saveDisability(conn, id, body.disability);
+    }
+
+    // 标签全量覆盖：未传该字段表示不动标签（避免「只想改地址却把标签清了」）
+    if (body.tagIds !== undefined) {
+      await syncPersonTags(conn, id, body.tagIds, req.user!.id);
+    }
+
+    if (hasFieldChanges) {
+      await conn.query(
+        `INSERT INTO person_change_log (person_id, change_type, reason, operator_id)
+         VALUES (?, 'UPDATE', ?, ?)`,
+        [id, body.changeReason || null, req.user!.id]
+      );
+    }
+  });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:edit', request: { id }, result: 'SUCCESS', ip: req.ip });
   return ok(res, { id }, '更新成功');
@@ -887,14 +593,32 @@ router.post('/:id/tags', requirePermission('tag:manage'), async (req: Request, r
     if (dup) throw new AppError('该人员已关联此标签', 409, 'DUPLICATE_TAG');
   }
 
-  // 户籍/流动口径互斥（户籍优先）：加户籍标签先停用其生效的流动标签，反之亦然
-  await deactivateHukouFloatingCounterpart(pool, id, [body.tagId], req.user!.id);
+  // 标签互斥（数据驱动）：同组已有优先级更高的标签时不允许再挂一枚。
+  // 读数侧本来就不认被压制的那枚，写进去只会让用户以为打上了、统计里却不生效。
+  const exclusivity = await resolveTagExclusivity(pool, id, [body.tagId]);
+  if (exclusivity.blocked.length) {
+    const b = exclusivity.blocked[0];
+    throw new AppError(`该人员已是「${b.name}」，两者互斥，请先移除后再添加`, 409, 'EXCLUSIVE_TAG_CONFLICT');
+  }
 
+  const nextStatus = tag.need_audit ? 'PENDING' : 'ACTIVE';
   await execute(
     `INSERT INTO person_tag (person_id, tag_id, effect_date, expire_date, status, basis, created_by)
      VALUES (?,?,?,?,?,?,?)`,
-    [id, body.tagId, body.effectDate || null, body.expireDate || null, tag.need_audit ? 'PENDING' : 'ACTIVE', body.basis || null, req.user!.id]
+    [id, body.tagId, body.effectDate || null, body.expireDate || null, nextStatus, body.basis || null, req.user!.id]
   );
+  // 写入后再停用同组旧标签：中途失败时用户手里至少还留着原来那枚。
+  // 待审核的标签还没生效，不能因此把旧标签停掉。
+  if (nextStatus === 'ACTIVE' && exclusivity.groups.length) {
+    await deactivateGroupPeers(
+      pool,
+      id,
+      exclusivity.groups,
+      exclusivity.writable,
+      req.user!.id,
+      '标签互斥组：添加了优先级更高的标签，自动移除同组旧标签'
+    );
+  }
   await execute(
     `INSERT INTO tag_change_log (object_type, object_id, tag_id, action, operator_id, remark) VALUES ('PERSON', ?, ?, 'ADD', ?, ?)`,
     [id, body.tagId, req.user!.id, body.basis || null]
@@ -927,28 +651,32 @@ const batchTagSchema = z.object({
 router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request, res: Response) => {
   const { personIds, tagIds, action, basis } = batchTagSchema.parse(req.body);
 
+  // 被互斥规则挡下的「人员×标签」条数，返回给前端提示用
+  let skipped = 0;
   await withTransaction(async (conn) => {
-    // 户籍/流动口径互斥（户籍优先）：批量 ADD 时若同一批声明了两类，
-    // 只保留户籍标签；随后对每个人员停用其对侧的生效标签。
+    // 标签互斥（数据驱动）：同一批里同组只留优先级最高的一枚，再按每个人的
+    // 现有标签裁决「谁该被压制」——同一批标签对不同人的结果可能不同
+    //（有人已是户籍人口，给他加流动人口就该跳过）。
     // 整批在事务里，任何一条失败全部回滚，不会出现「一半人互斥一半人没处理」。
-    let effectiveTagIds = tagIds;
-    if (action === 'ADD') {
-      const defRes = await conn.query(
-        `SELECT id, code FROM tag_definition WHERE code IN ('HUKOU_POP','FLOATING_POP')`
-      );
-      const defRows: any[] = Array.isArray(defRes[0]) ? defRes[0] : defRes;
-      const hukouIds = new Set<number>();
-      const floatingIds = new Set<number>();
-      for (const r of defRows || []) (r.code === 'HUKOU_POP' ? hukouIds : floatingIds).add(Number(r.id));
-      if (tagIds.some((tid) => hukouIds.has(tid))) {
-        effectiveTagIds = tagIds.filter((tid) => !floatingIds.has(tid));
-      }
-      for (const pid of personIds) {
-        await deactivateHukouFloatingCounterpart(conn, pid, effectiveTagIds, req.user!.id);
-      }
-    }
     for (const pid of personIds) {
-      for (const tagId of effectiveTagIds) {
+      let personTagIds = tagIds;
+      if (action === 'ADD') {
+        const exclusivity = await resolveTagExclusivity(conn, pid, tagIds);
+        personTagIds = exclusivity.writable;
+        skipped += exclusivity.blocked.length;
+        // 写入前先停用同组旧标签：keep 里是本批将写入的标签，不会被自己停掉
+        if (exclusivity.groups.length) {
+          await deactivateGroupPeers(
+            conn,
+            pid,
+            exclusivity.groups,
+            personTagIds,
+            req.user!.id,
+            '标签互斥组：批量添加了优先级更高的标签，自动移除同组旧标签'
+          );
+        }
+      }
+      for (const tagId of personTagIds) {
         if (action === 'ADD') {
           await conn.query(
             `INSERT INTO person_tag (person_id, tag_id, status, basis, created_by)
@@ -972,7 +700,7 @@ router.post('/batch-tags', requirePermission('tag:manage'), async (req: Request,
   });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: `person:batch_tags:${action}`, request: { personIds: personIds.length, tagIds }, result: 'SUCCESS', ip: req.ip });
-  return ok(res, { total: personIds.length, processed: personIds.length, skipped: 0 }, '批量操作完成');
+  return ok(res, { total: personIds.length, processed: personIds.length, skipped }, '批量操作完成');
 });
 
 /** 人员下拉选项（网格、家庭） */

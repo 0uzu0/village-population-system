@@ -278,10 +278,21 @@ const storage = multer.diskStorage({
   },
 });
 
-// 不限制文件大小（由 nginx client_max_body_size 与磁盘空间约束）；
-// 仅保留扩展名白名单这道安全闸门，挡住非 PDF / 图片的上传。
+/**
+ * 单个附件的大小上限。
+ *
+ * 现场照片 2–5MB、合同扫描件通常 <10MB，20MB 留了充足余量。
+ * 为什么必须在这一层拦：nginx 的 client_max_body_size 是 0（不设上限），
+ * 一旦容器端口被直接暴露、或外层代理配置被改动，一个超大请求就能把磁盘写满。
+ * multer 是流式落盘，到达上限会立即中止并删除已写入的临时文件，
+ * 所以这里的限制同时也是磁盘保护。
+ */
+const MAX_ATTACHMENT_MB = 20;
+const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
+
 const upload = multer({
   storage,
+  limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if ((ALLOWED_EXT as readonly string[]).includes(ext)) cb(null, true);
@@ -289,11 +300,27 @@ const upload = multer({
   },
 });
 
+/**
+ * 单文件上传中间件，把 multer 的体积超限错误转成中文提示。
+ *
+ * 不在全局 errorHandler 里统一转：那里同时服务 Excel 导入（上限 10MB），
+ * 只能给一句笼统的「文件大小超出限制」，用户不知道该压到多少。
+ */
+function uploadSingle(req: Request, res: Response, next: NextFunction): void {
+  upload.single('file')(req, res, (err: any) => {
+    if (err && err.code === 'LIMIT_FILE_SIZE') {
+      next(new AppError(`文件过大，单个附件不超过 ${MAX_ATTACHMENT_MB}MB`, 400, 'FILE_TOO_LARGE'));
+      return;
+    }
+    next(err);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 上传
 // 注意：/upload 必须定义在 /:id 之前，否则 'upload' 会被 :id 捕获
 // ---------------------------------------------------------------------------
-router.post('/upload', preUploadGuard, upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', preUploadGuard, uploadSingle, async (req: Request, res: Response) => {
   const file = req.file;
   if (!file) throw new AppError('未接收到文件', 400, 'NO_FILE');
 
