@@ -67,7 +67,10 @@
               </template>
             </el-table-column>
             <el-table-column prop="code" label="编码" min-width="160" show-overflow-tooltip>
-              <template #default="{ row }"><span class="mono">{{ row.code }}</span></template>
+              <template #default="{ row }">
+                <span class="mono">{{ row.code }}</span>
+                <el-tag v-if="row.is_system" size="small" type="info" effect="plain" style="margin-left: 6px">系统</el-tag>
+              </template>
             </el-table-column>
             <el-table-column prop="alias" label="别名" width="100">
               <template #default="{ row }">{{ row.alias || '—' }}</template>
@@ -221,7 +224,14 @@
       <el-form :model="form" label-width="100px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="标签名称" required><el-input v-model="form.name" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="标签编码" required><el-input v-model="form.code" placeholder="大写字母/数字/下划线" /></el-form-item></el-col>
+          <el-col :span="12">
+            <el-form-item label="标签编码" required>
+              <el-input v-model="form.code" :disabled="!!form.isSystem" placeholder="大写字母/数字/下划线" />
+              <!-- 系统标签的编码是统计口径的契约：工作台/重点人群/导出都按编码取数，
+                   改完不报错、只是对应数字静默变 0。所以这里直接锁死，只允许改名称。 -->
+              <div v-if="form.isSystem" class="form-hint">系统内建标签，编码参与统计口径，不可修改</div>
+            </el-form-item>
+          </el-col>
           <el-col :span="12"><el-form-item label="所属分类"><el-select v-model="form.categoryId" filterable style="width: 100%"><el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="对象类型"><el-radio-group v-model="form.objectType"><el-radio value="PERSON">个人</el-radio><el-radio value="FAMILY">家庭</el-radio></el-radio-group></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="别名"><el-input v-model="form.alias" placeholder="如 五保户" /></el-form-item></el-col>
@@ -267,7 +277,7 @@ const VIEW_MODE_KEY = 'vp:tag:viewMode';
 const viewMode = ref<'table' | 'card'>((localStorage.getItem(VIEW_MODE_KEY) as 'table' | 'card') || 'table');
 watch(viewMode, (v) => localStorage.setItem(VIEW_MODE_KEY, v));
 const formVisible = ref(false);
-const form = reactive<any>({ id: null, name: '', code: '', categoryId: null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0 });
+const form = reactive<any>({ id: null, name: '', code: '', categoryId: null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0, isSystem: false });
 
 function actionLabel(a: string) { return { ADD: '添加', REMOVE: '移除', DISABLE: '停用', ENABLE: '启用' }[a] || a; }
 
@@ -307,8 +317,8 @@ async function load() {
   } finally { loading.value = false; }
 }
 function doSearch() { query.page = 1; load(); }
-function openCreate() { Object.assign(form, { id: null, name: '', code: '', categoryId: categories.value[0]?.id || null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0 }); formVisible.value = true; }
-function openEdit(row: any) { Object.assign(form, { id: row.id, name: row.name, code: row.code, categoryId: row.category_id, objectType: row.object_type, alias: row.alias || '', color: row.color, description: row.description || '', allowDuplicate: row.allow_duplicate, isSensitive: row.is_sensitive, needAudit: row.need_audit }); formVisible.value = true; }
+function openCreate() { Object.assign(form, { id: null, name: '', code: '', categoryId: categories.value[0]?.id || null, objectType: 'PERSON', alias: '', color: '#3978F6', description: '', allowDuplicate: 0, isSensitive: 0, needAudit: 0, isSystem: false }); formVisible.value = true; }
+function openEdit(row: any) { Object.assign(form, { id: row.id, name: row.name, code: row.code, categoryId: row.category_id, objectType: row.object_type, alias: row.alias || '', color: row.color, description: row.description || '', allowDuplicate: row.allow_duplicate, isSensitive: row.is_sensitive, needAudit: row.need_audit, isSystem: !!row.is_system }); formVisible.value = true; }
 async function saveForm() {
   if (!form.name || !form.code) { ElMessage.warning('请填写名称和编码'); return; }
   saving.value = true;
@@ -436,6 +446,13 @@ onMounted(async () => {
 .cvi-desc { font-size: var(--font-size-xs); color: var(--color-text-regular); min-height: 32px; flex: 1; }
 .cvi-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .cvi-ops { display: flex; gap: 2px; }
+/* 表单里的补充说明（目前用于「系统标签编码不可改」） */
+.form-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-top: 2px;
+}
 
 @media (max-width: 1100px) { .def-summary { grid-template-columns: repeat(3, 1fr); } }
 </style>

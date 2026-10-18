@@ -6,6 +6,7 @@ import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
 import { tagPersonCountExclusiveGuard } from '../utils/tagExclusive';
+import { SYSTEM_TAG_CODES, checkNewTagCode, checkTagCodeChange, isSystemTagCode } from '../utils/systemTags';
 import { z } from 'zod';
 
 const router = Router();
@@ -72,7 +73,11 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
     // 否则历史上同时挂了户籍/流动两类标签的人会被两边各数一次，
     // 工作台与标签页的数字就对不上。判定来自 tag_definition 的互斥列，
     // 以后新增互斥组这里不用改。
+    // is_system：该编码是否为系统内建口径（工作台/重点人群/导出按编码取数）。
+    // 前端据此把「编码」输入框锁死——系统标签的编码一改，对应统计立刻归零，
+    // 而且不会有任何报错。这是 2026-10-18 那次「流动人口恒为 0」的同类风险。
     `SELECT td.*, c.name AS category_name,
+       CASE WHEN td.code IN (${SYSTEM_TAG_CODES.map(() => '?').join(',')}) THEN 1 ELSE 0 END AS is_system,
        (SELECT COUNT(*) FROM person_tag pt
           WHERE pt.tag_id = td.id AND pt.status = 'ACTIVE'
             AND EXISTS (SELECT 1 FROM person p
@@ -82,7 +87,7 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
           WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND f.status = 1) AS family_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id
      WHERE ${whereSql} ORDER BY td.category_id, td.id LIMIT ? OFFSET ?`,
-    [...params, q.pageSize, (q.page - 1) * q.pageSize]
+    [...SYSTEM_TAG_CODES, ...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
   const result: PageResult<any> = { list: rows, total, page: q.page, pageSize: q.pageSize };
   return okPage(res, result);
@@ -106,6 +111,31 @@ router.post('/definitions', requirePermission('tag:manage'), async (req: Request
   const body = defSchema.parse(req.body);
   const dup = await queryOne<any>('SELECT id FROM tag_definition WHERE code = ?', [body.code]);
   if (dup) throw new AppError('标签编码已存在', 409, 'DUPLICATE_TAG_CODE');
+
+  // 编码别名拦截：FLOATING_PERSON / RESIDENT_POP 不是「另一枚标签」，
+  // 而是同一口径的错误编码。放它落库的后果是「标签页有人数、工作台恒为 0」，
+  // 且全程不报错——所以在这里挡住，并直接告知正确编码。
+  const codeCheck = checkNewTagCode(body.code);
+  if (!codeCheck.ok) throw new AppError(codeCheck.message, 409, codeCheck.errorCode);
+
+  // 同名拦截：名称相同、编码不同 = 同一枚标签的两个副本。
+  // 系统标签额外提示「直接启用」，因为用户往往没意识到内建那枚只是被停用了。
+  // COALESCE：历史上 tag_definition.object_type 存在 NULL，直接等值比较会漏掉这些行。
+  const sameName = await queryOne<any>(
+    "SELECT id, code, enabled FROM tag_definition WHERE name = ? AND COALESCE(object_type, 'PERSON') = ?",
+    [body.name, body.objectType]
+  );
+  if (sameName) {
+    if (isSystemTagCode(sameName.code)) {
+      throw new AppError(
+        `系统已内建同名标签「${body.name}」（编码 ${sameName.code}），无需重复创建${sameName.enabled ? '' : '；它在列表里是停用状态，启用即可'}`,
+        409,
+        'SYSTEM_TAG_EXISTS'
+      );
+    }
+    throw new AppError(`已存在同名标签「${body.name}」（编码 ${sameName.code}）`, 409, 'DUPLICATE_TAG_NAME');
+  }
+
   const result = await execute(
     `INSERT INTO tag_definition (category_id, name, code, alias, color, description, object_type, allow_duplicate, is_sensitive, need_audit, enabled, created_by)
      VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`,
@@ -118,6 +148,26 @@ router.post('/definitions', requirePermission('tag:manage'), async (req: Request
 router.put('/definitions/:id', requirePermission('tag:manage'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const body = defSchema.parse(req.body);
+
+  const old = await queryOne<any>('SELECT id, code, name FROM tag_definition WHERE id = ?', [id]);
+  if (!old) throw new AppError('标签不存在', 404, 'NOT_FOUND');
+
+  // 系统标签的编码是统计口径的契约：工作台、重点人群、导出模板全按编码取数。
+  // 名称/颜色/说明都可以改，唯独编码不能——改完不会报错，只会让对应统计静默归零。
+  const codeCheck = checkTagCodeChange(old.code, body.code, old.name);
+  if (!codeCheck.ok) throw new AppError(codeCheck.message, 409, codeCheck.errorCode);
+
+  // 原先这里没有编码唯一校验，改成一个已存在的编码会直接撞库报 500（唯一索引），
+  // 前端只能看到「服务器错误」。改成显式的 409 + 中文提示。
+  const dup = await queryOne<any>('SELECT id FROM tag_definition WHERE code = ? AND id <> ?', [body.code, id]);
+  if (dup) throw new AppError('标签编码已存在', 409, 'DUPLICATE_TAG_CODE');
+
+  const sameName = await queryOne<any>(
+    "SELECT id, code FROM tag_definition WHERE name = ? AND COALESCE(object_type, 'PERSON') = ? AND id <> ?",
+    [body.name, body.objectType, id]
+  );
+  if (sameName) throw new AppError(`已存在同名标签「${body.name}」（编码 ${sameName.code}）`, 409, 'DUPLICATE_TAG_NAME');
+
   await execute(
     `UPDATE tag_definition SET category_id = ?, name = ?, code = ?, alias = ?, color = ?, description = ?, object_type = ?, allow_duplicate = ?, is_sensitive = ?, need_audit = ? WHERE id = ?`,
     [body.categoryId, body.name, body.code, body.alias || null, body.color, body.description || null, body.objectType, body.allowDuplicate, body.isSensitive, body.needAudit, id]

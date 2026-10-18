@@ -4,6 +4,7 @@ import { runMigrations } from './db/migrate';
 import { pool, queryOne, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
 import { markStaleImportTasks } from './services/importTask';
+import { checkSystemTags } from './services/systemTagHealth';
 import { logger } from './utils/logger';
 
 // 双保险：即使有未被路由层捕获的 Promise 拒绝，也只记录日志而不打崩进程
@@ -49,6 +50,14 @@ async function main(): Promise<void> {
 
   // 启动时收敛上次崩溃残留、状态卡在「处理中」的导入任务（force：跳过节流）
   await markStaleImportTasks(10, true);
+
+  // 系统标签自检：缺失/停用会让工作台对应卡片恒为 0 且不报错，至少要在日志里说出来。
+  // 包一层 try/catch：自检本身不该阻断启动（它是可观测性，不是前置条件）。
+  try {
+    await checkSystemTags();
+  } catch (err) {
+    logger.warn('system-tag-check-failed', { message: err instanceof Error ? err.message : String(err) });
+  }
 
   const app = createApp();
   const server = app.listen(env.port, () => {
