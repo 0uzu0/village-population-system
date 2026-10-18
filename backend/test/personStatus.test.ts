@@ -89,12 +89,24 @@ describe('人员状态口径（V007）', () => {
 
   it('状态变更双向维护家庭成员关联（转非在册标记离开，改回在册需恢复）', () => {
     const src = fs.readFileSync(path.join(SRC_DIR, 'modules/person.ts'), 'utf8');
-    // 单条与批量两处都要有反向恢复：'SET status = 1, leave_date = NULL'
-    const restore = src.match(/family_member SET status = 1, leave_date = NULL/g) || [];
+    const util = fs.readFileSync(path.join(SRC_DIR, 'utils/familyMembership.ts'), 'utf8');
+
+    // 单条与批量都必须走同一个函数：批量接口曾因「只改单条」漏过口径
+    expect(src).toContain('syncFamilyMemberOnStatusChange');
+    expect(src).toContain('markFamilyMemberOnStatusChange');
+    // 反向恢复只在工具里写一次，模块里再写一份就说明有人绕开了它
+    expect(util).toContain('family_member SET status = 1, leave_date = NULL');
     expect(
-      restore.length,
-      '改回在册时应恢复 family_member（status=1, leave_date=NULL），单条与批量两处都要处理'
-    ).toBeGreaterThanOrEqual(2);
+      src.includes('UPDATE family_member'),
+      'person.ts 不应自己写 family_member 的 UPDATE（请走 utils/familyMembership.ts）'
+    ).toBe(false);
+  });
+
+  it('离户日期记状态生效日期，不再写死 CURDATE', () => {
+    const util = fs.readFileSync(path.join(SRC_DIR, 'utils/familyMembership.ts'), 'utf8');
+    // 补登往年死亡时若记成今天，家庭成员的离户日期与人员档案的死亡日期对不上
+    expect(util).toContain('COALESCE(?, CURDATE())');
+    expect(util).not.toMatch(/SET status = 0, leave_date = CURDATE\(\) WHERE person_id = \?/);
   });
 
   it('统计模块在册口径统一走 activeSql，不再内联状态列表', () => {

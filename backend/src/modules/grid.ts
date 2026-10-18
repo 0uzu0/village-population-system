@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
+import { activeFamilySql } from '../utils/familySql';
 import { FOCUS_GROUPS, allFocusTagCodes } from '../utils/focusGroups';
 import { z } from 'zod';
 
@@ -150,7 +151,7 @@ router.get('/', requirePermission('grid:view'), async (req: Request, res: Respon
   const rows = await query<any>(
     `SELECT g.*,
        (SELECT COUNT(*) FROM person p WHERE p.grid_id = g.id AND ${activeSql('p')}) AS person_count,
-       (SELECT COUNT(*) FROM family f WHERE f.grid_id = g.id AND f.status = 1) AS family_count
+       (SELECT COUNT(*) FROM family f WHERE f.grid_id = g.id AND ${activeFamilySql('f')}) AS family_count
      FROM grid g WHERE ${whereSql} ORDER BY g.id LIMIT ? OFFSET ?`,
     [...params, q.pageSize, (q.page - 1) * q.pageSize]
   );
@@ -206,12 +207,13 @@ router.get('/villages', requirePermission('grid:view'), async (req: Request, res
       villageParams
     ),
     // 2) 每个村庄的家庭数（家庭表没有 village 列，由家庭成员反查）
-    //    口径与原相关子查询保持一致：只要求「成员在册」，未额外过滤 family_member.status。
-    //    若日后要与家庭列表页的「在册家庭」对齐，属于口径变更，需先确认再改。
+    //    口径与工作台/家庭列表统一（v2.4）：成员在户（fm.status=1）且在册（person 在册）。
+    //    原先少了这两个条件，会出现「村庄家庭数 12 户、家庭列表 11 户」的差。
     query<any>(
       `SELECT p.village AS name, COUNT(DISTINCT fm.family_id) AS family_count
          FROM person p
-         JOIN family_member fm ON fm.person_id = p.id
+         JOIN family_member fm ON fm.person_id = p.id AND fm.status = 1
+         JOIN family f ON f.id = fm.family_id AND f.status = 1
         WHERE ${activeWhere}
         GROUP BY p.village`,
       villageParams
@@ -325,8 +327,13 @@ router.delete('/:id', requirePermission('grid:manage'), async (req: Request, res
       [id]
     ))?.cnt || 0
   );
+  // 只数「在册家庭」：全户死亡的家庭在工作台与家庭列表里都已不可见，
+  // 若这里仍拿它挡住删除，用户会看到「提示 1 户、列表 0 户」的矛盾。
   const familyCount = Number(
-    (await queryOne<any>('SELECT COUNT(*) AS cnt FROM family WHERE grid_id = ? AND status = 1', [id]))?.cnt || 0
+    (await queryOne<any>(
+      `SELECT COUNT(*) AS cnt FROM family f WHERE f.grid_id = ? AND ${activeFamilySql('f')}`,
+      [id]
+    ))?.cnt || 0
   );
   if (personCount > 0 || familyCount > 0) {
     throw new AppError(
@@ -336,7 +343,12 @@ router.delete('/:id', requirePermission('grid:manage'), async (req: Request, res
     );
   }
 
-  await execute('DELETE FROM grid WHERE id = ?', [id]);
+  await withTransaction(async (conn) => {
+    // 已灭户的家庭仍有档案（可追溯），但要先解除网格归属，
+    // 否则删掉网格后 family.grid_id 指向一个不存在的网格。
+    await conn.query('UPDATE family SET grid_id = NULL WHERE grid_id = ?', [id]);
+    await conn.query('DELETE FROM grid WHERE id = ?', [id]);
+  });
   await writeAudit({
     userId: req.user!.id,
     username: req.user!.username,

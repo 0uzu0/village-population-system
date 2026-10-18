@@ -5,6 +5,9 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { buildFamilyTagFilter } from '../utils/tagQuery';
+import { activeFamilySql, activeMemberCountSql } from '../utils/familySql';
+import { memberLeaveReason } from '../utils/familyMembership';
+import { isActiveStatus, STATUS_LABELS } from '../utils/personStatus';
 import { z } from 'zod';
 
 const router = Router();
@@ -26,7 +29,10 @@ const listSchema = z.object({
 /** 家庭列表 */
 router.get('/', requirePermission('family:view'), async (req: Request, res: Response) => {
   const q = listSchema.parse(req.query);
-  const where: string[] = ['f.status = 1'];
+  // 在册家庭 = 未停用 + 至少一名在册成员（utils/familySql.ts 是唯一口径）。
+  // 全户死亡/迁出后，这一户不再出现在列表里，也不再计入家庭总数——
+  // 但档案与关联都还在，人员改回在册时它会自动回来。
+  const where: string[] = [activeFamilySql('f')];
   const params: any[] = [];
 
   if (q.keyword) {
@@ -53,8 +59,8 @@ router.get('/', requirePermission('family:view'), async (req: Request, res: Resp
 
   const rows = await query<any>(
     `SELECT f.id, f.family_no, f.address, f.grid_id, f.head_person_id,
-            g.name AS grid_name, hp.name AS head_name,
-            (SELECT COUNT(*) FROM family_member fm WHERE fm.family_id = f.id AND fm.status = 1) AS member_count
+            g.name AS grid_name, hp.name AS head_name, hp.status AS head_status,
+            ${activeMemberCountSql('f')} AS member_count
      FROM family f
      LEFT JOIN grid g ON g.id = f.grid_id
      LEFT JOIN person hp ON hp.id = f.head_person_id
@@ -281,6 +287,35 @@ router.get('/:id', requirePermission('family:view'), async (req: Request, res: R
     },
   }));
 
+  // 离户成员：迁出、死亡、以及被手工移出家庭的人。
+  // 早先这里只查 fm.status = 1，人一死就整行消失——家庭页看不到「已故」，
+  // 家属来核对时会以为数据丢了。去向由人员状态现算（memberLeaveReason），
+  // 不再单独存一列 leave_reason：两个真值迟早对不上。
+  const former = await query<any>(
+    `SELECT fm.id AS memberId, fm.relation, fm.is_householder, fm.join_date, fm.leave_date,
+            p.id, p.name, p.gender, p.birth_date, p.person_no, p.status
+     FROM family_member fm JOIN person p ON p.id = fm.person_id
+     WHERE fm.family_id = ? AND fm.status = 0
+     ORDER BY fm.leave_date IS NULL, fm.leave_date DESC, fm.id DESC`,
+    [id]
+  );
+  fam.formerMembers = former.map((m: any) => ({
+    memberId: m.memberId,
+    relation: m.relation,
+    isHouseholder: !!m.is_householder,
+    joinDate: m.join_date,
+    leaveDate: m.leave_date,
+    leaveReason: memberLeaveReason(m.status),
+    person: {
+      id: m.id, name: m.name, gender: m.gender, birthDate: m.birth_date, personNo: m.person_no,
+      status: m.status,
+    },
+  }));
+
+  // 已灭户：档案还在（可追溯），但不再计入家庭总数与家庭列表
+  fam.activeMemberCount = fam.members.length;
+  fam.dissolved = fam.members.length === 0;
+
   const tags = await query<any>(
     `SELECT ft.id AS linkId, td.id, td.name, td.code, td.color, ft.effect_date, ft.expire_date, ft.status, ft.basis, ft.created_at
      FROM family_tag ft JOIN tag_definition td ON td.id = ft.tag_id WHERE ft.family_id = ? ORDER BY ft.created_at DESC`,
@@ -299,6 +334,7 @@ const familySchema = z.object({
 /** 新增家庭 */
 router.post('/', requirePermission('family:manage'), async (req: Request, res: Response) => {
   const body = familySchema.parse(req.body);
+  if (body.headPersonId) await assertActivePerson(body.headPersonId, 'HEAD');
   const familyNo = genFamilyNo();
   const result = await execute(
     'INSERT INTO family (family_no, address, grid_id, head_person_id) VALUES (?,?,?,?)',
@@ -311,7 +347,7 @@ router.post('/', requirePermission('family:manage'), async (req: Request, res: R
     await execute('UPDATE person SET family_id = ?, relation = ? WHERE id = ?', [fid, 'HEAD', body.headPersonId]);
     await execute(
       `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,1)
-       ON DUPLICATE KEY UPDATE relation = 'HEAD', is_householder = 1`,
+       ON DUPLICATE KEY UPDATE relation = 'HEAD', is_householder = 1, status = 1, leave_date = NULL`,
       [fid, body.headPersonId, 'HEAD']
     );
   }
@@ -326,6 +362,7 @@ router.put('/:id', requirePermission('family:manage'), async (req: Request, res:
   const body = familySchema.parse(req.body);
   const existing = await queryOne<any>('SELECT * FROM family WHERE id = ?', [id]);
   if (!existing) throw new AppError('家庭不存在', 404, 'NOT_FOUND');
+  if (body.headPersonId) await assertActivePerson(body.headPersonId, 'HEAD');
   await execute('UPDATE family SET address = ?, grid_id = ?, head_person_id = ? WHERE id = ?', [
     body.address || null, body.gridId || null, body.headPersonId || existing.head_person_id, id,
   ]);
@@ -338,12 +375,30 @@ const memberSchema = z.object({
   isHouseholder: z.coerce.number().min(0).max(1).default(0),
 });
 
+/**
+ * 户主与在户成员必须是在册人员。
+ *
+ * 已故/迁出的人可以留在家庭的「离户成员」里（档案追溯），但不能被当成
+ * 在户成员或户主——否则家庭人数按在册口径算不出来，列表里还会出现
+ * 「户主：张三（已故）」。明确报错并给出补救方式，比静默接受更好排查。
+ */
+async function assertActivePerson(personId: number, role: 'HEAD' | 'MEMBER'): Promise<void> {
+  const p = await queryOne<any>('SELECT id, name, status FROM person WHERE id = ?', [personId]);
+  if (!p) throw new AppError('人员不存在', 404, 'NOT_FOUND');
+  if (!isActiveStatus(p.status)) {
+    throw new AppError(
+      `「${p.name}」当前为「${STATUS_LABELS[p.status] || p.status}」状态，不能${role === 'HEAD' ? '设为户主' : '加入家庭'}；如确需操作，请先把人员状态改回正常`,
+      400,
+      'PERSON_INACTIVE'
+    );
+  }
+}
+
 /** 添加家庭成员 */
 router.post('/:id/members', requirePermission('family:manage'), async (req: Request, res: Response) => {
   const fid = Number(req.params.id);
   const { personId, relation, isHouseholder } = memberSchema.parse(req.body);
-  const person = await queryOne<any>('SELECT id FROM person WHERE id = ?', [personId]);
-  if (!person) throw new AppError('人员不存在', 404, 'NOT_FOUND');
+  await assertActivePerson(personId, 'MEMBER');
 
   await withTransaction(async (conn) => {
     await conn.query(
@@ -407,6 +462,7 @@ const headSchema = z.object({ personId: z.coerce.number() });
 router.post('/:id/head', requirePermission('family:manage'), async (req: Request, res: Response) => {
   const fid = Number(req.params.id);
   const { personId } = headSchema.parse(req.body);
+  await assertActivePerson(personId, 'HEAD');
   await withTransaction(async (conn) => {
     await conn.query('UPDATE family_member SET is_householder = 0 WHERE family_id = ?', [fid]);
     await conn.query(

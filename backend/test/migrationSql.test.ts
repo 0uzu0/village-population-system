@@ -126,3 +126,27 @@ describe('V024 人口标签随状态联动', () => {
     expect(sql).toMatch(/WHERE pt\.status = 'ACTIVE'/);
   });
 });
+describe('V025 家庭成员关联随人员状态收口', () => {
+  const sql = read('V025__family_member_status_reconcile.sql');
+
+  it('已迁出/死亡的成员标记离开，离户日期取人员档案的状态日期', () => {
+    expect(sql).toMatch(/p\.status IN \('MOVED_OUT', 'DEAD'\)/);
+    expect(sql).toMatch(/SET fm\.status = 0/);
+    expect(sql).toContain('COALESCE(fm.leave_date, p.status_date)');
+  });
+
+  it('反向收口必须排除「手工移出家庭」（那是有意解除归属）', () => {
+    // 手工移除会同时清空 person.family_id，状态联动不会——两者的区别只在这一点
+    expect(sql).toContain('p.family_id IS NOT NULL');
+  });
+
+  it('可重跑：条件收敛到当前状态，第二次执行影响 0 行', () => {
+    expect(sql).toContain('WHERE fm.status = 1');
+    expect(sql).toContain('WHERE fm.status = 0');
+  });
+
+  it('用 JOIN 写法，不撞 MySQL 1093；也不删除任何档案', () => {
+    expect(sql).toMatch(/UPDATE\s+family_member\s+fm\s*\n?JOIN\s+person/i);
+    expect(sql).not.toMatch(/DELETE\s+FROM/i);
+  });
+});

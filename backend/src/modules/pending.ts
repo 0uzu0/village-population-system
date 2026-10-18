@@ -204,9 +204,14 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
     const newId = (r[0] as any).insertId;
 
     if (familyId) {
+      // 与建档同一口径：迁出/死亡的人不能以「在户成员」身份挂进家庭，
+      // 否则家庭详情里他还在，人口统计里他不在。
+      // 这里是新建人员，family_member 不会撞 uk_fm，故用 INSERT IGNORE。
+      const memberStatus = isActiveStatus(personStatus) ? 1 : 0;
       await conn.query(
-        'INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)',
-        [familyId, newId, relation || 'OTHER', relation === 'HEAD' ? 1 : 0]
+        `INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder, status)
+         VALUES (?,?,?,?,?)`,
+        [familyId, newId, relation || 'OTHER', relation === 'HEAD' ? 1 : 0, memberStatus]
       );
       if (relation === 'HEAD') {
         await conn.query('UPDATE family SET head_person_id = ? WHERE id = ? AND head_person_id IS NULL', [newId, familyId]);

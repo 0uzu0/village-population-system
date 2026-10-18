@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok } from '../utils/response';
 import { markStaleImportTasks } from '../services/importTask';
 import { activeSql } from '../utils/personStatus';
+import { activeFamilySql } from '../utils/familySql';
 import { FOCUS_GROUPS, allFocusTagCodes } from '../utils/focusGroups';
 import { buildHukouFloatingCountSql } from '../utils/statisticsSql';
 
@@ -30,7 +31,7 @@ router.get('/dashboard', requirePermission('dashboard:view'), async (req: Reques
     queryOne<any>(
       `SELECT
         (SELECT COUNT(*) FROM person p WHERE ${activeSql('p')}) AS total_population,
-        (SELECT COUNT(*) FROM family f WHERE f.status = 1) AS family_count,
+        (SELECT COUNT(*) FROM family f WHERE ${activeFamilySql('f')}) AS family_count,
         (SELECT COUNT(*) FROM grid g WHERE g.status = 1) AS grid_count,
         ${buildHukouFloatingCountSql()}
       `,

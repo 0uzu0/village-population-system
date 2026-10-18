@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeSql } from '../utils/personStatus';
+import { activeFamilySql } from '../utils/familySql';
 import { tagPersonCountExclusiveGuard } from '../utils/tagExclusive';
 import { SYSTEM_TAG_CODES, checkNewTagCode, checkTagCodeChange, isSystemTagCode } from '../utils/systemTags';
 import { z } from 'zod';
@@ -84,7 +85,7 @@ router.get('/definitions', requirePermission('tag:view'), async (req: Request, r
               WHERE p.id = pt.person_id AND ${activeSql('p')})
             ${tagPersonCountExclusiveGuard('td.code', 'pt.person_id')}) AS person_count,
        (SELECT COUNT(*) FROM family_tag ft JOIN family f ON f.id = ft.family_id
-          WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND f.status = 1) AS family_count
+          WHERE ft.tag_id = td.id AND ft.status = 'ACTIVE' AND ${activeFamilySql('f')}) AS family_count
      FROM tag_definition td LEFT JOIN tag_category c ON c.id = td.category_id
      WHERE ${whereSql} ORDER BY td.category_id, td.id LIMIT ? OFFSET ?`,
     [...SYSTEM_TAG_CODES, ...params, q.pageSize, (q.page - 1) * q.pageSize]

@@ -3,7 +3,10 @@
     <div class="vp-page-header">
       <div>
         <h2 class="vp-page-title">家庭管理</h2>
-        <div class="vp-page-subtitle">共 {{ total }} 户家庭</div>
+        <div class="vp-page-subtitle">
+          共 {{ total }} 户在册家庭
+          <span class="sub-note">（全户迁出或死亡后不再计入，档案仍保留可查）</span>
+        </div>
       </div>
       <div class="header-actions">
         <el-button v-if="auth.hasPermission('family:manage')" @click="openAutoGroup">
@@ -28,8 +31,15 @@
 
       <el-table :data="list" v-loading="loading" row-key="id">
         <el-table-column prop="family_no" label="家庭编号" width="140" />
-        <el-table-column prop="head_name" label="户主" width="100">
-          <template #default="{ row }">{{ row.head_name || '—' }}</template>
+        <el-table-column prop="head_name" label="户主" width="130">
+          <template #default="{ row }">
+            <span>{{ row.head_name || '—' }}</span>
+            <!-- 户主已故/迁出时不自动改选（户主承继各地规矩不同，不能替村里决定），
+                 但要在这里标出来，否则列表上看起来一切正常 -->
+            <el-tag v-if="row.head_name && row.head_status && !isActive(row.head_status)" size="small" type="danger" effect="plain" style="margin-left: 4px">
+              已{{ statusLabel(row.head_status) }}
+            </el-tag>
+          </template>
         </el-table-column>
         <el-table-column prop="address" label="家庭地址" min-width="160" show-overflow-tooltip />
         <el-table-column prop="grid_name" label="所属网格" width="110" />
@@ -78,7 +88,19 @@
           <el-descriptions-item label="地址" :span="2">{{ detail.address || '—' }}</el-descriptions-item>
         </el-descriptions>
 
-        <div class="section-title">家庭成员</div>
+        <div class="section-title">
+          家庭成员
+          <span class="sub-note">在册 {{ detail.activeMemberCount ?? detail.members.length }} 人</span>
+        </div>
+        <el-alert
+          v-if="detail.dissolved"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 10px"
+          title="本户已无在册成员，不再计入家庭总数"
+          description="档案与成员关联都保留，人员改回「正常/迁入」后本户会自动恢复。"
+        />
         <el-table :data="detail.members" size="small">
           <el-table-column prop="person.name" label="姓名" width="90" />
           <el-table-column prop="relation" label="与户主关系" width="100">
@@ -97,6 +119,35 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <!-- 离户成员：人死了不该从家庭里消失，家属来核对时要能看到「已故」和日期 -->
+        <template v-if="detail.formerMembers?.length">
+          <div class="section-title">
+            离户成员
+            <span class="sub-note">共 {{ detail.formerMembers.length }} 人，不计入家庭人口</span>
+          </div>
+          <el-table :data="detail.formerMembers" size="small" class="former-table">
+            <el-table-column prop="person.name" label="姓名" width="90" />
+            <el-table-column prop="relation" label="与户主关系" width="100">
+              <template #default="{ row }">{{ relationLabel(row.relation) }}</template>
+            </el-table-column>
+            <el-table-column label="去向" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="leaveReasonType(row.leaveReason)" effect="plain">
+                  {{ leaveReasonLabel(row.leaveReason) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="离户日期" width="110">
+              <template #default="{ row }">{{ row.leaveDate || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="档案" min-width="90">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openPerson(row.person.id)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
 
         <div v-if="auth.hasPermission('family:manage')" class="add-member">
           <el-select v-model="memberForm.personId" placeholder="选择人员" filterable style="flex: 1">
@@ -194,11 +245,16 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { familyApi, gridApi, personApi, tagApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { isActiveStatus as isActive, statusLabel, type TagType } from '@/utils/personStatus';
+import { toPersonDetail } from '@/utils/nav';
 import TagPill from '@/components/TagPill.vue';
 
+const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 const loading = ref(false);
 const saving = ref(false);
@@ -253,6 +309,18 @@ async function runAutoGroup() {
 }
 
 function relationLabel(r: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r] || r; }
+
+/** 离户去向：书面语直接给村里看，不要出现 DEAD / REMOVED 这种编码 */
+function leaveReasonLabel(reason: string) {
+  return { DEAD: '死亡', MOVED_OUT: '迁出', REMOVED: '移出家庭' }[reason] || reason;
+}
+function leaveReasonType(reason: string): TagType {
+  return ({ DEAD: 'danger', MOVED_OUT: 'warning', REMOVED: 'info' } as Record<string, TagType>)[reason] || 'info';
+}
+function openPerson(id: number) {
+  // 带上来源页，详情页的返回能退回本抽屉所在的家庭列表
+  router.push(toPersonDetail(route, id));
+}
 
 async function load() {
   loading.value = true;
@@ -359,6 +427,8 @@ onMounted(async () => {
 .as-item .as-lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .auto-tip { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 8px; }
 .section-title { font-size: var(--font-size-base); font-weight: 600; margin: 20px 0 8px; }
+.sub-note { font-size: var(--font-size-xs); font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
+.former-table { opacity: 0.92; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
 .fam-tags { min-height: 20px; }
 </style>

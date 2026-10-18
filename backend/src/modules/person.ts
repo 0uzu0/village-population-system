@@ -18,6 +18,14 @@ import {
   loadPopulationTagDefs,
   syncPopulationTagsOnStatusChange,
 } from '../utils/populationTags';
+import {
+  countEmptiedFamilies,
+  findFamiliesOfPersons,
+  markFamilyMemberOnStatusChange,
+  syncFamilyMemberOnStatusChange,
+  syncPersonFamilyOnEdit,
+  updateMemberRelation,
+} from '../utils/familyMembership';
 
 const router = Router();
 router.use(authMiddleware);
@@ -267,11 +275,14 @@ router.post('/', requirePermission('person:create'), async (req: Request, res: R
     )) as any[];
     const pid = Number((r as any).insertId);
 
-    // 若关联家庭，写入家庭成员关联
+    // 若关联家庭，写入家庭成员关联。
+    // 建档时若直接选了「迁出/死亡」，关联必须同时记为离开——否则这个人
+    // 在家庭详情里是「在户成员」，在人口统计里却不存在，家庭人数也对不上。
     if (body.familyId) {
+      const memberStatus = isInactiveStatus(body.status || 'NORMAL') ? 0 : 1;
       await conn.query(
-        `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)`,
-        [body.familyId, pid, body.relation || 'OTHER', body.relation === 'HEAD' ? 1 : 0]
+        `INSERT INTO family_member (family_id, person_id, relation, is_householder, status) VALUES (?,?,?,?,?)`,
+        [body.familyId, pid, body.relation || 'OTHER', body.relation === 'HEAD' ? 1 : 0, memberStatus]
       );
     }
 
@@ -388,6 +399,21 @@ router.put('/:id', requirePermission('person:edit'), async (req: Request, res: R
       throw new AppError('该人员档案已被他人修改，请刷新后重试', 409, 'VERSION_CONFLICT');
     }
 
+    // 家庭归属变了就同步家庭成员关联：只改 person.family_id 会让旧家庭里
+    // 他仍在户、新家庭里没有他，家庭人数与「是否在册」全跟着错。
+    if (body.familyId !== undefined) {
+      await syncPersonFamilyOnEdit(
+        conn,
+        id,
+        body.familyId ?? null,
+        body.relation === undefined ? existing.relation : body.relation,
+        existing.status
+      );
+    } else if (body.relation !== undefined) {
+      // 只改了与户主关系：更新在户那一行，不新建也不解除归属
+      await updateMemberRelation(conn, id, body.relation);
+    }
+
     // 残疾档案与人员主表一并写入：独立 upsert，不影响 sets 动态更新的判定
     if (body.disability !== undefined) {
       await saveDisability(conn, id, body.disability);
@@ -488,7 +514,7 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
     ? null
     : statusDate || (isInactiveStatus(status) ? today() : null);
 
-  const tagSync = await withTransaction(async (conn) => {
+  const sync = await withTransaction(async (conn) => {
     await conn.query(
       'UPDATE person SET status = ?, status_date = ?, change_reason = ?, updated_by = ? WHERE id = ?',
       [status, effectiveDate, reason || null, req.user!.id, id]
@@ -498,28 +524,36 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
        VALUES (?, 'status', ?, ?, 'STATUS_CHANGE', ?, ?)`,
       [id, existing.status, status, reason || null, req.user!.id]
     );
-    // 转为非在册（迁出/死亡）时，家庭成员关联标记离开，家庭本身保留。
-    // 改回在册时必须反向恢复——原先只做单向标记，导致「迁出后又迁回」的人
-    // 虽然回到人口统计里，却不在任何家庭的成员列表中（家庭成员数对不上）。
-    if (isInactiveStatus(status)) {
-      await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [id]);
-    } else {
-      await conn.query(
-        'UPDATE family_member SET status = 1, leave_date = NULL WHERE person_id = ? AND status = 0',
-        [id]
-      );
-    }
+    // 家庭成员关联随状态联动（utils/familyMembership.ts 是唯一实现）：
+    // - 转为非在册（迁出/死亡）→ 关联标记离开，leave_date 记状态生效日期；
+    // - 改回在册 → 反向恢复。原先只做单向标记，导致「迁出后又迁回」的人
+    //   虽然回到人口统计里，却不在任何家庭的成员列表中（家庭成员数对不上）。
+    // 家庭本身不删除：档案要留痕，是否计入家庭总数由 familySql 现算。
+    const familySync = await syncFamilyMemberOnStatusChange(conn, id, status, effectiveDate);
     // 人口归属标签随状态联动（v2.3）：迁出/死亡停用户籍/流动人口标签，
     // 改回在册时恢复最近一次被联动停用的那一枚。
     // 与 family_member 的标记放在同一事务：状态改成功而标签没改会造成口径矛盾。
-    return syncPopulationTagsOnStatusChange(conn, id, status, req.user!.id);
+    const tagSync = await syncPopulationTagsOnStatusChange(conn, id, status, req.user!.id);
+    return { familySync, tagSync };
   });
+  const { familySync, tagSync } = sync;
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:status', request: { id, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
   return ok(
     res,
-    { id, status, statusDate: effectiveDate, tagCleared: tagSync.cleared, tagRestored: tagSync.restored },
-    `已变更为「${STATUS_LABELS[status]}」`
+    {
+      id,
+      status,
+      statusDate: effectiveDate,
+      tagCleared: tagSync.cleared,
+      tagRestored: tagSync.restored,
+      familyNo: familySync.familyNo,
+      familyEmptied: familySync.familyEmptied,
+    },
+    // 灭户必须说出来：操作者看到「家庭总数少了 1」时，要能对上是谁造成的
+    familySync.familyEmptied
+      ? `已变更为「${STATUS_LABELS[status]}」；该户（${familySync.familyNo || '家庭'}）已无在册成员，不再计入家庭总数`
+      : `已变更为「${STATUS_LABELS[status]}」`
   );
 });
 
@@ -550,6 +584,10 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
   let tagRestored = 0;
   const inactive = isInactiveStatus(status);
 
+  // 变更前记下这批人所属的家庭：变更后一次性统计其中有多少户已无在册成员
+  // （逐人算什么会多出 N 次 COUNT，500 人的批次上很明显）
+  let familiesEmptied = 0;
+
   await withTransaction(async (conn) => {
     for (const pid of personIds) {
       const [rows] = (await conn.query('SELECT status FROM person WHERE id = ?', [pid])) as any[];
@@ -564,25 +602,31 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
          VALUES (?, 'status', ?, ?, 'STATUS_CHANGE', ?, ?)`,
         [pid, current, status, reason || null, req.user!.id]
       );
-      if (inactive) {
-        await conn.query('UPDATE family_member SET status = 0, leave_date = CURDATE() WHERE person_id = ?', [pid]);
-      } else {
-        await conn.query('UPDATE family_member SET status = 1, leave_date = NULL WHERE person_id = ? AND status = 0', [pid]);
-      }
       // 与单条状态变更共用同一个联动函数：批量接口曾因「只改单条」漏过口径，
       // 这里不允许再各写一份。
+      await markFamilyMemberOnStatusChange(conn, pid, status, effectiveDate);
       const tagSync = await syncPopulationTagsOnStatusChange(conn, pid, status, req.user!.id);
       tagCleared += tagSync.cleared;
       tagRestored += tagSync.restored;
       changed++;
     }
+    // 灭户统计放在事务内、且在循环之后：关联只是标记离开（行还在），
+    // 所以此时仍能按 person_id 找回原家庭；同快照下算，避免并发看到中间态。
+    if (inactive) {
+      const familyIds = await findFamiliesOfPersons(conn, personIds);
+      familiesEmptied = await countEmptiedFamilies(conn, familyIds);
+    }
   });
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:batch-status', request: { count: personIds.length, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
+  // 灭户数单独报出来：批量登记死亡后「家庭总数为什么少了 N 户」要能对上账
+  const baseMsg = skipped
+    ? `已变更 ${changed} 人，${skipped} 人已是「${STATUS_LABELS[status]}」或不存在`
+    : `已变更 ${changed} 人为「${STATUS_LABELS[status]}」`;
   return ok(
     res,
-    { changed, skipped, status, tagCleared, tagRestored },
-    skipped ? `已变更 ${changed} 人，${skipped} 人已是「${STATUS_LABELS[status]}」或不存在` : `已变更 ${changed} 人为「${STATUS_LABELS[status]}」`
+    { changed, skipped, status, tagCleared, tagRestored, familiesEmptied },
+    familiesEmptied ? `${baseMsg}；${familiesEmptied} 户已无在册成员，不再计入家庭总数` : baseMsg
   );
 });
 

@@ -202,15 +202,22 @@ async function linkFamilyMembers(conn: PoolConnection, persons: any[], idByNo: M
     if (!personId) continue;
     // 保留 Excel 中填写的与户主关系（户主 / 妻 / 子 / 女 …）
     const relation = p.relation || 'OTHER';
-    members.push([p.family_id, personId, relation, relation === 'HEAD' ? 1 : 0]);
-    if (relation === 'HEAD') headUpdates.push({ personId, familyId: p.family_id });
+    // 迁出/死亡行不能挂成在户成员：家庭成员数与家庭是否在册都按 on-the-fly 口径算，
+    // 这里写错会让「家庭详情里有他、人口统计里没有他」同时成立。
+    const memberStatus = isActiveStatus(p.status || 'NORMAL') ? 1 : 0;
+    members.push([p.family_id, personId, relation, relation === 'HEAD' ? 1 : 0, memberStatus]);
+    // 户主只能是此人自己；已故户主不抢占 head_person_id
+    if (relation === 'HEAD' && memberStatus === 1) headUpdates.push({ personId, familyId: p.family_id });
   }
 
   for (let i = 0; i < members.length; i += WRITE_CHUNK) {
     const chunk = members.slice(i, i + WRITE_CHUNK);
     await conn.query(
-      `INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder)
-       VALUES ${chunk.map(() => '(?,?,?,?)').join(', ')}`,
+      // 导入建档的人都是本批次新建的，family_member 不可能已存在（uk_fm 撞不上），
+      // 所以不需要 ON DUPLICATE 分支——那还会用到 VALUES() 函数写法，
+      // 被 test/sql-shape 的「列数=值数」扫描误判成值清单。
+      `INSERT IGNORE INTO family_member (family_id, person_id, relation, is_householder, status)
+       VALUES ${chunk.map(() => '(?,?,?,?,?)').join(', ')}`,
       chunk.flat()
     );
   }
