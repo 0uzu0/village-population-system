@@ -116,7 +116,9 @@
             <!-- 图片接口要 Bearer 头，不能把直链给 img（必然 401），
                  这里用的是页面加载时取回的 blob URL -->
             <div class="photo-frame" @click="openViewer(p)">
-              <img v-if="photoUrls[p.id]" :src="photoUrls[p.id]" :alt="p.fileName || '现场照片'" />
+              <!-- 网格里放的是缩略图（长边 320px webp，几十 KB）：2–5MB 的原片
+                   只在点开大图时才取，否则几张照片就能把详情页拖到十几秒 -->
+              <img v-if="photoThumbUrls[p.id]" :src="photoThumbUrls[p.id]" :alt="p.fileName || '现场照片'" loading="lazy" />
               <div v-else class="photo-loading">加载中…</div>
               <!--
                 删除做成图片角上的悬浮按钮。
@@ -191,7 +193,12 @@
             </el-button>
           </div>
         </div>
-        <img v-if="photoUrls[viewing.id]" class="viewer-img" :src="photoUrls[viewing.id]" :alt="photoNameFull(viewing)" />
+        <img
+          v-if="viewerSrc(viewing)"
+          class="viewer-img"
+          :src="viewerSrc(viewing)"
+          :alt="photoNameFull(viewing)"
+        />
         <div v-else class="viewer-img viewer-img--empty">这张照片没能加载出来</div>
       </div>
     </Teleport>
@@ -219,6 +226,9 @@ const statusVisible = ref(false);
 
 /** 现场照片与其 blob URL。照片是取证材料，必须能看到原件，所以要真取回字节而不是给个链接 */
 const photos = ref<any[]>([]);
+/** 缩略图 blob URL：网格展示用（长边 320px webp，几十 KB） */
+const photoThumbUrls = ref<Record<number, string>>({});
+/** 原图 blob URL：只在大图预览时按需取（2–5MB/张，网格里用它太浪费） */
 const photoUrls = ref<Record<number, string>>({});
 /** 正在放大查看的那一张 */
 const viewing = ref<any>(null);
@@ -301,29 +311,68 @@ function photoNameFull(p: any): string {
   return p.fileName || '现场照片';
 }
 
+/** 照片缩略图同时下载的并发数。
+ * 村委那台小服务器经不起几十个并发 blob，但纯串行又太慢——
+ * 3 是「带宽吃满但不挤爆」的经验值，配合缩略图（几十 KB/张）几秒内全部出齐 */
+const PHOTO_CONCURRENCY = 3;
+
+/**
+ * 加载现场照片的缩略图。
+ *
+ * 性能三原则（v2.3.2）：
+ *  1. 本函数**不阻塞页面**——onMounted 里不 await 它，档案信息先出、照片渐进出现；
+ *  2. 只取 `/files/:id/thumb`（长边 320 webp），不再为 120px 的网格格子下原片；
+ *  3. 受限并发 3 张，加载完一张立刻显示一张。
+ * 缩略图取不到（存量 PDF / 生成失败）就退回原片；原片也取不到只跳过这一张。
+ */
 async function loadPhotos() {
   const id = Number(route.params.id);
   try {
     const res: any = await fileApi.listByBiz('PERSON', id);
     const list: any[] = res.data?.list || [];
     photos.value = list;
-    // 一个村民的留痕照片通常只有几张，顺序取即可：
-    // 并发几十个 blob 请求会把村委那台小服务器打满，收益却只是快一点点
-    for (const p of list) {
-      try {
-        const resp: any = await request.get(`/files/${p.id}`, { responseType: 'blob' });
-        photoUrls.value[p.id] = URL.createObjectURL(resp.data as Blob);
-      } catch {
-        // 单张取不到不影响其余照片，也不该把整页变成错误
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < list.length) {
+        const p = list[cursor];
+        cursor += 1;
+        try {
+          const resp: any = await request.get(`/files/${p.id}/thumb`, { responseType: 'blob' });
+          photoThumbUrls.value[p.id] = URL.createObjectURL(resp.data as Blob);
+        } catch {
+          // 没有缩略图（懒生成失败/非图片）退回原片，再失败只跳过这一张
+          try {
+            const full: any = await request.get(`/files/${p.id}`, { responseType: 'blob' });
+            photoThumbUrls.value[p.id] = URL.createObjectURL(full.data as Blob);
+          } catch { /* 单张取不到不影响其余照片，也不该把整页变成错误 */ }
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(PHOTO_CONCURRENCY, list.length) }, worker));
   } catch {
     photos.value = [];
   }
 }
 
+/** 大图预览的展示源：原图没到位时先显示缩略图（点开立即可见，原图到后自动替换） */
+function viewerSrc(p: any): string | undefined {
+  return photoUrls.value[p.id] || photoThumbUrls.value[p.id];
+}
+
+/** 按需取原图：只在点开大图时发生，取完缓存进 photoUrls（预览期间反复开关不再重下） */
+async function ensureFullImage(p: any) {
+  if (photoUrls.value[p.id]) return;
+  try {
+    const resp: any = await request.get(`/files/${p.id}`, { responseType: 'blob' });
+    photoUrls.value[p.id] = URL.createObjectURL(resp.data as Blob);
+  } catch {
+    // 取不到原片就停在缩略图上（viewerSrc 的兜底），不打断预览
+  }
+}
+
 function openViewer(p: any) {
   viewing.value = p;
+  void ensureFullImage(p);
   document.addEventListener('keydown', onViewerKeydown);
 }
 function closeViewer() {
@@ -371,7 +420,9 @@ async function removePhoto(p: any) {
   }
 
   if (photoUrls.value[p.id]) URL.revokeObjectURL(photoUrls.value[p.id]);
+  if (photoThumbUrls.value[p.id]) URL.revokeObjectURL(photoThumbUrls.value[p.id]);
   delete photoUrls.value[p.id];
+  delete photoThumbUrls.value[p.id];
   photos.value = photos.value.filter((x) => x.id !== p.id);
   // 从预览里删的话，预览本身也该跟着关掉——否则会停在一张已经不存在的照片上
   if (viewing.value?.id === p.id) closeViewer();
@@ -388,17 +439,20 @@ onMounted(async () => {
   loading.value = true;
   try {
     await reload();
-    // 照片单独取：它依赖 file:view 权限，取不到也不该让档案页整体报错
-    await loadPhotos();
   } finally {
+    // 档案信息到位就先放行页面：照片在网络差时可能要十几秒，
+    // 不能让用户盯着整页遮罩等它——照片区自己会从「加载中…」渐进变成图片
     loading.value = false;
   }
+  // 照片后台加载（不 await）：缩略图 + 并发 3，见 loadPhotos
+  void loadPhotos();
 });
 
 // blob URL 不会自己释放，离开页面必须逐个 revoke，否则反复进出详情页会一直占着内存。
 // 预览的键盘监听同理：监听器挂在 document 上，不摘掉会一直跟着页面留着。
 onUnmounted(() => {
   Object.values(photoUrls.value).forEach((u) => URL.revokeObjectURL(u));
+  Object.values(photoThumbUrls.value).forEach((u) => URL.revokeObjectURL(u));
   document.removeEventListener('keydown', onViewerKeydown);
 });
 </script>

@@ -10,6 +10,8 @@ import { ok, okPage, fail, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { dateTimeCN } from '../utils/date';
 import { env } from '../config/env';
+import { logger } from '../utils/logger';
+import { makeThumbnail, thumbPathOf, THUMB_CONTENT_TYPE, THUMB_SOURCE_EXTS } from '../utils/imageThumb';
 
 const router = Router();
 router.use(authMiddleware);
@@ -317,6 +319,43 @@ function uploadSingle(req: Request, res: Response, next: NextFunction): void {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP 缓存（v2.3.2）：附件内容不可变（同名文件是唯一名，改了就是另一条记录），
+// 因此响应带 ETag（size-mtime）与 private 缓存头——blob 请求同样走浏览器
+// HTTP 缓存，第二次进详情页命中 304/本地缓存，不再整文件重传。
+// private 而非 public：附件经 Bearer 鉴权，不能进任何共享代理缓存。
+// ---------------------------------------------------------------------------
+
+function etagOf(absPath: string): string {
+  const stat = fs.statSync(absPath);
+  return `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+}
+
+/** 命中 If-None-Match 返回 304；未命中返回 false，调用方继续发送正文 */
+function notModified(req: Request, res: Response, etag: string): boolean {
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  const inm = req.headers['if-none-match'];
+  if (inm && inm.split(',').map((s) => s.trim()).includes(etag)) {
+    res.status(304).end();
+    return true;
+  }
+  return false;
+}
+
+/** 把文件流式发给客户端（inline + nosniff + ETag/缓存），/预览 与 /缩略图共用 */
+function serveFile(req: Request, res: Response, absPath: string, contentType: string, downloadName?: string): void {
+  if (notModified(req, res, etagOf(absPath))) return;
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (downloadName) {
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(downloadName)}"`);
+  }
+  const stream = fs.createReadStream(absPath);
+  stream.on('error', () => { if (!res.headersSent) fail(res, '文件读取失败', 500, 'READ_ERROR'); });
+  stream.pipe(res);
+}
+
+// ---------------------------------------------------------------------------
 // 上传
 // 注意：/upload 必须定义在 /:id 之前，否则 'upload' 会被 :id 捕获
 // ---------------------------------------------------------------------------
@@ -378,6 +417,17 @@ router.post('/upload', preUploadGuard, uploadSingle, async (req: Request, res: R
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [displayName, relPath, ext.replace('.', ''), file.size, finalPath, contentType, req.user!.id, bizType, bizId, capturedAt]
     );
+
+    // 图片顺手生成缩略图（详情页网格用，几十 KB 而不是 2–5MB 原片）。
+    // 生成失败只记日志不上抛：照片本体已经落盘成功，缩略图是锦上添花——
+    // 详情页请求 /thumb 时发现没有还会懒生成一次，这里失败不影响任何功能。
+    if (THUMB_SOURCE_EXTS.includes(ext)) {
+      try {
+        await makeThumbnail(finalPath, thumbPathOf(finalPath));
+      } catch (e) {
+        logger.warn('生成缩略图失败', { fileId: result.insertId, path: relPath, error: String(e) });
+      }
+    }
 
     if (bizType) {
       await writeAudit({
@@ -468,6 +518,37 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// 缩略图：GET /:id/thumb（详情页照片网格用，长边 320px webp，几十 KB）
+// ---------------------------------------------------------------------------
+
+router.get('/:id/thumb', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const file = await queryOne<any>('SELECT * FROM file_info WHERE id = ?', [id]);
+  if (!file || !file.storage_path || !fs.existsSync(file.storage_path)) {
+    throw new AppError('文件不存在或已丢失', 404, 'NOT_FOUND');
+  }
+  // 权限与原片完全一致：缩略图也是照片内容，同样受归属对象权限保护
+  ensurePermission(req, attachmentPermissions(file.biz_type ?? null, 'view'));
+
+  const thumb = thumbPathOf(file.storage_path);
+  if (!fs.existsSync(thumb)) {
+    // 懒生成：缩略图是派生文件不进库，存量照片（功能上线前传的）在这里补生成；
+    // PDF / 生成失败都没有缩略图，404 让前端退回取原片
+    if (!THUMB_SOURCE_EXTS.includes(`.${file.file_type}`)) {
+      throw new AppError('该文件没有缩略图', 404, 'NO_THUMBNAIL');
+    }
+    try {
+      await makeThumbnail(file.storage_path, thumb);
+    } catch (e) {
+      logger.warn('懒生成缩略图失败', { fileId: id, path: file.storage_path, error: String(e) });
+      throw new AppError('缩略图生成失败', 404, 'NO_THUMBNAIL');
+    }
+  }
+
+  serveFile(req, res, thumb, THUMB_CONTENT_TYPE);
+});
+
+// ---------------------------------------------------------------------------
 // 预览 / 下载：按入库 content_type 流式返回，浏览器内 inline 渲染（PDF/图片）
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req: Request, res: Response) => {
@@ -479,13 +560,8 @@ router.get('/:id', async (req: Request, res: Response) => {
   // 权限按文件自己的归属判：人员照片不能被台账权限挡住，反之亦然
   ensurePermission(req, attachmentPermissions(file.biz_type ?? null, 'view'));
 
-  // 用库内自认定的 content_type，不轻信客户端；强制 nosniff 防 MIME 嗅探
-  res.setHeader('Content-Type', file.content_type || 'application/octet-stream');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.file_name)}"`);
-  const stream = fs.createReadStream(file.storage_path);
-  stream.on('error', () => { if (!res.headersSent) fail(res, '文件读取失败', 500, 'READ_ERROR'); });
-  stream.pipe(res);
+  // content_type 用库内自认定的值，不轻信客户端；inline + nosniff + ETag 缓存在 serveFile 里统一处理
+  serveFile(req, res, file.storage_path, file.content_type || 'application/octet-stream', file.file_name);
 });
 
 // ---------------------------------------------------------------------------
@@ -502,9 +578,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
     throw new AppError('只能删除自己上传的文件', 403, 'FORBIDDEN');
   }
 
-  // 先删库记录（含事务语义的单条删除），再清理磁盘
+  // 先删库记录（含事务语义的单条删除），再清理磁盘（缩略图是派生文件，一并删）
   await execute('DELETE FROM file_info WHERE id = ?', [id]);
   try { if (file.storage_path && fs.existsSync(file.storage_path)) fs.unlinkSync(file.storage_path); } catch { /* 忽略 */ }
+  try { const thumb = thumbPathOf(file.storage_path); if (fs.existsSync(thumb)) fs.unlinkSync(thumb); } catch { /* 忽略 */ }
 
   // 目录即人名：这个人的最后一张照片删掉后，空目录留着只会让备份里多出一堆空壳。
   // rmdir 只在目录为空时成功，非空会抛错——正好当条件用，不需要额外的判断。

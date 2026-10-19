@@ -59,4 +59,54 @@ describe('附件路由注册顺序', () => {
     expect(idGetIdx).toBeGreaterThan(uploadIdx);
     expect(idDelIdx).toBeGreaterThan(uploadIdx);
   });
+
+  it('GET /:id/thumb 必须先于 GET /:id 注册（与 /upload 同一约定）', () => {
+    const thumbIdx = fileSrc.indexOf("router.get('/:id/thumb'");
+    const idGetIdx = fileSrc.indexOf("router.get('/:id'");
+    expect(thumbIdx).toBeGreaterThan(-1);
+    expect(idGetIdx).toBeGreaterThan(thumbIdx);
+  });
+});
+
+describe('缩略图（v2.3.2 附件性能优化）', () => {
+  it('上传时为图片生成缩略图，失败只记日志不上抛（不能拖垮上传主流程）', () => {
+    expect(fileSrc).toContain('makeThumbnail(finalPath, thumbPathOf(finalPath))');
+    const genIdx = fileSrc.indexOf('生成缩略图失败');
+    expect(genIdx).toBeGreaterThan(-1);
+    expect(fileSrc).toContain("logger.warn('生成缩略图失败'");
+  });
+
+  it('/thumb 对无缩略图的文件（PDF/生成失败）返回 404，前端退回原片', () => {
+    expect(fileSrc).toContain("'该文件没有缩略图', 404, 'NO_THUMBNAIL'");
+    expect(fileSrc).toContain("'缩略图生成失败', 404, 'NO_THUMBNAIL'");
+  });
+
+  it('删除原片时一并清理缩略图文件（派生文件不留在磁盘上）', () => {
+    expect(fileSrc).toContain('thumbPathOf(file.storage_path); if (fs.existsSync(thumb)) fs.unlinkSync(thumb)');
+  });
+
+  it('缩略图权限与原片一致（view 权限按归属对象判）', () => {
+    const thumbIdx = fileSrc.indexOf("router.get('/:id/thumb'");
+    const seg = fileSrc.slice(thumbIdx, thumbIdx + 2000);
+    expect(seg).toContain("attachmentPermissions(file.biz_type ?? null, 'view')");
+  });
+});
+
+describe('附件 HTTP 缓存（v2.3.2 附件性能优化）', () => {
+  it('预览与缩略图响应带 ETag + private 缓存，命中 If-None-Match 返回 304', () => {
+    expect(fileSrc).toContain('ETag');
+    expect(fileSrc).toContain("'private, max-age=86400'");
+    expect(fileSrc).toContain("if-none-match");
+    expect(fileSrc).toContain('304');
+  });
+
+  it('缓存是 private：附件经 Bearer 鉴权，不能进共享代理缓存', () => {
+    expect(fileSrc).not.toContain("'public, max-age");
+  });
+
+  it('预览与缩略图统一走 serveFile（inline + nosniff + 缓存一处收口）', () => {
+    expect(fileSrc).toContain('function serveFile(');
+    // 旧的内联响应头写法不应再出现在 /:id 与 /:id/thumb 路由里
+    expect(fileSrc.match(/res\.setHeader\('Content-Disposition'/g)).toHaveLength(1);
+  });
 });
