@@ -24,9 +24,12 @@ const router = Router();
 const exportSchema = z.object({
   fields: z.array(z.string()).optional(),
   keyword: z.string().optional(),
+  /** 地址模糊查询（户籍/居住任一命中），与人员列表同口径 */
+  address: z.string().max(100).optional(),
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
   gender: z.string().optional(),
+  village: z.string().max(64).optional(),
   status: z.string().optional(),
   tagIds: z.string().optional(),
   tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
@@ -112,6 +115,15 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
   if (body.keyword) {
     where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
     params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`);
+  }
+  // 地址口径同 personQuery.buildPersonListQuery：户籍地址 / 实际居住地址任一命中
+  if (body.address) {
+    where.push('(p.hukou_address LIKE ? OR p.live_address LIKE ?)');
+    params.push(`%${body.address}%`, `%${body.address}%`);
+  }
+  if (body.village) {
+    where.push('p.village = ?');
+    params.push(body.village);
   }
   if (body.gridId) {
     where.push('p.grid_id = ?');
