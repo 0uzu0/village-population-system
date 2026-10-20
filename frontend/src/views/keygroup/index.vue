@@ -181,7 +181,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 // 导出功能按需求移除，因此不再引入 excelApi 与权限 store
-import { keyGroupApi, tagApi, personApi } from '@/api';
+import { keyGroupApi, tagApi, personApi, gridApi } from '@/api';
 import { toPersonDetail } from '@/utils/nav';
 // 个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）按需求整体移除，
 // 因此这里只保留列表「残疾等级」列展示需要的 disabilityLevelShort
@@ -415,16 +415,19 @@ function quickTagIds(g: any) {
 }
 
 onMounted(async () => {
-  const [q, pt, opts] = await Promise.all([
+  // 村庄下拉与人口档案页同源（/grids/villages）：options 接口不含村庄，
+  // 此前误用导致下拉无数据；取不到时静默降级为空，不影响筛查本身
+  const [q, pt, opts, vil] = await Promise.all([
     keyGroupApi.quick(),
     tagApi.definitions({ pageSize: 200, objectType: 'PERSON' }),
     personApi.options(),
+    gridApi.villages().catch(() => ({ data: { list: [] } })),
   ]);
   quick.value = q.data.list;
   if (q.data.note) quickNote.value = `注：${q.data.note}`;
   personTags.value = pt.data.list;
   grids.value = opts.data.grids;
-  villages.value = (opts.data.villages || []).map((v: any) => v.name);
+  villages.value = (vil?.data?.list || []).map((v: any) => v.name).filter(Boolean);
   // 地址栏带条件时（从人员详情返回、或打开分享链接）直接还原筛查结果；
   // 否则停在引导态，等用户设置条件，避免一进页面就拉全量人口
   restoreQuery();
