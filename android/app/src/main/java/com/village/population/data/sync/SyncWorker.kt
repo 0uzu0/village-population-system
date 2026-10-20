@@ -26,16 +26,22 @@ class SyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val container = (applicationContext as PopApplication).container
-        return when (val outcome = container.syncEngine.run()) {
-            is SyncOutcome.Done -> if (outcome.shouldRetry) Result.retry() else Result.success()
-            // 网络不通交给 WorkManager 的退避策略重排
-            is SyncOutcome.NetworkDown -> Result.retry()
-            // 登录态失效不是「失败」：重试也不会好，等用户重新登录后手动触发
-            is SyncOutcome.SessionExpired -> Result.success()
-            SyncOutcome.NothingToDo -> Result.success()
-            SyncOutcome.NotSignedIn -> Result.success()
-        }
+        // 兜一层非预期异常：SyncEngine 内部只认 ApiException / IOException，
+        // 而 Worker 里抛出去会被 WorkManager 记成「Worker 崩溃」，
+        // 既拿不到有用信息，又会让这条任务反复失败。确定性错误重试也没用，
+        // 直接结束，等下一次手动触发的同步。
+        return runCatching {
+            val container = (applicationContext as PopApplication).container
+            when (val outcome = container.syncEngine.run()) {
+                is SyncOutcome.Done -> if (outcome.shouldRetry) Result.retry() else Result.success()
+                // 网络不通交给 WorkManager 的退避策略重排
+                is SyncOutcome.NetworkDown -> Result.retry()
+                // 登录态失效不是「失败」：重试也不会好，等用户重新登录后手动触发
+                is SyncOutcome.SessionExpired -> Result.success()
+                SyncOutcome.NothingToDo -> Result.success()
+                SyncOutcome.NotSignedIn -> Result.success()
+            }
+        }.getOrElse { Result.success() }
     }
 
     companion object {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,11 +20,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,12 +32,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -52,13 +58,12 @@ import com.village.population.ui.LocalAppContainer
 import com.village.population.ui.components.AppDivider
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.GrowRow
-import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
 import com.village.population.ui.components.SectionCard
-import com.village.population.ui.components.StatCard
-import com.village.population.ui.components.StatTone
+import com.village.population.ui.components.SkeletonBlock
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
+import com.village.population.ui.components.tabular
 import com.village.population.ui.navigation.Routes
 import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
@@ -121,6 +126,107 @@ class HomeViewModel(private val meta: MetaRepository) : ViewModel() {
     }
 }
 
+/**
+ * 工作台骨架屏：形状照着真实布局排——头像行、口径说明、两片快捷瓦片、
+ * 人口概况四格、重点人群列表。数据回来时不会整页重排，只是把灰条换成真字。
+ */
+@Composable
+private fun HomeSkeleton() {
+    val t = AppTheme.tokens
+    Column(
+        Modifier.fillMaxSize().padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SkeletonBlock(Modifier.size(44.dp), height = 44.dp, corner = 22.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                SkeletonBlock(Modifier.fillMaxWidth(0.5f), height = 18.dp)
+                Spacer(Modifier.height(7.dp))
+                SkeletonBlock(Modifier.fillMaxWidth(0.28f), height = 12.dp)
+            }
+        }
+        // 主数字卡：一块大数字 + 一行三个参照值 + 口径折叠行。
+        // 骨架形状必须跟着真布局改——数据回来时整页重排，比多看半秒转圈更难受
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(AppShapes.card),
+            border = BorderStroke(1.dp, t.line2),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                SkeletonBlock(Modifier.fillMaxWidth(0.2f), height = 11.dp)
+                Spacer(Modifier.height(6.dp))
+                SkeletonBlock(Modifier.fillMaxWidth(0.42f), height = 38.dp, corner = 10.dp)
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    repeat(3) {
+                        SkeletonBlock(Modifier.weight(1f), height = 15.dp)
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                SkeletonBlock(Modifier.fillMaxWidth(0.55f), height = 11.dp)
+            }
+        }
+        // 两片快捷瓦片
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            repeat(2) {
+                Surface(
+                    color = t.brandFaint,
+                    shape = RoundedCornerShape(AppShapes.panel),
+                    border = BorderStroke(1.dp, t.line2),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SkeletonBlock(Modifier.size(36.dp), height = 36.dp, corner = 18.dp)
+                        Spacer(Modifier.width(9.dp))
+                        SkeletonBlock(Modifier.fillMaxWidth(0.7f), height = 14.dp)
+                    }
+                }
+            }
+        }
+        // 待办条
+        Surface(
+            color = t.amberBg,
+            shape = RoundedCornerShape(AppShapes.panel),
+            border = BorderStroke(1.dp, t.amberLine),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SkeletonBlock(Modifier.size(7.dp), height = 7.dp, corner = 4.dp)
+                Spacer(Modifier.width(10.dp))
+                SkeletonBlock(Modifier.fillMaxWidth(0.42f), height = 13.dp)
+            }
+        }
+        // 重点人群列表
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(AppShapes.card),
+            border = BorderStroke(1.dp, t.line2),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                SkeletonBlock(Modifier.fillMaxWidth(0.24f), height = 14.dp)
+                repeat(4) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SkeletonBlock(Modifier.size(9.dp), height = 9.dp, corner = 5.dp)
+                        Spacer(Modifier.width(10.dp))
+                        SkeletonBlock(Modifier.fillMaxWidth(0.4f), height = 13.dp)
+                        Spacer(Modifier.weight(1f))
+                        SkeletonBlock(Modifier.width(34.dp), height = 15.dp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun HomeScreen(onNavigate: (String) -> Unit) {
     val context = LocalContext.current
@@ -135,7 +241,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         if (state.loading && state.dashboard == null) {
-            LoadingBox()
+            HomeSkeleton()
             return@Column
         }
         if (state.error != null && state.dashboard == null) {
@@ -188,35 +294,6 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                // 口径说明独立成卡（设计稿 v3）：原先是紧贴头部的灰色小字，
-                // 开会报数的人最需要的一句话反而是全屏最不显眼的元素。
-                // 淡蓝底 + 深蓝字 + info 图标，紧跟头部但已不属于头卡。
-                // 16dp 圆角（.caliber）比白卡收一档——它是衬底面板，不是卡片
-                Surface(
-                    color = tokens.brandFaint,
-                    shape = RoundedCornerShape(AppShapes.panel),
-                    border = BorderStroke(1.dp, tokens.line2),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Icon(
-                            Icons.Filled.Info,
-                            contentDescription = null,
-                            tint = tokens.brandStrong,
-                            modifier = Modifier.size(15.dp).padding(top = 2.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；重点人群之间存在交叉，不可相加。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = tokens.brandStrong,
-                        )
-                    }
-                }
             }
 
             if (state.fromCache) {
@@ -225,6 +302,15 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                         "当前显示的是本地缓存数据（${DateText.describeAge(state.savedAt)}），" +
                             "只可作为参考，上报口径请以联网结果为准。"
                     )
+                }
+            }
+
+            // 主数字卡（设计稿 v4 · M1/M2）：一屏之内只回答一个数——在册多少人。
+            // 原先四张等大指标卡里，「总人口」和「家庭户数」占同样面积，
+            // 而开会要报的只有第一个；三个参照值现在收进同一张卡的一行。
+            state.dashboard?.let { d ->
+                item {
+                    PopulationHeroCard(d) { onNavigate(Routes.PERSONS) }
                 }
             }
 
@@ -248,34 +334,14 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
 
-            state.dashboard?.let { d ->
-                item {
-                    SectionCard(title = "人口概况") {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard(
-                                "总人口", "${d.hukouCount + d.floatingCount}",
-                                Modifier.weight(1f), StatTone.Primary,
-                                onClick = { onNavigate(Routes.PERSONS) },
-                            )
-                            // 家庭户数与户籍/流动同为参照数字，统一安静灰底（设计稿 v3）：
-                            // 四张卡三种底色会把平级数字读出主次
-                            StatCard("家庭户数", "${d.familyCount}", Modifier.weight(1f), StatTone.Quiet)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard("流动人口", "${d.floatingCount}", Modifier.weight(1f), StatTone.Quiet)
-                            StatCard("户籍人口", "${d.hukouCount}", Modifier.weight(1f), StatTone.Quiet)
-                        }
-                        // 总人口 = 户籍 + 流动直接相加。v2.1.0 起两个口径**互斥**：
-                        // 流动人口 = 户籍不在本村、暂住本村的人员，打标签侧互斥
-                        // （选中户籍自动取消流动）、统计侧按户籍优先排除兜底，
-                        // 所以相加即得总人口，不会重复计数。
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "流动人口 = 户籍不在本村、暂住本村的人员；总人口 = 户籍人口 + 流动人口（两者互斥）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AppTheme.tokens.ink3,
-                        )
+            // 待核查：从白卡改成琥珀条（设计稿 S2）。
+            // 它是这一屏唯一「今天必须办」的事，值得一条自己的颜色；
+            // 白卡在四张卡片里读作「还有一个数据块」，会被顺手划过去。
+            // 0 条时整条不出现——用绿色写「没有待办」只会在首屏多一行噪音。
+            state.pending?.let { p ->
+                if (p.total > 0) {
+                    item {
+                        PendingTodoBar(p.total) { onNavigate(Routes.PENDING) }
                     }
                 }
             }
@@ -298,7 +364,9 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                                 label = group.label,
                                 count = group.count,
                                 dotColor = parseHexColor(group.color, tokens.brand),
-                                hint = if (group.byAge) "按年龄自动判定，无需打标签" else null,
+                                // 年龄类改由形状表达（空心点 + 「按年龄」胶囊），
+                                // 不再挂「按年龄自动判定，无需打标签」那行小字（设计稿 M3）
+                                byAge = group.byAge,
                                 showCard = false,
                             ) {
                                 // 把族群翻译成筛选条件：
@@ -325,41 +393,6 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
 
-            state.pending?.let { p ->
-                item {
-                    SectionCard(title = "待核查人员") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "共 ${p.total} 条待处理",
-                                // 设计稿 .pend-num 15px 700：这是待办计数，
-                                // 用正文 17sp 会把它从「提示」抬成「内容」
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (p.total > 0) tokens.amber else tokens.ink2,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            // 「去处理」做成品牌实底胶囊（设计稿 btn-go）：
-                            // 这一屏唯一需要用户立刻去办的事，值得一个实色按钮，
-                            // TextButton 的视觉重量撑不起「待办」的语气
-                            Button(
-                                onClick = { onNavigate(Routes.PENDING) },
-                                shape = RoundedCornerShape(AppShapes.chip),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 7.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = tokens.brand,
-                                    contentColor = Color.White,
-                                ),
-                            ) { Text("去处理", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold) }
-                        }
-                        Text(
-                            "来源：Excel 导入时身份证号为空或非法的记录，需要逐条补齐或忽略。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = tokens.ink3,
-                        )
-                    }
-                }
-            }
-
             state.note?.let {
                 item {
                     Text(
@@ -370,6 +403,225 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
             item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+}
+
+/**
+ * 主数字卡，对应设计稿 v4 的 `.hero-stat`（M1 + M2）。
+ *
+ * ## 为什么是「一个 40sp」
+ * 旧版是四张等大指标卡（总人口 / 家庭户数 / 流动 / 户籍），四个数字一样大、
+ * 一样重、一样占面积。但村里开周会要报的只有第一个——「我们村在册多少人」。
+ * 另外三个是解释这个数的参照值，平级摆放等于告诉看的人「四个都重要」，
+ * 于是每次都得逐个读一遍才知道哪个是主角。
+ * 现在：一个 40sp 的主数字，三个参照值在同一张卡里排成一行 15sp。
+ *
+ * ## 为什么右侧写「在册 = 正常 + 迁入」而不是拆两个数
+ * 后端 `/statistics/dashboard` 目前只下发 totalPopulation（已按在册口径过滤）
+ * 与户籍/流动两档，**没有按人员状态（正常 / 迁入）拆分的字段**。
+ * 设计稿在这一格画的是「正常 1241 / 迁入 45」。要真给这两个数，得改接口，
+ * 而老版本 APP 拿不到新字段时会显示 0——「正常 0 / 迁入 0」比不显示更糟。
+ * 所以这里放的是口径文字：同样回答了「这个 1286 是怎么算出来的」，
+ * 且不会因为接口没跟上而撒谎。等哪天真的需要拆状态，再补字段不迟。
+ *
+ * ## 口径说明为什么折叠（M2）
+ * 它是报数要负责的一句话，不能删；但它是**每次进来都读一遍就够**的信息，
+ * 旧版占 76dp 固定压在主数字上面，第三次之后就是噪音。
+ * 收成一行「仅统计在册人口 · 口径说明」，点开是逐字原文。
+ */
+@Composable
+private fun PopulationHeroCard(d: DashboardDto, onOpenList: () -> Unit) {
+    val t = AppTheme.tokens
+    var caliberOpen by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(AppShapes.card),
+        border = BorderStroke(1.dp, t.line2),
+        shadowElevation = AppShapes.cardElevation,
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "在册人口",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = t.ink3,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            "${d.totalPopulation}",
+                            // 40sp：全应用唯一一处。半米外要能读出这个数（见 Theme 的 displaySmall 注释）
+                            style = MaterialTheme.typography.displaySmall.tabular(),
+                            color = t.ink,
+                            maxLines = 1,
+                            // 数字本身也可点：主数字是「全村人」的入口，
+                            // 看到数想翻名单是紧接着的下一个动作
+                            modifier = Modifier.clickableNoRipple(true, onOpenList),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            "人",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                            color = t.ink3,
+                            modifier = Modifier.padding(bottom = 7.dp),
+                        )
+                    }
+                }
+                Text(
+                    "在册 = 正常 + 迁入\n已迁出 · 已死亡不计入",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp, lineHeight = 18.sp),
+                    color = t.ink3,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+            }
+
+            Spacer(Modifier.height(11.dp))
+            AppDivider()
+            Spacer(Modifier.height(9.dp))
+
+            // 三个参照值：同一个数的三种切法，平铺一行、同一字重——
+            // 它们之间没有主次，谁都不能比旁边的大一号
+            Row(Modifier.fillMaxWidth()) {
+                RefStat("户籍", d.hukouCount, Modifier.weight(1f))
+                RefStat("流动", d.floatingCount, Modifier.weight(1f))
+                RefStat("家庭户", d.familyCount, Modifier.weight(1f))
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    // 整行可点，最小高度 44dp：箭头只有 13dp，靠它点不中（M7）
+                    .heightIn(min = 44.dp)
+                    .clickableNoRipple(true) { caliberOpen = !caliberOpen },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = t.ink3,
+                    modifier = Modifier.size(13.dp),
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "仅统计在册人口 · 口径说明",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                    color = t.ink3,
+                )
+                Icon(
+                    Icons.Filled.ExpandMore,
+                    contentDescription = if (caliberOpen) "收起口径说明" else "展开口径说明",
+                    tint = t.ink3,
+                    modifier = Modifier
+                        .size(13.dp)
+                        .rotate(if (caliberOpen) 180f else 0f),
+                )
+            }
+            if (caliberOpen) {
+                // 展开态文案与旧版逐字一致：改成折叠只是改「什么时候看」，
+                // 不能顺手把口径改写一遍——那是另一件事，要单独评审
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "数据口径：仅统计在册人口（正常 / 迁入），已迁出、已死亡不计入；重点人群之间存在交叉，不可相加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = t.ink2,
+                    )
+                    Text(
+                        "流动人口 = 户籍不在本村、暂住本村的人员；在册人口 = 户籍人口 + 流动人口（两者互斥）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = t.ink2,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+/** 主数字卡里的一个参照值：15sp 数字 + 11.5sp 标签，横向排开 */
+@Composable
+private fun RefStat(label: String, value: Int, modifier: Modifier = Modifier) {
+    val t = AppTheme.tokens
+    Row(modifier, verticalAlignment = Alignment.Bottom) {
+        Text(
+            "$value",
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp).tabular(),
+            fontWeight = FontWeight.Bold,
+            color = t.ink,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+            color = t.ink3,
+            maxLines = 1,
+            modifier = Modifier.padding(bottom = 1.dp),
+        )
+    }
+}
+
+/**
+ * 待办条，对应设计稿 S2 的待核查琥珀条：圆点 + 「N 条待核查」+ 说明 + 「去处理 ›」。
+ *
+ * 三个选择都有明确理由：
+ *  · 琥珀而不是红：TODO 没坏，只是「待办」，红色会说成「出事了」；
+ *  · 整条做成一个可点区域而不是右侧一颗小按钮：44dp 高的条在拇指区，
+ *    比一颗 60dp 宽的胶囊好按得多；
+ *  · 只在 > 0 时出现：没有待办的时候还留一条「0 条待核查」，
+ *    等于每天在首屏提醒一次「有件不存在的事」。
+ */
+@Composable
+private fun PendingTodoBar(total: Int, onClick: () -> Unit) {
+    val t = AppTheme.tokens
+    Surface(
+        color = t.amberBg,
+        shape = RoundedCornerShape(AppShapes.panel),
+        border = BorderStroke(1.dp, t.amberLine),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickableNoRipple(true, onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(7.dp).background(t.amber, CircleShape))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "$total 条待核查",
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp).tabular(),
+                fontWeight = FontWeight.Bold,
+                color = t.amber,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "身份证号缺失",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = t.amber.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "去处理",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                fontWeight = FontWeight.SemiBold,
+                color = t.amber,
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = t.amber,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }

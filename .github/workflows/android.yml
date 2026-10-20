@@ -248,13 +248,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+          SIGN_STATE="${{ steps.keystore.outputs.signed == 'true' && '正式签名' || 'debug 签名（测试用）' }}"
           NOTES="掌上村务桌面端之外的移动端安装包。
 
           版本：${TAG}
+          签名：${SIGN_STATE}
           最低系统：Android 7.0（API 24）
           默认服务器地址可在 App 内「我的 → 服务器地址」修改。
 
-          Debug 包与 Release 包的区别：应用 id 后缀 / 签名方式不同，可同时安装在一台设备上。"
+          安装提示：
+          · 如果提示「应用未安装 / 签名不一致」，说明与手机上已有的版本签名不同，
+            需要先卸载旧版再安装（卸载会清空本机未上传的走访记录，安装前请先在旧版里同步完）。
+          · Debug 包与 Release 包的应用 id 后缀不同，可同时安装在一台设备上。
+
+          闪退排查：崩溃堆栈会自动记录在本机，重新打开 App 后进入「我的 → 崩溃诊断」
+          即可复制详情。"
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" android/out/release/*.apk --clobber
           else

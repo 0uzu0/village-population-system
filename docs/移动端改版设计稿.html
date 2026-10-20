@@ -1479,7 +1479,10 @@
             <td>M1</td>
             <td>在册人口主数字（40sp，等宽）</td>
             <td><code>home/HomeScreen.kt</code>、<code>theme/Theme.kt</code></td>
-            <td>首屏不滚动即可见主数字；3 个参照值在同一张卡内一行排开</td>
+            <td>首屏不滚动即可见主数字；3 个参照值在同一张卡内一行排开<br>
+              <span class="muted">落地偏差：右侧原画「正常 / 迁入」，但 <code>/statistics/dashboard</code>
+              不下发按状态拆分的计数。改为口径文字「在册 = 正常 + 迁入」，不编造数字，
+              也不要求老版本接口先升级。</span></td>
           </tr>
           <tr>
             <td>M2</td>

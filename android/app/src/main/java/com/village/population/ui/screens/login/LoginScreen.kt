@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,13 +19,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,8 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -47,6 +43,7 @@ import com.village.population.BuildConfig
 import com.village.population.data.local.SettingsStore
 import com.village.population.data.repository.AuthRepository
 import com.village.population.ui.components.FormField
+import com.village.population.ui.components.PasswordField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
 import com.village.population.ui.theme.AppShapes
@@ -183,30 +180,23 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
             Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
+            // 用应用自己的表单语言（标签在上 + 白盒），不再用 Material 的
+            // OutlinedTextField：登录页是全应用第一屏，第一屏就拿另一套控件，
+            // 等于告诉用户「后面每个页面都可能长得不一样」
+            FormField(
+                label = "账号",
                 value = state.username,
                 onValueChange = vm::onUsername,
-                label = { Text("账号") },
-                singleLine = true,
-                shape = RoundedCornerShape(AppShapes.control),
-                modifier = Modifier.fillMaxWidth(),
+                placeholder = "请输入账号",
             )
-            OutlinedTextField(
+            PasswordField(
+                label = "密码",
                 value = state.password,
                 onValueChange = vm::onPassword,
-                label = { Text("密码") },
-                singleLine = true,
-                shape = RoundedCornerShape(AppShapes.control),
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
+                visible = passwordVisible,
+                onToggleVisible = { passwordVisible = !passwordVisible },
+                placeholder = "请输入密码",
+                onImeAction = { vm.login(onLoggedIn) },
             )
 
             // 服务器地址收成一行（设计稿的「服务器地址 ▾」）：
@@ -255,7 +245,9 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 onClick = { vm.login(onLoggedIn) },
                 enabled = !state.loading,
                 shape = RoundedCornerShape(AppShapes.control),
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                contentPadding = PaddingValues(vertical = 15.dp),
+                // 同 PrimaryButton：52dp 是下限不是定高，大字号下按钮跟着长
+                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp),
             ) {
                 Text(if (state.loading) "登录中…" else "登 录", style = MaterialTheme.typography.labelLarge)
             }

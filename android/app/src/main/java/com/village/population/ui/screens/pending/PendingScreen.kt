@@ -2,11 +2,15 @@ package com.village.population.ui.screens.pending
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,15 +22,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,6 +59,8 @@ import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.PlainField
 import com.village.population.ui.components.PillTextStyle
 import com.village.population.ui.components.SearchField
+import com.village.population.ui.components.ThinProgressBar
+import com.village.population.ui.components.tabular
 import com.village.population.ui.theme.AppShapes
 import com.village.population.ui.theme.AppTheme
 import com.village.population.util.FormRules
@@ -73,6 +78,15 @@ data class PendingUiState(
     val error: String? = null,
     val list: List<PendingDto> = emptyList(),
     val total: Int = 0,
+    /**
+     * 本次进入这一屏时看到的待办总数，用来算「已处理 X / 总」。
+     *
+     * 为什么单独存一个基线而不是用 `total`：`total` 会随着处理递减，
+     * 拿它当分母的话进度条永远停在 0%（分子分母一起减）。
+     * 基线只在本屏第一次加载成功时写一次——用户离开再回来，那就是新的一批活，
+     * 基线跟着刷新。
+     */
+    val baseline: Int = 0,
     val selected: Set<Int> = emptySet(),
     val keyword: String = "",
     val working: Boolean = false,
@@ -98,7 +112,16 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
                 // 只看「待核查」：不传 status 会把已入库/已忽略的记录一起带回来
                 //（后端按 status 排序但不过滤），确认入库后记录就不消失了
                 val page = meta.pendingList(page = 1, pageSize = 50, keyword = _state.value.keyword, status = "PENDING")
-                _state.update { it.copy(loading = false, list = page.value.list, total = page.value.total) }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        list = page.value.list,
+                        total = page.value.total,
+                        // 基线只在**无关键词**的首次加载时写：搜索后的 total 是子集，
+                        // 拿它当分母会让进度条突然跳到 100%
+                        baseline = if (it.baseline == 0 && it.keyword.isBlank()) page.value.total else it.baseline,
+                    )
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = e.toUserMessage()) }
             }
@@ -116,7 +139,14 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
             _state.update { it.copy(working = true) }
             try {
                 meta.confirmPending(id)
-                _state.update { it.copy(working = false, list = it.list.filterNot { row -> row.id == id }) }
+                // total 与 list 一起减：进度条的分母是 baseline，分子靠 total 递减算出来
+                _state.update {
+                    it.copy(
+                        working = false,
+                        list = it.list.filterNot { row -> row.id == id },
+                        total = (it.total - 1).coerceAtLeast(0),
+                    )
+                }
                 onResult(true, "已确认入库")
             } catch (e: Exception) {
                 _state.update { it.copy(working = false) }
@@ -161,11 +191,25 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
             try {
                 when (val result = meta.ignorePending(id)) {
                     is com.village.population.data.repository.SubmitResult.Sent -> {
-                        _state.update { it.copy(working = false, list = it.list.filterNot { row -> row.id == id }) }
+                        _state.update {
+                            it.copy(
+                                working = false,
+                                list = it.list.filterNot { row -> row.id == id },
+                                total = (it.total - 1).coerceAtLeast(0),
+                            )
+                        }
                         onResult(true, "已忽略")
                     }
                     is com.village.population.data.repository.SubmitResult.Queued -> {
-                        _state.update { it.copy(working = false, list = it.list.filterNot { row -> row.id == id }) }
+                        // 离线入队也算「处理过了」：本机上这条不再需要人管，
+                        // 进度条跟着动，用户才知道自己确实点上了
+                        _state.update {
+                            it.copy(
+                                working = false,
+                                list = it.list.filterNot { row -> row.id == id },
+                                total = (it.total - 1).coerceAtLeast(0),
+                            )
+                        }
                         onResult(true, "无网络，已暂存本机，联网后自动忽略")
                     }
                     // 忽略操作不会产生 Pending（那是「建档缺身份证」的结果），
@@ -197,6 +241,7 @@ class PendingViewModel(private val meta: MetaRepository) : ViewModel() {
                     it.copy(
                         working = false,
                         list = it.list.filterNot { row -> ids.contains(row.id) },
+                        total = (it.total - ids.size).coerceAtLeast(0),
                         selected = emptySet(),
                     )
                 }
@@ -229,30 +274,69 @@ fun PendingScreen() {
     Scaffold(
         // 标题栏（设计稿 .topbar「待核查」）：透明底 + 18sp 加粗墨色。
         // 这一屏此前没有页头，进来先看见一块琥珀横幅，像「出了什么事」——
-        // 而它只是一屏待办的来源说明，不该抢在标题前面
-        topBar = { AppTopBar(title = "待核查") },
+        // 而它只是一屏待办的来源说明，不该抢在标题前面。
+        // 右上角的「N 条」对应设计稿 `.tb .rt`：报数要能随时说清还剩多少，
+        // 不必先滚到进度卡去看
+        topBar = {
+            AppTopBar(
+                title = "待核查",
+                actions = {
+                    if (state.total > 0) {
+                        Text(
+                            "${state.total} 条",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp).tabular(),
+                            color = AppTheme.tokens.amber,
+                            modifier = Modifier.padding(end = 16.dp),
+                        )
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Column(
                 Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 来源说明用琥珀横幅（设计稿 amber-banner）：这一屏的每条记录
-                // 都来自同一个「导入时证件有问题」的原因，说明白来源，
-                // 网格员才知道要逐条补什么。原先是行灰字，一扫就过。
-                // 16dp 圆角（.amber-banner）比白卡收一档——它是告示面板，不是卡片
-                Surface(
-                    color = tokens.amberBg,
-                    shape = RoundedCornerShape(AppShapes.panel),
-                    border = BorderStroke(1.dp, tokens.amberLine),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        "来源：Excel 导入时身份证号为空或非法的记录，需要逐条补齐或忽略。共 ${state.total} 条待处理。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.amber,
-                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
-                    )
+                // 进度卡（设计稿 M6）：把「一堆要处理的记录」变成一件有终点的事。
+                // 十几条堆着不动最伤的地方不是工作量大，而是**看不出还剩多少**——
+                // 没有终点感的清单，人的默认反应是关掉它。
+                // 一条 6dp 的进度条 + 一个「已处理 3 / 15」，做了几条就少几条。
+                if (state.baseline > 0) {
+                    val done = (state.baseline - state.total).coerceAtLeast(0)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(AppShapes.card),
+                        border = BorderStroke(1.dp, tokens.line2),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    "本次已处理",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.ink3,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    "$done / ${state.baseline}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp).tabular(),
+                                    fontWeight = FontWeight.Bold,
+                                    color = tokens.ink,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            ThinProgressBar(
+                                progress = if (state.baseline == 0) 0f else done.toFloat() / state.baseline,
+                            )
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                "Excel 导入时身份证号为空或非法，补齐后即可入档",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = tokens.ink3,
+                            )
+                        }
+                    }
                 }
                 SearchField(
                     value = state.keyword,
@@ -272,22 +356,24 @@ fun PendingScreen() {
                     )
                     // 批量忽略是次操作（设计稿 .btn-line）：白底细描边 + 二级墨字。
                     // 文字色特意不用品牌蓝——这一排的头等语义是「已勾选几条」，
-                    // 批量动作再上品牌色会跟它抢；紧凑高度（约 30dp）也比
-                    // 行内大按钮更配这行只有一行文字的选择栏
-                    OutlinedButton(
+                    // 批量动作再上品牌色会跟它抢。改用 ActionButton 而不是 OutlinedButton：
+                    // 后者的高度定在 40dp，达不到 M7 要求的 44dp 触摸目标
+                    ActionButton(
+                        text = "批量忽略",
                         onClick = { vm.batchIgnore(toast) },
                         enabled = state.selected.isNotEmpty() && !state.working,
-                        shape = RoundedCornerShape(AppShapes.control),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = tokens.ink2),
-                    ) { Text("批量忽略", style = MaterialTheme.typography.bodySmall) }
+                    )
                 }
             }
 
             when {
                 state.loading -> LoadingBox()
                 state.error != null -> ErrorBox(state.error!!) { vm.load() }
-                state.list.isEmpty() -> EmptyBox("没有待核查记录")
+                state.list.isEmpty() -> EmptyBox(
+                    message = "没有待核查记录",
+                    description = "Excel 导入时身份证号为空或不合法的记录会落到这里；补齐后即可入档，已处理的不会留在列表里",
+                    icon = Icons.Filled.FactCheck,
+                )
                 else -> LazyColumn(
                     contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -640,122 +726,114 @@ private fun PendingRow(
         tonalElevation = 0.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 13.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = checked, onCheckedChange = { onToggle() })
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            // 左沿 3dp 琥珀条（设计稿 S7）：与工作台的待办条同一套语言——
+            // 「琥珀 = 待办」。扫一列卡片时先看到这条竖线，再看是谁。
+            // 它替代了早先的整块琥珀横幅：横幅在页顶只出现一次，而待办是**逐条**的
+            Box(Modifier.width(3.dp).fillMaxHeight().background(tokens.amber))
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = checked, onCheckedChange = { onToggle() })
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                row.name ?: "（无姓名）",
+                                // 设计稿 .pv-name 14.5px 700：行标题，不是页面标题
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = tokens.ink,
+                            )
+                            // 原因徽章（设计稿 pv-badge）：缺失=红、非法=琥珀。
+                            // 「为什么这条要核查」做成行内徽章而不是只在副标题文字里——
+                            // 副标题扫一眼就过，徽章是形状+颜色双重编码，扫列表时先抓住它
+                            val (badge, badgeBg, badgeFg) = when (row.reason) {
+                                "ID_CARD_MISSING" -> Triple("身份证缺失", tokens.redBg, tokens.red)
+                                "ID_CARD_INVALID" -> Triple("身份证非法", tokens.amberBg, tokens.amber)
+                                else -> Triple(null, tokens.quiet, tokens.ink3)
+                            }
+                            if (badge != null) {
+                                Spacer(Modifier.width(7.dp))
+                                Surface(
+                                    color = badgeBg,
+                                    shape = RoundedCornerShape(AppShapes.chip),
+                                ) {
+                                    Text(
+                                        badge,
+                                        style = PillTextStyle,
+                                        color = badgeFg,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                    )
+                                }
+                            }
+                            // 状态徽章：这一行在源表里就已经迁出/死亡。
+                            // 「确认入库」不会让他变成正常人口（后端沿用 person_status），
+                            // 入库后他在所有在册名单里都看不到——动手前必须让人知道。
+                            PersonText.statusLabel(row.personStatus)?.let { label ->
+                                Spacer(Modifier.width(7.dp))
+                                Surface(
+                                    color = tokens.quiet,
+                                    shape = RoundedCornerShape(AppShapes.chip),
+                                ) {
+                                    Text(
+                                        label,
+                                        style = PillTextStyle,
+                                        color = tokens.ink3,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                    )
+                                }
+                            }
+                        }
                         Text(
-                            row.name ?: "（无姓名）",
-                            // 设计稿 .pv-name 14.5px 700：行标题，不是页面标题
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = tokens.ink,
+                            listOfNotNull(
+                                row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
+                                row.village?.takeIf { it.isNotBlank() },
+                                row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason),
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                            color = tokens.ink2,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        // 原因徽章（设计稿 pv-badge）：缺失=红、非法=琥珀。
-                        // 「为什么这条要核查」做成行内徽章而不是只在副标题文字里——
-                        // 副标题扫一眼就过，徽章是形状+颜色双重编码，扫列表时先抓住它
-                        val (badge, badgeBg, badgeFg) = when (row.reason) {
-                            "ID_CARD_MISSING" -> Triple("身份证缺失", tokens.redBg, tokens.red)
-                            "ID_CARD_INVALID" -> Triple("身份证非法", tokens.amberBg, tokens.amber)
-                            else -> Triple(null, tokens.quiet, tokens.ink3)
-                        }
-                        if (badge != null) {
-                            Spacer(Modifier.width(7.dp))
-                            Surface(
-                                color = badgeBg,
-                                shape = RoundedCornerShape(AppShapes.chip),
-                            ) {
-                                Text(
-                                    badge,
-                                    style = PillTextStyle,
-                                    color = badgeFg,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
-                                )
-                            }
-                        }
-                        // 状态徽章：这一行在源表里就已经迁出/死亡。
-                        // 「确认入库」不会让他变成正常人口（后端沿用 person_status），
-                        // 入库后他在所有在册名单里都看不到——动手前必须让人知道。
-                        PersonText.statusLabel(row.personStatus)?.let { label ->
-                            Spacer(Modifier.width(7.dp))
-                            Surface(
-                                color = tokens.quiet,
-                                shape = RoundedCornerShape(AppShapes.chip),
-                            ) {
-                                Text(
-                                    label,
-                                    style = PillTextStyle,
-                                    color = tokens.ink3,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
-                                )
-                            }
-                        }
                     }
-                    Text(
-                        listOfNotNull(
-                            row.idCard?.takeIf { it.isNotBlank() } ?: "身份证号缺失",
-                            row.village?.takeIf { it.isNotBlank() },
-                            row.reasonText?.takeIf { it.isNotBlank() } ?: reasonLabel(row.reason),
-                        ).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.ink2,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                // 主操作按钮按问题类型命名（设计稿 pv-btn.ok：补全信息 / 修正证件号），
-                // 打开的就是编辑弹窗：这条记录本来就缺/错在证件号，第一动作当然是改它，
-                // 而不是笼统一个「确认入库」——那反而要想一下「确认什么」。
-                // 确认入库保留为右侧文字按钮：证件号核对无误、直接放行时才用得上。
-                // （设计稿每张卡只画了两个按钮；保留第三个是刻意的功能取舍——
-                //  「确认入库」对应后端查重建人的重动作，不能没有入口）
-                Button(
-                    onClick = onOpen,
-                    enabled = !working,
-                    shape = RoundedCornerShape(AppShapes.control),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = tokens.brandLight,
-                        contentColor = tokens.brandStrong,
-                    ),
+                Spacer(Modifier.height(8.dp))
+                // 三个动作全部 ≥44dp（M7）：卡片里原先混着 Material Button（约 32dp）、
+                // OutlinedButton 与一颗 TextButton，三者的高度与圆角都不一致，
+                // 而「确认入库」作为一条真实可走的路，却只占一行 40dp 高的文字。
+                // 现在统一成项目自己的按钮词表：主操作浅蓝底、忽略与确认入库描边。
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    Text(
-                        when (row.reason) {
+                    // 主操作按问题类型命名（设计稿 pv-btn.ok：补全信息 / 修正证件号），
+                    // 打开的就是编辑弹窗：这条记录本来就缺/错在证件号，第一动作当然是改它，
+                    // 而不是笼统一个「确认入库」——那反而要想一下「确认什么」。
+                    // 浅蓝底而不是品牌实底：一列卡片每张都有一颗实底蓝按钮会刷出一片蓝，
+                    // 而它又比「忽略」重要，不能退回描边档（见 ActionButton.soft）
+                    ActionButton(
+                        text = when (row.reason) {
                             "ID_CARD_MISSING" -> "补全信息"
                             "ID_CARD_INVALID" -> "修正证件号"
                             else -> "详情"
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
+                        onClick = onOpen,
+                        enabled = !working,
+                        soft = true,
                     )
-                }
-                // 忽略是次操作（设计稿 pv-btn.skip）：安静灰底 + 细描边，
-                // 与主操作拉开「可点但别急着点」的距离
-                OutlinedButton(
-                    onClick = onIgnore,
-                    enabled = !working,
-                    shape = RoundedCornerShape(AppShapes.control),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = tokens.quiet,
-                        contentColor = tokens.ink3,
-                    ),
-                    border = BorderStroke(1.dp, tokens.line2),
-                ) { Text("忽略", style = MaterialTheme.typography.bodySmall) }
-                Spacer(Modifier.weight(1f))
-                // 确认入库降为文字按钮并去掉装饰箭头：它不再是这条卡的主路径，
-                // 只服务「证件号核对无误、直接放行」的场景。带箭头的实体样式
-                // 会让它看起来跟主操作一样重要，而它恰恰是最少见的一条路
-                TextButton(onClick = onConfirm, enabled = !working) {
-                    Text("确认入库", style = MaterialTheme.typography.bodySmall)
+                    ActionButton(
+                        text = "忽略",
+                        onClick = onIgnore,
+                        enabled = !working,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    // 确认入库服务「证件号核对无误、直接放行」的场景：保留入口，
+                    // 但与主操作同档描边，不让它看起来和「补齐」一样常用
+                    ActionButton(
+                        text = "确认入库",
+                        onClick = onConfirm,
+                        enabled = !working,
+                    )
                 }
             }
         }

@@ -43,6 +43,8 @@ data class AppTokens(
     val ink2: Color,
     /** 三级墨色：说明文字、时间戳 */
     val ink3: Color,
+    /** 输入框占位文字（「请选择」「搜索姓名…」）：比三级墨再轻一档，但不低于 4.5:1 */
+    val placeholder: Color,
     /** 描边色 */
     val line: Color,
     /** 更浅的分隔线 */
@@ -69,14 +71,25 @@ val LightTokens = AppTokens(
     brandFaint = Color(0xFFF5F8FE),
     ink = Color(0xFF1B1F26),
     ink2 = Color(0xFF4A5260),
-    ink3 = Color(0xFF7A8494),
+    // 2026-10-21 对比度校订：原 #7A8494 压白卡只有 3.78:1、压页面灰底 3.66:1，
+    // 而它承载的是 10.5–12sp 的字段名与时间戳——正是最小、最该够黑的字。
+    // 村口晒谷场上把手机斜着看的时候，这一档几乎糊成底纹。压到 #676F7C 后
+    // 白卡 5.07:1、灰底 4.66:1，都过 AA；与二级墨（7.9:1）仍然分得开。
+    ink3 = Color(0xFF676F7C),
+    // 占位文字原 #A6AEBC 只有 2.24:1，等于「告诉用户这里该填什么」的那行字看不太见。
+    // #6B7480 是白盒上 4.75:1 的最轻一档：过 AA，又明显比已填内容（ink，14.8:1）浅。
+    placeholder = Color(0xFF6B7480),
     line = Color(0xFFE2E7EF),
     line2 = Color(0xFFEDF1F7),
     bg = Color(0xFFF4F6FA),
     quiet = Color(0xFFF8FAFD),
-    green = Color(0xFF12A150),
+    // 同批校订：这两档是**文字**色（在册状态、成功提示、离线横幅、待办计数），
+    // 原先按「点缀色」取的 #12A150 / #B26B00 压白只有 3.35:1 与 4.21:1，
+    // 压自己的浅底（greenBg / amberBg）更低到 3.3 / 3.84——高亮的东西反而看不清。
+    // 压深到 5.4:1 与 6.3:1 后，绿仍然是绿、琥珀仍然是琥珀，只是不再是荧光笔。
+    green = Color(0xFF0D7A3C),
     greenBg = Color(0xFFE8F7EE),
-    amber = Color(0xFFB26B00),
+    amber = Color(0xFF8A5300),
     amberBg = Color(0xFFFDF3E3),
     amberLine = Color(0xFFF0DDB8),
     red = Color(0xFFC0261B),
@@ -95,6 +108,7 @@ val DarkTokens = AppTokens(
     ink = Color(0xFFE6EAF0),
     ink2 = Color(0xFFB6BFCB),
     ink3 = Color(0xFF8B94A3),
+    placeholder = Color(0xFF8B94A3),
     line = Color(0xFF2C3441),
     line2 = Color(0xFF242B35),
     bg = Color(0xFF12161C),
@@ -152,6 +166,25 @@ private fun schemeFrom(t: AppTokens, dark: Boolean): ColorScheme {
         errorContainer = t.redBg,
         onErrorContainer = t.red,
         surfaceTint = t.brand,
+
+        // ── 浮层与容器档 ────────────────────────────────────────────────
+        // M3 的 `lightColorScheme()` 默认值全部带一层紫调（surfaceContainerHigh
+        // 是 #ECE6F0 一类）。本应用是中性灰白世界，只要漏掉这几个槽位，弹窗、
+        // 菜单、Snackbar、底部抽屉就会从品牌蓝体系里「跳出去」——实际症状是
+        // 「发现新版本」这种对话框看着像另一个应用。
+        // 这里把浮层统一收到 `surface`（白卡 / 深色卡）：对话框在本应用里
+        // 就是「浮起来的一张卡」，与页面上的卡片同一种材质。
+        surfaceContainerLowest = cardSurface,
+        surfaceContainerLow = cardSurface,
+        surfaceContainer = cardSurface,
+        surfaceContainerHigh = cardSurface,
+        surfaceContainerHighest = t.quiet,
+        surfaceBright = cardSurface,
+        surfaceDim = t.bg,
+        // Snackbar 用反色系：深底浅字（浅色档）／浅底深字（深色档）
+        inverseSurface = t.ink,
+        inverseOnSurface = cardSurface,
+        scrim = Color.Black,
     )
 }
 
@@ -168,6 +201,24 @@ private fun schemeFrom(t: AppTokens, dark: Boolean): ColorScheme {
  * 「看得清」这条底线没有放弃，只是不再用它当「不许动」的理由。
  */
 private val AppTypography = androidx.compose.material3.Typography(
+    /**
+     * 主数字档（40sp）。全应用只有一处用：工作台的「在册人口」。
+     *
+     * 这一档存在的理由不是「再大一点好看」，而是回答一个具体的场景问题：
+     * 村干部开周会报数字时，手机摊在桌上、人隔着半米看屏幕。此时 23sp 的指标数字
+     * 与旁边的标签在余光里是同一团灰块，必须凑近才知道读的是哪个数。
+     * 40sp 让「1286」在半米外就是一个可读的形状。
+     *
+     * 其他数字**不许**用这一档：一屏里出现两个 40sp，谁也不比谁重要，
+     * 主数字的意义就没了。层级靠「只有一个」维持，不靠字号本身。
+     */
+    displaySmall = TextStyle(
+        fontSize = 40.sp,
+        fontWeight = FontWeight.ExtraBold,
+        lineHeight = 44.sp,
+        // 大字号默认字距会显松，收 -2% 让数字聚成一团（接近设计稿 letter-spacing:-.02em）
+        letterSpacing = (-0.8).sp,
+    ),
     /** 页面主标题、指标数字（23sp：设计稿指标格取值，比旧 22 再抬一档） */
     titleLarge = TextStyle(fontSize = 23.sp, fontWeight = FontWeight.SemiBold, lineHeight = 31.sp),
     /** 卡片标题、人员姓名、问候语（18 → 20sp，与正文拉开到 3sp 以上） */

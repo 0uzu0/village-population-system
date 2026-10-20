@@ -44,9 +44,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -361,47 +367,86 @@ fun CaptureScreen(personId: Int?, onBack: () -> Unit) {
             }
 
             SectionCard(title = "拍摄 / 选择照片") {
-                Column(
-                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                // 「空框即快门」（设计稿 M5）。
+                //
+                // 旧版这里是一个灰底方块写着「拍照或从相册选择」，真正的按钮在它下面
+                // 60dp 处。网格员在户外一只手操作，要读完 → 找到按钮 → 再点，三步。
+                // 现在虚线画幅自己就是快门：整块可点、中心一枚相机圆牌、
+                // 「点这里拍照」直接写着动作。少一次定位。
+                //
+                // 虚线不是装饰：它表达「这里现在是空的」，与详情页照片行尾的
+                // 「+」同一套语言——同一件事在应用里长得一样，才不用重新学。
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 200.dp)
+                        .clip(RoundedCornerShape(AppShapes.panel))
+                        .background(tokens.brandFaint)
+                        .drawBehind {
+                            drawRoundRect(
+                                color = tokens.line,
+                                cornerRadius = CornerRadius(AppShapes.panel.toPx()),
+                                style = Stroke(
+                                    width = 2f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f)),
+                                ),
+                            )
+                        }
+                        .clickableNoRipple(true, ::beginCapture),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .background(tokens.brandLight, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.PhotoCamera,
+                                contentDescription = null,
+                                tint = tokens.brandStrong,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "点这里拍照",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.brandStrong,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            "拍门牌、本人或补贴到账记录都算留痕",
+                            style = HintTextStyle,
+                            color = tokens.ink3,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                // 相册入口退成画幅下的一行小字（设计稿 M5）：它是备用路径，
+                // 不该和快门抢同一块面积；整行 44dp 可点，不是只有那半行字能点
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clickableNoRipple(true) { pickImage.launch("image/*") },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Filled.PhotoCamera,
+                        Icons.Filled.Image,
                         contentDescription = null,
-                        tint = tokens.brand,
-                        modifier = Modifier.size(34.dp),
+                        tint = tokens.ink3,
+                        modifier = Modifier.size(14.dp),
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.width(5.dp))
                     Text(
-                        "拍照或从相册选择",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = tokens.ink,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "不需要申请相机与存储权限\n照片经系统相机 / 文件选择器授权写入",
-                        style = HintTextStyle,
+                        "也可以从相册选一张（支持 PDF）",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         color = tokens.ink3,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // 一实一虚（设计稿 .cam-btns）：实心是「继续」——这一屏的主角；
-                    // 虚钮是「换条路」。两颗都换成设计稿的按钮对后，
-                    // 与 Material Button 的默认高度/圆角/字重不再混用
-                    ActionButton(
-                        text = "拍照",
-                        onClick = ::beginCapture,
-                        filled = true,
-                        icon = Icons.Filled.PhotoCamera,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ActionButton(
-                        text = "从相册选",
-                        onClick = { pickImage.launch("image/*") },
-                        icon = Icons.Filled.Image,
-                        modifier = Modifier.weight(1f),
                     )
                 }
             }

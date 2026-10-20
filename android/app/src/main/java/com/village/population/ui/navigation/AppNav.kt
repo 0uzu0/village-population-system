@@ -145,11 +145,15 @@ fun AppRoot() {
     }
 
     // 冷启动必须先装载服务器地址与 token：拦截器读的是内存镜像，
-    // 早于这一步发出的请求会打到占位地址上，全部失败
+    // 早于这一步发出的请求会打到占位地址上，全部失败。
+    //
+    // 整段包 runCatching：这一步读的是持久化设置，虽然 DataStore 已配损坏自愈，
+    // 但任何意外（磁盘只读、系统限制）都不该让首屏永远停在「正在启动…」——
+    // 宁可降级进登录页，让用户重新登录 / 重设服务器地址。
     LaunchedEffect(Unit) {
-        container.bootstrap()
+        runCatching { container.bootstrap() }
         ready = true
-        container.syncManager.requestSync()
+        runCatching { container.syncManager.requestSync() }
     }
 
     // 启动后台静默检查更新一次：失败不打扰用户，只有真发现新版才弹。

@@ -26,6 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -59,11 +62,12 @@ import com.village.population.ui.components.AppTopBar
 import com.village.population.ui.components.EmptyBox
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.InlineSearchField
-import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.MetaTextStyle
 import com.village.population.ui.components.OfflineBanner
+import com.village.population.ui.components.PersonListSkeleton
 import com.village.population.ui.components.SearchField
 import com.village.population.ui.components.TagPill
+import com.village.population.ui.components.tabular
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.components.parseHexColor
 import com.village.population.ui.theme.AppShapes
@@ -274,7 +278,7 @@ fun PersonListScreen(
                     // 放在内容区会跟着列表一起滚走，而「筛选后到底有多少人」是要随时能看见的
                     Text(
                         "共 ${state.total} 人",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.tabular(),
                         color = tokens.ink2,
                         modifier = Modifier.padding(end = 16.dp),
                     )
@@ -371,9 +375,27 @@ fun PersonListScreen(
             }
 
             when {
-                state.loading -> LoadingBox()
+                // 首屏用骨架屏而不是居中转圈：村里网络慢，转圈只说明「在等」，
+                // 骨架说明「马上有一列人，长这样」，等的是同一段时间但页面不像空的
+                state.loading -> PersonListSkeleton()
                 state.error != null -> ErrorBox(state.error!!) { vm.load() }
-                state.list.isEmpty() -> EmptyBox("没有符合条件的在册人员")
+                state.list.isEmpty() -> if (state.hasUserFilter) {
+                    EmptyBox(
+                        message = "没有找到匹配的村民",
+                        description = "换个关键词试试，或者清空筛选看全部在册人员",
+                        actionLabel = "清空筛选",
+                        onAction = { vm.clearFilters() },
+                        icon = Icons.Filled.SearchOff,
+                    )
+                } else {
+                    EmptyBox(
+                        message = "还没有人员档案",
+                        description = "可以从电脑端批量导入，也可以直接在这里新增一个人",
+                        actionLabel = "新增人员",
+                        onAction = onCreatePerson,
+                        icon = Icons.Filled.PersonAdd,
+                    )
+                }
                 else -> LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 88.dp),
@@ -385,9 +407,22 @@ fun PersonListScreen(
                     if (state.hasMore) {
                         item {
                             LaunchedEffect(state.list.size) { vm.loadMore() }
-                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            // 这里是**自动**加载（滑到底就触发），所以文案不能写
+                            // 「上拉加载更多」——用户不需要上拉，看到的是一行提示在等。
+                            // 加一枚 14dp 的转圈，是为了让「怎么不动了」这一秒有交代。
+                            Row(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = tokens.ink3,
+                                )
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    if (state.loadingMore) "加载中…" else "上拉加载更多",
+                                    "正在加载更多…",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = tokens.ink3,
                                 )
@@ -398,7 +433,7 @@ fun PersonListScreen(
                             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 Text(
                                     "已显示全部 ${state.total} 人",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.bodySmall.tabular(),
                                     color = tokens.ink3,
                                 )
                             }

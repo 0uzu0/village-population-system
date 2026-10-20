@@ -18,13 +18,21 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,8 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -60,7 +70,10 @@ import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonRepository
 import kotlinx.coroutines.CancellationException
 import com.village.population.ui.LocalAppContainer
+import com.village.population.ui.components.ActionButton
+import com.village.population.ui.components.AppDivider
 import com.village.population.ui.components.AppTopBar
+import com.village.population.ui.components.CollapsibleRow
 import com.village.population.ui.components.ErrorBox
 import com.village.population.ui.components.InfoEntry
 import com.village.population.ui.components.InfoRows
@@ -231,11 +244,15 @@ fun PersonDetailScreen(
                     Text(msg, style = MaterialTheme.typography.bodyMedium, color = tokens.green)
                 }
 
-                // 身份卡（设计稿 detail-hero）：居中大头像 + 姓名 + 性别年龄生日 + 标签。
-                // 这一屏的核心动作是「核对这是谁」——头像居中比缩在左上角更符合
-                // 核对身份时的视线路径：先看脸、再看名字、再看信息对不对得上。
-                // 村庄/网格不再挤进副标题：下面「户籍与居住」卡里有，
-                // 堆在头像下面只会把最该先看到的「年龄生日」挤到第二行
+                // 名片（设计稿 v4 detail-hero）：**横向**头像 + 姓名 + 性别年龄生日 + 标签，
+                // 下方紧跟两枚 44dp 动作按钮（拨打 / 拍照留痕）。
+                //
+                // 为什么从「居中大头像」改成「横向名片」：上一版是纵向居中排布，
+                // 头像 66dp + 名字 + 副标题 + 标签行，光这张卡就 190dp；
+                // 而这一屏真正长的是后面七张卡。横向排布把同一批信息压到 100dp 以内，
+                // 换来的是「动作按钮能进首屏」——走访时打电话与拍照是最高频的两件事，
+                // 原本一个是一行 30dp 的彩色文字、一个是第三张卡里的 TextButton，
+                // 都得先找到它们。
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(AppShapes.card),
@@ -244,112 +261,150 @@ fun PersonDetailScreen(
                     tonalElevation = 0.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        // 66dp 大头像 + 3dp 白环 + 柔和阴影（设计稿 .d-ava）：
-                        // 白环把头像与白卡剥离开，阴影让它「浮」在卡面上
-                        Box(
-                            Modifier
-                                .size(66.dp)
-                                .shadow(AppShapes.cardElevation, CircleShape)
-                                .background(tokens.brandLight, CircleShape)
-                                .border(3.dp, Color.White, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                person.name.take(1),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = tokens.brandStrong,
-                            )
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            person.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = tokens.ink,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            listOfNotNull(
-                                if (person.gender == "FEMALE") "女" else "男",
-                                (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
-                                person.birthDate?.takeIf { it.isNotBlank() }?.let { DateText.formatCn(it) },
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = tokens.ink3,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        // 状态徽章与标签同一套胶囊（设计稿 .d-tags）：状态其实也是
-                        // 一种标签，两种样子摆在一行会读出两种信息层级
-                        val (statusText, statusColor) = statusTag(person.status)
-                        // 标签居中成排（设计稿 .d-tags justify-content: center）：
-                        // 这是头像下方的一行陪衬，左对齐会把「居中」的视线路径切断
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            TagPill(statusText, statusColor)
-                            person.tags.forEach { tag ->
-                                TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 54dp 头像 + 2dp 白环 + 柔和阴影（设计稿 .d-ava）
+                            Box(
+                                Modifier
+                                    .size(54.dp)
+                                    .shadow(AppShapes.cardElevation, CircleShape)
+                                    .background(tokens.brandLight, CircleShape)
+                                    .border(2.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    person.name.take(1),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 21.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = tokens.brandStrong,
+                                )
                             }
+                            Spacer(Modifier.width(13.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    person.name,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 22.sp),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = tokens.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    listOfNotNull(
+                                        if (person.gender == "FEMALE") "女" else "男",
+                                        (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
+                                        person.birthDate?.takeIf { it.isNotBlank() }?.let { DateText.formatCn(it) },
+                                    ).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.ink3,
+                                )
+                                Spacer(Modifier.height(5.dp))
+                                // 状态徽章与标签同一套胶囊（设计稿 .d-tags）：状态其实也是
+                                // 一种标签，两种样子摆在一行会读出两种信息层级
+                                val (statusText, statusColor) = statusTag(person.status)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    TagPill(statusText, statusColor)
+                                    person.tags.forEach { tag ->
+                                        TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // 动作对（M4）：拨打是**实底**——两个手机号任取一个能打的，
+                        // 走访时「给他打个电话」比「拍张照」更常发生；
+                        // 两个号都空时按钮禁用并说明原因，不做「点了没反应」的按钮
+                        val dialNumber = person.phone?.takeIf { it.isNotBlank() }
+                            ?: person.phoneBackup?.takeIf { it.isNotBlank() }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ActionButton(
+                                text = dialNumber?.let { "拨打 $it" } ?: "没有电话",
+                                onClick = { dialNumber?.let { context.dial(it) } },
+                                enabled = dialNumber != null,
+                                filled = true,
+                                icon = Icons.Filled.Phone,
+                                height = 44.dp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            ActionButton(
+                                text = "拍照留痕",
+                                onClick = onCapture,
+                                icon = Icons.Filled.PhotoCamera,
+                                height = 44.dp,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
 
-                // 现场照片：拍照留痕的落点。底部三按钮操作栏撤掉后，拍照入口收进这张卡——
-                // 有照片时是缩略图网格，没照片时是空态加按钮，入口不因「暂无数据」消失
-                // （旧版没照片时整块不显示，入口只剩页头，等于没有）。
-                // 照片按拍照时间倒序（后端排好），文件名本身也带着「哪天拍的、拍的谁」。
+                // 现场照片：拍照留痕的落点。横滑一行 —— 照片多于三张时不再换行把卡片
+                // 撑成两三行，尾部那枚虚线「+」常驻，新增照片不必先滚到底部找按钮
                 SectionCard(title = if (state.photos.isEmpty()) "现场照片" else "现场照片（${state.photos.size}）") {
                     if (state.photos.isEmpty()) {
-                        Box(
+                        // 空态本身就是入口：整块虚线画幅可点，与拍照页的「空框即快门」同一套语言
+                        Row(
                             Modifier
                                 .fillMaxWidth()
-                                .height(104.dp)
+                                .heightIn(min = 64.dp)
                                 .background(tokens.quiet, RoundedCornerShape(AppShapes.control))
-                                .border(1.dp, tokens.line2, RoundedCornerShape(AppShapes.control)),
-                            contentAlignment = Alignment.Center,
+                                .border(1.dp, tokens.line2, RoundedCornerShape(AppShapes.control))
+                                .clickableNoRipple(true, onCapture)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .background(tokens.brandLight, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Icon(
-                                    Icons.Filled.Image,
+                                    Icons.Filled.PhotoCamera,
                                     contentDescription = null,
-                                    tint = tokens.ink3,
-                                    modifier = Modifier.size(26.dp),
+                                    tint = tokens.brandStrong,
+                                    modifier = Modifier.size(16.dp),
                                 )
-                                Spacer(Modifier.height(6.dp))
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
                                 Text(
                                     "还没有现场照片",
                                     style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = tokens.ink2,
+                                )
+                                Text(
+                                    "点这里拍第一张",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                                     color = tokens.ink3,
                                 )
                             }
+                            Icon(
+                                Icons.Filled.PhotoCamera,
+                                contentDescription = null,
+                                tint = tokens.ink3,
+                                modifier = Modifier.size(16.dp),
+                            )
                         }
                     } else {
-                        FlowRow(
+                        LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            maxItemsInEachRow = 3,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            state.photos.forEach { photo ->
+                            items(state.photos, key = { it.id }) { photo ->
                                 PhotoThumb(photo) { vm.view(photo) }
                             }
+                            item { AddPhotoTile(onCapture) }
                         }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    TextButton(onClick = onCapture) {
-                        Icon(
-                            Icons.Filled.PhotoCamera,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("拍照留痕")
                     }
                 }
 
@@ -369,6 +424,7 @@ fun PersonDetailScreen(
                         InfoEntry("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" }),
                         InfoEntry("人员编号", person.personNo),
                         InfoEntry("人员状态", PersonText.status(person.status)),
+                        dense = true
                     )
                 }
 
@@ -378,6 +434,7 @@ fun PersonDetailScreen(
                         InfoEntry("所属网格", person.gridName),
                         InfoEntry("户籍地址", person.hukouAddress),
                         InfoEntry("现居住地址", person.liveAddress),
+                        dense = true
                     )
                 }
 
@@ -387,6 +444,7 @@ fun PersonDetailScreen(
                     InfoRows(
                         InfoEntry("所属家庭", person.familyName),
                         InfoEntry("与户主关系", PersonText.relation(person.relation)),
+                        dense = true
                     )
                 }
 
@@ -395,15 +453,6 @@ fun PersonDetailScreen(
                 // 两件事混在一起会让详情页变长、也让网格员在核人时分心。
                 // 标签本身没丢——顶部身份区仍会展示标签胶囊，重点人群名单在
                 // 工作台对应入口进入；要调整标签走「编辑」。
-
-                SectionCard(title = "服务台账") {
-                    InfoRows(
-                        InfoEntry("银行账号", person.bankAccount),
-                        InfoEntry("月补贴金额", person.subsidyAmount?.let { "$it 元/月" }),
-                        InfoEntry("家庭情况", person.familyCondition),
-                        InfoEntry("健康评估", person.healthAssessment),
-                    )
-                }
 
                 person.disability?.let { d ->
                     SectionCard(title = "残疾档案") {
@@ -417,34 +466,81 @@ fun PersonDetailScreen(
                                 d.guardianPhone?.let { context.dial(it) }
                             }),
                             InfoEntry("备注", d.remark),
+                            dense = true
                         )
                     }
                 }
 
-                SectionCard(title = "备注") {
-                    Text(
-                        person.remark?.takeIf { it.isNotBlank() } ?: "—",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                // 备注只在有内容时出现：空备注摆一张「—」的卡，等于用 80dp 告诉
+                // 看的人「这里没有信息」——而详情页的长短正是这次要压的东西
+                person.remark?.takeIf { it.isNotBlank() }?.let { remark ->
+                    SectionCard(title = "备注") {
+                        Text(remark, style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
 
-                if (person.changes.isNotEmpty()) {
-                    SectionCard(title = "变更记录（最近 ${person.changes.size} 条）") {
-                        person.changes.forEach { change ->
-                            Column(Modifier.padding(vertical = 6.dp)) {
-                                Text(
-                                    "${change.fieldName ?: "字段"}：${change.oldValue ?: "空"} → ${change.newValue ?: "空"}",
-                                    style = MaterialTheme.typography.bodyMedium,
+                // 低频分组（设计稿 M4）：服务台账 + 变更记录并成**一张卡的两条折叠行**，
+                // 默认收起。两者各自原本都是一张完整白卡（标题行 + 内边距 + 间距），
+                // 而它们合起来只有「偶尔查一个银行账号 / 看看最近改了什么」这一种用途。
+                // 压成两条 44dp 的行后，这一页从三屏变两屏，且标题里写清里面有什么，
+                // 要查的人一眼知道展开哪一条。
+                // 展开状态用 `remember` 放在本屏：离开再回来复位成收起（设计稿明确要求
+                // 折叠状态不跨页面记忆——记住上次展开了什么只会让下次多一次「收起」）。
+                var ledgerOpen by remember { mutableStateOf(false) }
+                var changesOpen by remember { mutableStateOf(false) }
+                if (person.changes.isNotEmpty() || person.bankAccount != null ||
+                    person.subsidyAmount != null || person.familyCondition != null ||
+                    person.healthAssessment != null
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(AppShapes.card),
+                        border = BorderStroke(1.dp, tokens.line2),
+                        shadowElevation = AppShapes.cardElevation,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            CollapsibleRow(
+                                title = "服务台账",
+                                summary = "银行账号 · 补贴 · 健康评估",
+                                expanded = ledgerOpen,
+                                onToggle = { ledgerOpen = !ledgerOpen },
+                            ) {
+                                InfoRows(
+                                    InfoEntry("银行账号", person.bankAccount),
+                                    InfoEntry("月补贴金额", person.subsidyAmount?.let { "$it 元/月" }),
+                                    InfoEntry("家庭情况", person.familyCondition),
+                                    InfoEntry("健康评估", person.healthAssessment),
+                                    dense = true
                                 )
-                                Text(
-                                    listOfNotNull(
-                                        change.changeType,
-                                        change.reason,
-                                        change.createdAt,
-                                    ).joinToString(" · "),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = tokens.ink3,
-                                )
+                            }
+                            if (person.changes.isNotEmpty()) {
+                                AppDivider(Modifier.padding(start = 11.dp))
+                                CollapsibleRow(
+                                    title = "变更记录",
+                                    summary = "最近 ${person.changes.size} 条",
+                                    expanded = changesOpen,
+                                    onToggle = { changesOpen = !changesOpen },
+                                ) {
+                                    person.changes.forEach { change ->
+                                        Column(Modifier.padding(vertical = 6.dp)) {
+                                            Text(
+                                                "${change.fieldName ?: "字段"}：${change.oldValue ?: "空"} → ${change.newValue ?: "空"}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                            Text(
+                                                listOfNotNull(
+                                                    change.changeType,
+                                                    change.reason,
+                                                    change.createdAt,
+                                                ).joinToString(" · "),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = tokens.ink3,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -532,8 +628,11 @@ private fun PhotoThumb(photo: FileDto, onClick: () -> Unit) {
         shadowElevation = AppShapes.cardElevation,
         tonalElevation = 0.dp,
         modifier = Modifier
-            .width(84.dp)
-            .height(84.dp)
+            // 80×56 的横档（设计稿 S4 是 50dp 高的一行横排）：
+            // 旧版 84×84 的正方形一屏放不下几张，横档一行能排 4 个，
+            // 高度也压下去一半——而缩略图的作用是「认出是哪张」，不是看细节
+            .width(80.dp)
+            .height(56.dp)
             .clickableNoRipple {
                 when (load) {
                     is PhotoLoadState.Ready -> onClick()
@@ -690,6 +789,46 @@ private fun PhotoViewerDialog(
                 }
             }
         }
+    }
+}
+
+/**
+ * 照片行尾部的「加一张」虚线格（设计稿 S4 那枚虚线 +）。
+ *
+ * 它替代了原先卡片底部那颗「拍照留痕」文字按钮：
+ *  · 按钮在照片下面，要新增一张得先滚到底、再回头确认跳转是对的；
+ *    放在照片行尾，视线扫到照片就看见了「这里还能加」；
+ *  · 虚线是通用语言：它的意思是「这个位置暂时是空的」，
+ *    而不是「这里有一个次要动作」——后者会被读成可点可不点。
+ */
+@Composable
+private fun AddPhotoTile(onClick: () -> Unit) {
+    val t = AppTheme.tokens
+    Box(
+        Modifier
+            .width(80.dp)
+            .height(56.dp)
+            .clip(RoundedCornerShape(AppShapes.card))
+            .background(t.quiet)
+            .drawBehind {
+                drawRoundRect(
+                    color = t.line,
+                    cornerRadius = CornerRadius(AppShapes.card.toPx()),
+                    style = Stroke(
+                        width = 2f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 9f)),
+                    ),
+                )
+            }
+            .clickableNoRipple(true, onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Add,
+            contentDescription = "拍一张现场照片",
+            tint = t.ink3,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 

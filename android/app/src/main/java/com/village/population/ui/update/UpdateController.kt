@@ -111,6 +111,15 @@ class UpdateController(
                 return@launch
             }
             state = UpdateState.Idle
+            // 先比签名：debug 签名包与正式签名包不能覆盖安装，
+            // 直接拉安装器只会得到一个系统级的「应用未安装」，用户完全无法自救
+            if (!repository.isSameSignature(file)) {
+                state = UpdateState.Error(
+                    "更新包的签名与本机已安装版本不一致（正式包与测试包混用），无法覆盖安装。\n\n" +
+                        "请先同步完「待同步记录」，再卸载旧版后安装这个包。",
+                )
+                return@launch
+            }
             try {
                 val launched = repository.installApk(file)
                 if (!launched) {

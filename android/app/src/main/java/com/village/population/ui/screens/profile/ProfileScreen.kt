@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Lock
@@ -41,10 +42,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import android.content.ClipData
+import android.content.ClipboardManager
 import com.village.population.BuildConfig
 import com.village.population.data.local.queue.QueuedOp
 import com.village.population.ui.LocalAppContainer
@@ -54,6 +59,7 @@ import com.village.population.ui.components.FormField
 import com.village.population.ui.components.clickableNoRipple
 import com.village.population.ui.theme.AppTheme
 import com.village.population.ui.theme.AppShapes
+import com.village.population.util.CrashLogger
 import com.village.population.util.DateText
 import com.village.population.util.toUserMessage
 import kotlinx.coroutines.flow.first
@@ -76,7 +82,10 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var showQueueDialog by remember { mutableStateOf(false) }
+    var showCrashDialog by remember { mutableStateOf(false) }
+    var crashText by remember { mutableStateOf("") }
     var lastSyncAt by remember { mutableStateOf(0L) }
+    val context = LocalContext.current
 
     suspend fun refreshLocal() {
         ops = container.queue.all()
@@ -186,6 +195,21 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
 
                     SettingDivider()
 
+                    // 崩溃诊断：真机闪退时用户拿不到任何栈信息，这一行让「崩溃原因」
+                    // 可以被复制出来发给技术员，不必再靠猜或让用户装 adb
+                    SettingRow(
+                        icon = Icons.Filled.BugReport,
+                        title = "崩溃诊断",
+                        subtitle = CrashLogger.count(context).let {
+                            if (it > 0) "已记录 $it 次崩溃，可复制详情" else "暂无崩溃记录"
+                        },
+                    ) {
+                        crashText = CrashLogger.readLatest(context) ?: ""
+                        showCrashDialog = true
+                    }
+
+                    SettingDivider()
+
                     SettingRow(
                         icon = Icons.Filled.CloudUpload,
                         title = "待同步记录",
@@ -237,6 +261,50 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             }
         }
+    }
+
+    if (showCrashDialog) {
+        AlertDialog(
+            onDismissRequest = { showCrashDialog = false },
+            title = { Text("崩溃诊断") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (crashText.isBlank()) {
+                        Text(
+                            "暂无崩溃记录。\n\n如果应用再次闪退，重新打开后这里会出现完整堆栈，" +
+                                "点「复制」发给技术员即可定位。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.ink2,
+                        )
+                    } else {
+                        Text(
+                            crashText,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = tokens.ink2,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            val cm = context.getSystemService(ClipboardManager::class.java)
+                            cm?.setPrimaryClip(ClipData.newPlainText("crash", crashText))
+                            message = "崩溃详情已复制，粘贴发送即可"
+                            showCrashDialog = false
+                        },
+                        enabled = crashText.isNotBlank(),
+                    ) { Text("复制") }
+                    TextButton(onClick = {
+                        CrashLogger.clear(context)
+                        crashText = ""
+                        message = "崩溃记录已清除"
+                    }) { Text("清除") }
+                    TextButton(onClick = { showCrashDialog = false }) { Text("关闭") }
+                }
+            },
+        )
     }
 
     if (showServerDialog) {

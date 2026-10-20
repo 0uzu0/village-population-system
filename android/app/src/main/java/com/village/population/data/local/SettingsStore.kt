@@ -2,16 +2,59 @@ package com.village.population.data.local
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 import com.village.population.BuildConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "village_settings")
+/**
+ * 设置库（DataStore）。
+ *
+ * ⚠️ 这里刻意不用 `by preferencesDataStore(name = ...)` 那个便捷委托：
+ * 它无法配置 corruptionHandler，而**文件损坏时读取会直接抛 IOException**。
+ * 真实场景里手机被强制断电、存储写满、覆盖安装时进程被杀，都可能让
+ * village_settings.preferences_pb 变成半截文件——那时表现为
+ * 「打开就闪退」，且用户无论如何重装才恢复。
+ *
+ * 现在损坏时自动替换为空配置（等于「服务器地址回默认、需要重新登录」），
+ * 应用能正常启动，用户重新登录即可，不会崩。
+ */
+private val settingsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+/**
+ * DataStore 单例持有者。
+ * 不能用 `Context.settingsDataStore by lazy { ... }`：委托的 lambda 里拿不到
+ * Context receiver，而且同一个进程内必须**只有一份** DataStore 实例
+ * （重复 create 会因「同文件多实例」抛 IllegalStateException）。
+ */
+private object SettingsDataStoreHolder {
+    @Volatile
+    private var store: DataStore<Preferences>? = null
+
+    fun get(context: Context): DataStore<Preferences> =
+        store ?: synchronized(this) {
+            store ?: PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+                scope = settingsScope,
+                produceFile = {
+                    context.applicationContext.preferencesDataStoreFile("village_settings")
+                },
+            ).also { store = it }
+        }
+}
+
+private val Context.settingsDataStore: DataStore<Preferences>
+    get() = SettingsDataStoreHolder.get(this)
 
 /**
  * 本机设置（DataStore 持久化）。

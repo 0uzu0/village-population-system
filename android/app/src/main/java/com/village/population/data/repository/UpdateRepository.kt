@@ -144,6 +144,28 @@ class UpdateRepository(private val context: Context) {
     }
 
     /**
+     * 判断下载到的更新包与本机已安装版本**签名是否一致**。
+     *
+     * 为什么需要这一步：CI 在缺签名密钥时会降级用 debug 签名出包，
+     * 而 debug 签名包与正式签名包**不能覆盖安装**（系统报「应用未安装」）。
+     * 用户看到的现象就是「点了更新，装不上/以为更新崩了」，且完全不知道为什么。
+     * 提前比对签名，就能在拉起安装器之前给出人话提示：需先卸载旧版。
+     *
+     * 取不到信息时返回 true（不阻断），让系统安装器按自己的规则处理——
+     * 宁可走原来的路径，也不要因为这段辅助判断挡住一次正常的更新。
+     */
+    @Suppress("DEPRECATION")
+    fun isSameSignature(apkFile: File): Boolean = runCatching {
+        val pm = context.packageManager
+        val archive = pm.getPackageArchiveInfo(apkFile.absolutePath, android.content.pm.PackageManager.GET_SIGNATURES)
+            ?: return true
+        val installed = pm.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_SIGNATURES)
+        val archiveSigs = archive.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+        val installedSigs = installed.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+        if (archiveSigs.isEmpty() || installedSigs.isEmpty()) true else archiveSigs == installedSigs
+    }.getOrDefault(true)
+
+    /**
      * 拉起系统安装器安装 APK。
      *
      * Android 8+（API 26+）需要「安装未知应用」权限，没有时先跳系统设置引导授权，
