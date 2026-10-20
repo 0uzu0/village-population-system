@@ -28,10 +28,13 @@ router.get('/', requirePermission('user:view'), async (req: Request, res: Respon
   return okPage(res, result);
 });
 
-const userSchema = z.object({
+/** 导出供契约测试：编辑时空串密码按「未填」处理，短密码仍拒绝 */
+export const userSchema = z.object({
   username: z.string().min(1).max(64),
   realName: z.string().min(1).max(64),
-  password: z.string().min(8).max(64).nullable().optional(),
+  // 空串按「未填」处理：编辑弹窗不改密码时前端会带 password:'' 过来，
+  // 直接 min(8) 会误报「String must contain at least 8 character(s)」
+  password: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(8).max(64).nullable().optional()),
   phone: z.string().max(20).nullable().optional(),
   email: z.string().max(128).nullable().optional(),
   isAdmin: z.coerce.number().min(0).max(1).default(0),

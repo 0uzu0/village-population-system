@@ -88,8 +88,13 @@ async function saveUser() {
   if (!userForm.id && !userForm.password) { ElMessage.warning('请设置初始密码'); return; }
   saving.value = true;
   try {
-    if (userForm.id) await userApi.update(userForm.id, userForm);
-    else await userApi.create(userForm);
+    if (userForm.id) {
+      // 编辑时密码框留空 = 不改密码，不把空串发给后端（min(8) 会误报）
+      const { password, ...rest } = userForm;
+      await userApi.update(userForm.id, password ? userForm : rest);
+    } else {
+      await userApi.create(userForm);
+    }
     ElMessage.success('保存成功');
     userVisible.value = false;
     loadUsers();
