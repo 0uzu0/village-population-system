@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>掌上村务 · 移动端界面设计稿 v4</title>
+<style>
+  :root {
+    /* ── 与 Theme.kt / 移动端设计说明.html 同一套值，不另取一套 ── */
+    --brand: #1D6FE0;
+    --brand-strong: #1557B0;
+    --brand-light: #EAF1FE;
+    --brand-faint: #F5F8FE;
+    --ink: #1B1F26;
+    --ink-2: #4A5260;
+    --ink-3: #676F7C;
+    --placeholder: #6B7480;
+    --line: #E2E7EF;
+    --line-2: #EDF1F7;
+    --bg: #F4F6FA;
+    --quiet: #F8FAFD;
+    --green: #0D7A3C;
+    --green-bg: #E8F7EE;
+    --amber: #8A5300;
+    --amber-bg: #FDF3E3;
+    --amber-line: #F0DDB8;
+    --red: #C0261B;
+    --red-bg: #FDECEA;
+    --card: #FFFFFF;
+
+    --r-card: 20px;
+    --r-panel: 16px;
+    --r-stat: 15px;
+    --r-ctl: 14px;
+    --r-line: 12px;
+
+    --shadow-card: 0 1px 2px rgba(16, 32, 61, .05), 0 4px 12px rgba(16, 32, 61, .05);
+    --shadow-doc: 0 1px 2px rgba(16, 32, 61, .05), 0 10px 30px rgba(16, 32, 61, .07);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ══════════════ 封面 ══════════════ */
+  .hero {
+    background: linear-gradient(135deg, #1D6FE0 0%, #1557B0 58%, #0F3F84 100%);
+    color: #fff;
+    padding: 54px 0 46px;
+    margin-bottom: 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* 右上角一圈极淡的同心弧：给纯色块一点纵深，不引入第二种颜色 */
+  .hero::after {
+    content: ""; position: absolute; right: -120px; top: -140px;
+    width: 420px; height: 420px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: 0 0 0 60px rgba(255,255,255,.045), 0 0 0 130px rgba(255,255,255,.03);
+  }
+  .hero .wrap { padding-bottom: 0; position: relative; z-index: 1; }
+  .hero-tag {
+    display: inline-block; padding: 3px 12px; border: 1px solid rgba(255,255,255,.45);
+    border-radius: 999px; font-size: 13px; letter-spacing: .08em; margin-bottom: 18px;
+  }
+  .hero h1 { font-size: 34px; line-height: 1.32; margin: 0 0 14px; font-weight: 700; letter-spacing: -.01em; }
+  .hero p { margin: 0; font-size: 15.5px; color: rgba(255,255,255,.9); max-width: 780px; }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 8px 30px;
+    margin-top: 26px; font-size: 13.5px; color: rgba(255,255,255,.82);
+  }
+  .hero-meta b { color: #fff; font-weight: 600; }
+
+  /* ══════════════ 章节骨架 ══════════════ */
+  section { margin-bottom: 56px; scroll-margin-top: 20px; }
+  h2.sec {
+    font-size: 23px; margin: 0 0 8px; font-weight: 700; letter-spacing: -.01em;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2.sec .idx {
+    font-size: 13px; font-weight: 600; color: var(--brand);
+    background: var(--brand-light); border-radius: 6px;
+    padding: 2px 9px; letter-spacing: .05em; flex: none; position: relative; top: -2px;
+  }
+  .sec-lead { color: var(--ink-2); margin: 0 0 24px; max-width: 900px; }
+  h3 { font-size: 17px; margin: 32px 0 10px; font-weight: 650; }
+  h4 { font-size: 15px; margin: 22px 0 8px; font-weight: 650; color: var(--ink-2); }
+  p { margin: 0 0 12px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .88em; background: #F1F4F9; border-radius: 5px; padding: 1px 5px;
+    color: var(--ink-2); overflow-wrap: anywhere;
+  }
+  .muted { color: var(--ink-3); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow-doc);
+    margin-bottom: 16px;
+  }
+  .card > :last-child { margin-bottom: 0; }
+  .card h4 { margin-top: 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 780px) { .grid2 { grid-template-columns: 1fr; } }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+
+  .note {
+    background: var(--brand-faint); border: 1px solid var(--line-2);
+    border-left: 3px solid var(--brand); border-radius: 12px;
+    padding: 14px 18px; margin: 0 0 18px; color: var(--ink-2); font-size: 14px;
+  }
+  .note b { color: var(--brand-strong); }
+
+  /* ══════════════ 表格 ══════════════ */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 4px 0 18px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  th { font-size: 12px; color: var(--ink-3); font-weight: 600; letter-spacing: .03em; background: var(--quiet); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .tbl-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+
+  /* ══════════════ 屏幕稿网格 ══════════════ */
+  .frames {
+    display: grid; grid-template-columns: repeat(3, 360px);
+    gap: 40px 24px; justify-content: center; margin-bottom: 8px;
+  }
+  .frame .cap { margin-top: 12px; }
+  .frame .cap .nm { font-size: 14.5px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .frame .cap .nm .no {
+    font-size: 11px; font-weight: 700; color: var(--brand); background: var(--brand-light);
+    border-radius: 5px; padding: 1px 6px; letter-spacing: .04em;
+  }
+  .frame .cap ul { margin: 7px 0 0; padding-left: 16px; font-size: 12.5px; color: var(--ink-2); line-height: 1.72; }
+  .frame .cap li { margin-bottom: 3px; }
+  .frame .cap li b { color: var(--ink); }
+
+  /* ══════════════ 手机框（1dp = 1px） ══════════════ */
+  .phone {
+    width: 360px; height: 740px;
+    background: var(--bg); color: var(--ink);
+    border-radius: 26px; overflow: hidden;
+    border: 1px solid #DCE3EC;
+    box-shadow: 0 2px 5px rgba(16,32,61,.05), 0 20px 44px rgba(16,32,61,.11);
+    display: flex; flex-direction: column; position: relative;
+  }
+  /* 状态栏 */
+  .sb {
+    flex: none; height: 26px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px; font-size: 11px; font-weight: 650; color: var(--ink);
+    background: var(--bg);
+  }
+  .sb .r { display: flex; align-items: flex-end; gap: 4px; }
+  .sb .sig { display: flex; align-items: flex-end; gap: 1.5px; }
+  .sb .sig i { display: block; width: 2.5px; background: var(--ink); border-radius: 1px; }
+  .sb .sig i:nth-child(1) { height: 4px; }
+  .sb .sig i:nth-child(2) { height: 6px; }
+  .sb .sig i:nth-child(3) { height: 8px; }
+  .sb .sig i:nth-child(4) { height: 10px; }
+  .sb .bat { width: 17px; height: 9px; border: 1.2px solid var(--ink); border-radius: 2.5px; position: relative; opacity: .9; }
+  .sb .bat::after { content: ""; position: absolute; left: 1px; top: 1px; bottom: 1px; width: 11px; background: var(--ink); border-radius: 1px; }
+
+  /* 页头 */
+  .tb { flex: none; height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; }
+  .tb h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -.005em; }
+  .tb .rt { margin-left: auto; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .bk {
+    width: 32px; height: 32px; flex: none; border-radius: var(--r-line);
+    background: var(--card); border: 1px solid var(--line);
+    display: grid; place-items: center; color: var(--ink-2);
+  }
+  .bk svg { width: 15px; height: 15px; fill: currentColor; }
+
+  /* 内容区 */
+  .content { flex: 1; min-height: 0; overflow: hidden; padding: 0 14px; display: flex; flex-direction: column; gap: 12px; }
+  .content.tight { gap: 10px; }
+
+  /* 底栏 */
+  .nav { flex: none; height: 58px; background: var(--card); border-top: 1px solid var(--line-2); display: flex; }
+  .nav div {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; font-size: 10px; color: var(--ink-3); position: relative;
+  }
+  .nav div svg { width: 21px; height: 21px; fill: currentColor; }
+  .nav div.on { color: var(--brand); font-weight: 650; }
+  .nav div.on::before {
+    content: ""; position: absolute; top: 5px; width: 40px; height: 26px;
+    background: var(--brand-light); border-radius: 999px; z-index: 0;
+  }
+  .nav div svg, .nav div span { position: relative; z-index: 1; }
+  .nav .bdg {
+    position: absolute; top: 6px; right: 50%; margin-right: -20px;
+    min-width: 15px; height: 15px; border-radius: 8px; background: var(--red); color: #fff;
+    font-size: 9px; font-weight: 700; display: grid; place-items: center; padding: 0 3px; z-index: 2;
+  }
+
+  /* 手机内的通用零件 */
+  .p-card {
+    background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-card);
+    padding: 14px 16px; box-shadow: var(--shadow-card);
+  }
+  .sec-t { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--ink); margin-bottom: 10px; }
+  .sec-t::before { content: ""; width: 3px; height: 12px; border-radius: 2px; background: var(--brand); flex: none; }
+  .sec-t .more { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--ink-3); display: flex; align-items: center; gap: 2px; }
+  .sec-t .more svg { width: 12px; height: 12px; fill: currentColor; }
+
+  .pill {
+    display: inline-flex; align-items: center; height: 17px; padding: 0 7px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; line-height: 1;
+  }
+  .pills { display: flex; flex-wrap: wrap; gap: 5px; }
+
+  .btn-primary {
+    height: 50px; border-radius: var(--r-ctl); background: var(--brand); color: #fff;
+    display: grid; place-items: center; font-size: 14.5px; font-weight: 700; letter-spacing: .04em;
+    box-shadow: 0 2px 8px rgba(29,111,224,.28);
+  }
+  .btn-primary.off { background: #E6EBF2; color: #4A5260; box-shadow: none; }
+  .btn-2 {
+    height: 44px; border-radius: var(--r-line); background: var(--card); border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  }
+  .btn-2 svg { width: 14px; height: 14px; fill: currentColor; }
+  .btn-2.fill { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 2px 6px rgba(29,111,224,.24); }
+
+  .fld-label { font-size: 10.5px; color: var(--ink-3); margin-bottom: 5px; }
+  .fld {
+    height: 40px; border-radius: var(--r-ctl); background: var(--card); border: 1px solid var(--line);
+    display: flex; align-items: center; gap: 7px; padding: 0 12px;
+    font-size: 13.5px; color: var(--ink);
+  }
+  .fld.ph { color: var(--placeholder); }
+  .fld svg { width: 15px; height: 15px; fill: var(--ink-3); flex: none; }
+  .fld .trail { margin-left: auto; display: flex; align-items: center; }
+  .fld .trail svg { width: 18px; height: 18px; }
+  .fld.focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(29,111,224,.12); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 11px;
+    border-radius: 999px; background: var(--card); border: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-2);
+  }
+  .chip svg { width: 12px; height: 12px; fill: currentColor; }
+  .chip.on { background: var(--brand-light); border-color: transparent; color: var(--brand-strong); font-weight: 600; }
+  .chip.warn { background: var(--red-bg); border-color: transparent; color: var(--red); font-weight: 600; }
+
+  .kv { display: flex; align-items: flex-start; padding: 7px 0; font-size: 12px; }
+  .kv .k { width: 82px; flex: none; color: var(--ink-3); }
+  .kv .v { font-size: 13px; font-weight: 500; color: var(--ink); }
+  .kv .v.link { color: var(--brand-strong); }
+  .hr { height: 1px; background: var(--line-2); }
+
+  .sk { background: var(--line-2); border-radius: 6px; animation: breathe 1.7s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .sk { animation: none; opacity: .8 } }
+
+  /* ══════════════ 改版前后对照 ══════════════ */
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 6px 0 18px; }
+  .ba .col { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .ba .col h5 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 7px; }
+  .ba .col h5 .tagx { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 700; }
+  .ba .old h5 .tagx { background: var(--line-2); color: var(--ink-3); }
+  .ba .new h5 .tagx { background: var(--brand-light); color: var(--brand-strong); }
+  .ba ul { margin: 0; padding-left: 16px; font-size: 12.5px; color: var(--ink-2); line-height: 1.7; }
+  .ba li { margin-bottom: 4px; }
+  .ba .new { border-color: #CBDCF8; box-shadow: 0 1px 2px rgba(29,111,224,.06), 0 8px 22px rgba(29,111,224,.07); }
+
+  /* 状态覆盖 4 格 */
+  .states { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  @media (max-width: 820px) { .states { grid-template-columns: 1fr; } }
+  .state-demo { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-card); }
+  .state-demo .hd { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 9px 14px; border-bottom: 1px solid var(--line-2); background: var(--quiet); }
+  .state-demo .bd { height: 200px; padding: 14px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .state-demo .ft { font-size: 12px; color: var(--ink-3); padding: 9px 14px; border-top: 1px solid var(--line-2); line-height: 1.6; }
+
+  .empty-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; }
+  .empty-center .ic { width: 56px; height: 56px; border-radius: 50%; background: var(--quiet); display: grid; place-items: center; }
+  .empty-center .ic svg { width: 26px; height: 26px; fill: var(--ink-3); }
+  .empty-center .t { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+  .empty-center .d { font-size: 12px; color: var(--ink-3); max-width: 240px; line-height: 1.6; }
+
+  /* 色板 */
+  .sw { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .sw .item { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+  .sw .chipbox { height: 52px; }
+  .sw .meta { padding: 7px 10px 9px; }
+  .sw .meta .n { font-size: 12px; font-weight: 600; }
+  .sw .meta .h { font-size: 10.5px; color: var(--ink-3); font-family: ui-monospace, Menlo, monospace; }
+  .sw .meta .r { font-size: 10.5px; color: var(--ink-3); }
+
+  /* 字号阶梯 */
+  .typo { display: flex; flex-direction: column; gap: 0; }
+  .typo .line { display: flex; align-items: baseline; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line-2); }
+  .typo .line:last-child { border-bottom: none; }
+  .typo .spec { width: 116px; flex: none; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .typo .demo { flex: 1; color: var(--ink); }
+
+  /* 落地清单 */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 16px; }
+  .fl { background: var(--card); border: 1px solid var(--line); border-radius: 9px; padding: 7px 12px; font-size: 13px; }
+  .fl.p { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+  .ar { color: var(--ink-3); }
+
+  footer { margin-top: 52px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+
+  @media (max-width: 1180px) {
+    .frames { grid-template-columns: repeat(2, 360px); }
+  }
+  @media (max-width: 800px) {
+    .hero h1 { font-size: 25px; }
+    .wrap { padding: 0 16px 64px; }
+    .frames { grid-template-columns: 360px; gap: 32px; }
+    .ba { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ 图标 ══════════════ -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M12 3.1 3 10.4V21h6.6v-5.9h4.8V21H21V10.4z"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><path d="M12 12a4.2 4.2 0 1 0 0-8.4A4.2 4.2 0 0 0 12 12Zm0 1.9c-4.1 0-7.5 2.1-7.5 5V20h15v-1.1c0-2.9-3.4-5-7.5-5Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M10.6 3a7.6 7.6 0 1 0 4.7 13.6l4 4 1.5-1.5-4-4A7.6 7.6 0 0 0 10.6 3Zm0 2a5.6 5.6 0 1 1 0 11.2 5.6 5.6 0 0 1 0-11.2Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M9.6 17.3 4.3 12l1.5-1.5 3.8 3.8 8.6-8.6L19.7 7Z"/></symbol>
+  <symbol id="i-fact" viewBox="0 0 24 24"><path d="M6 3h9l5 5v13H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1.2 10.9 2.2 2.2 4.9-4.9-1.4-1.4-3.5 3.5-1.8-1.8Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2Z"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M9 4h6l1.4 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.6Zm3 5.4a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.6 10.8a15.6 15.6 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.4 0 .8-.2 1Z"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9.3 6.3 1.4-1.4 7.1 7.1-7.1 7.1-1.4-1.4L15 12Z"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6.3 9.3 5.7 5.7 5.7-5.7 1.4 1.4-7.1 7.1-7.1-7.1Z"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.7 6.3 13.3 4.9 6.2 12l7.1 7.1 1.4-1.4L8.9 12Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-6h2Zm0-8h-2V7h2Z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4Z"/></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M3.7 2.3 2.3 3.7l3 3A6 6 0 0 0 6 18.6h10.9l3.4 3.4 1.4-1.4ZM6.5 8.3 16.2 18H6a4 4 0 0 1-.7-7.9Z"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 4h16l2 9v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5Zm2 2-1.4 6H8l1 2h6l1-2h3.4L18 6Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 13.4L9 12l3 3.4 2.5-2.2L19 18H5ZM8.4 6.8a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><path d="M4 3h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm0 11h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Zm2-8v3h2V6Zm0 11v3h2v-3Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 8 8 8 8 0 0 1-13.6 5.7l1.4-1.4A6 6 0 1 0 12 6v3L7.5 5 12 1Z"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v.4a6 6 0 0 1 3.6 4.1h1.9v2h-1.6v2h1.6v2h-1.6A6 6 0 0 1 12 21a6 6 0 0 1-6.9-4.5H3.5v-2h1.6v-2H3.5v-2h1.9A6 6 0 0 1 9 6.4V6a3 3 0 0 1 3-3Zm0 2a1 1 0 0 0-1 1v.1h2V6a1 1 0 0 0-1-1Z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Zm2 0h6V8a3 3 0 0 0-6 0Z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 3v2H5v14h5v2H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm5.6 4.4L19.2 11H11v2h8.2l-3.6 3.6L17 18l6-6-6-6Z"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M12 3v4l3-3a7 7 0 0 1 5 9.9l-1.8-.9A5 5 0 0 0 13.5 6L12 7.5Zm-8 5.2 1.8.9A5 5 0 0 0 10.5 18L12 16.5V21l-3-3A7 7 0 0 1 4 8.2Z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 2 1.5 21h21Zm1 13h-2V9h2Zm0 4h-2v-2h2Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M12 5c5 0 9.3 3 11 7-1.7 4-6 7-11 7S2.7 16 1 12c1.7-4 6-7 11-7Zm0 2c-3.8 0-7.1 2.1-8.7 5 1.6 2.9 4.9 5 8.7 5s7.1-2.1 8.7-5C19.1 9.1 15.8 7 12 7Zm0 1.8a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Z"/></symbol>
+</svg>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="hero-tag">界 面 设 计 稿 · 待 评 审</div>
+    <h1>掌上村务 · 移动端 v4</h1>
+    <p>
+      这一版不改功能、不改接口、不改权限，只改<strong>一屏之内先看见什么</strong>。
+      移动端的用户是站在院子里、一只手拿着手机、屏幕还反着光的网格员——
+      设计要做的不是让他多看几个字，而是让他在三秒内拿到那个能直接说出口的数字。
+    </p>
+    <div class="hero-meta">
+      <span>版本 <b>v4 设计稿</b></span>
+      <span>日期 <b>2026-10-21</b></span>
+      <span>屏幕 <b>9 屏（含深色档）</b></span>
+      <span>尺寸 <b>360 × 740 dp · 1:1</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ══════════════ 01 设计判断 ══════════════ -->
+  <section id="s1">
+    <h2 class="sec"><span class="idx">01</span>设计判断</h2>
+    <p class="sec-lead">
+      评审要看的是「为什么这么改」，所以先把观察到的事实摆出来。下面四条都来自现有代码与真实使用场景，
+      不是审美偏好；每条后面跟的决策，是这一版真正动刀的地方。
+    </p>
+
+    <div class="grid2">
+      <div class="card">
+        <h4>观察一：报数的人，第一眼拿不到那个数</h4>
+        <p class="muted" style="font-size:13.5px">
+          工作台首屏依次是：问候 → 三行口径说明 → 两片快捷瓦片 → 四张等大数字卡。
+          四张卡里只有「总人口」是开会上要说的，另外三个是参照数，却和它一样大。
+          一屏 656dp 的可用高度，被口径说明（76dp）和等大卡（238dp）用掉了将近一半。
+        </p>
+        <p style="font-size:13.5px;margin-bottom:0">
+          <b>决策 M1</b>　把在册人口做成 40sp 的主数字，另三个降为一行内的参照值。
+          <b>M2</b>　口径说明默认收成一行，点开才展开——它第三次之后就是噪音，但不能删。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>观察二：同一句话说了两遍，还是小字</h4>
+        <p class="muted" style="font-size:13.5px">
+          「重点人群」九行里，老年人与未成年人各挂一行「按年龄自动判定，无需打标签」，
+          同样的意思占掉 30dp 并且打断竖向扫读；而它们和「低保对象」这种真标签在视觉上完全没有区分。
+        </p>
+        <p style="font-size:13.5px;margin-bottom:0">
+          <b>决策 M3</b>　年龄类族群改用<strong>空心圆点 + 行内「按年龄」小胶囊</strong>，
+          身份类用实心色点。行高 44 → 40dp。区别从「多读一行字」变成「一眼看形状」。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>观察三：详情页三屏长，但电话是半行字</h4>
+        <p class="muted" style="font-size:13.5px">
+          人员详情七张卡平铺（基本信息 / 户籍居住 / 家庭 / 服务台账 / 残疾档案 / 备注 / 变更记录），
+          整页约 1950dp，接近三屏。走访时真正高频的两件事——<b>给人打电话</b>、<b>给他拍照</b>——
+          一个是一行 30dp 高的可点文字，一个是第三张卡里的 TextButton。
+        </p>
+        <p style="font-size:13.5px;margin-bottom:0">
+          <b>决策 M4</b>　头像卡下直接给两枚 44dp 动作按钮（拨打 / 拍照）；
+          服务台账、变更记录改为默认收起的低频分组。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>观察四：拍照页的「空框」不会说话</h4>
+        <p class="muted" style="font-size:13.5px">
+          拍照页的空态是一个灰底长方形 + 一枚小图标 + 一行「拍照或从相册选择」，
+          真正的按钮在它下面 60dp。用户在户外站着一只手操作，先要读完、再找到按钮、再点。
+        </p>
+        <p style="font-size:13.5px;margin-bottom:0">
+          <b>决策 M5</b>　把空框本身做成快门：虚线画幅 + 中心相机圆牌 +「点这里拍照」，
+          整块可点；从相册选退成画幅下的一行小字。少一次定位。
+        </p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>这一版不做的事，同样是设计决策：</b>不引入新的品牌色，不动已有的蓝 / 墨 / 绿 / 琥珀体系；
+      不改四格数字背后的统计口径；不新增页面；不为了「好看」缩小正文字号——
+      现场是晒谷场和正午的强光，17sp 正文、50dp 主按钮、44dp 触摸目标是硬底线。
+    </div>
+  </section>
+
+  <!-- ══════════════ 02 设计语言 ══════════════ -->
+  <section id="s2">
+    <h2 class="sec"><span class="idx">02</span>设计语言</h2>
+    <p class="sec-lead">
+      沿用现有令牌（<code>AppTokens</code> / <code>AppShapes</code> / <code>AppTypography</code>），
+      这一版只新增一个「主数字」字号档与两个间距档，其余不动——设计稿与代码之间已经有
+      <code>AppTokensTest</code> 在逐值比对，能不改就不改。
+    </p>
+
+    <h3>颜色</h3>
+    <p class="muted" style="font-size:13.5px;margin-bottom:14px">
+      括号内是压在该色<b>实际底色</b>上的对比度，全部经 <code>AppTokensTest</code> 断言 ≥ 4.5:1（WCAG AA）。
+      三个语义色今年校订过一次：原来的「点缀色」当文字用只有 3.3～4.2:1，在高亮处反而看不清。
+    </p>
+    <div class="sw">
+      <div class="item"><div class="chipbox" style="background:#1D6FE0"></div><div class="meta"><div class="n">品牌正色</div><div class="h">#1D6FE0</div><div class="r">白字 4.5:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#1557B0"></div><div class="meta"><div class="n">品牌深色</div><div class="h">#1557B0</div><div class="r">浅蓝底上的字</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#EAF1FE"></div><div class="meta"><div class="n">品牌浅底</div><div class="h">#EAF1FE</div><div class="r">选中胶囊 / 头像</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#F5F8FE"></div><div class="meta"><div class="n">品牌极浅底</div><div class="h">#F5F8FE</div><div class="r">瓦片 / 口径</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#1B1F26"></div><div class="meta"><div class="n">一级墨</div><div class="h">#1B1F26</div><div class="r">白卡 14.8:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#4A5260"></div><div class="meta"><div class="n">二级墨</div><div class="h">#4A5260</div><div class="r">白卡 7.9:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#676F7C"></div><div class="meta"><div class="n">三级墨</div><div class="h">#676F7C</div><div class="r">白卡 5.07:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#6B7480"></div><div class="meta"><div class="n">占位文字</div><div class="h">#6B7480</div><div class="r">白盒 4.75:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#0D7A3C"></div><div class="meta"><div class="n">成功绿</div><div class="h">#0D7A3C</div><div class="r">绿底 5.4:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#8A5300"></div><div class="meta"><div class="n">提示琥珀</div><div class="h">#8A5300</div><div class="r">琥珀底 6.3:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#C0261B"></div><div class="meta"><div class="n">警示红</div><div class="h">#C0261B</div><div class="r">红底 5.6:1</div></div></div>
+      <div class="item"><div class="chipbox" style="background:#F4F6FA;border-bottom:1px solid #E2E7EF"></div><div class="meta"><div class="n">页面底</div><div class="h">#F4F6FA</div><div class="r">三级墨 4.66:1</div></div></div>
+    </div>
+
+    <h3>字号</h3>
+    <p class="muted" style="font-size:13.5px;margin-bottom:12px">
+      新增 <b>40sp 主数字</b>一档（v4 唯一的新字号）。它不是为了更大，而是为了「一屏只有它一个」——
+      主数字与指标数字（23sp）之间差 17sp，层级是断开的，眼睛不会犹豫。
+    </p>
+    <div class="card typo">
+      <div class="line"><div class="spec">40 / 44 · 800</div><div class="demo" style="font-size:40px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1">1,286<span style="font-size:13px;font-weight:400;color:#676F7C;margin-left:6px">人</span></div></div>
+      <div class="line"><div class="spec">23 / 31 · 800</div><div class="demo" style="font-size:23px;font-weight:800;font-variant-numeric:tabular-nums">62</div></div>
+      <div class="line"><div class="spec">22 / 30 · 800</div><div class="demo" style="font-size:22px;font-weight:800">李桂英</div></div>
+      <div class="line"><div class="spec">20 / 28 · 700</div><div class="demo" style="font-size:20px;font-weight:700">你好，王秀兰</div></div>
+      <div class="line"><div class="spec">18 / 26 · 700</div><div class="demo" style="font-size:18px;font-weight:700">人口档案</div></div>
+      <div class="line"><div class="spec">15 / 22 · 400·600</div><div class="demo" style="font-size:15px">低保对象 · 表单值 · 列表姓名</div></div>
+      <div class="line"><div class="spec">13.5 / 20 · 400</div><div class="demo" style="font-size:13.5px">输入框内的文字</div></div>
+      <div class="line"><div class="spec">12 / 18 · 400</div><div class="demo" style="font-size:12px;color:#676F7C">时间戳、口径说明、辅助信息</div></div>
+      <div class="line"><div class="spec">10.5 / 15 · 400</div><div class="demo" style="font-size:10.5px;color:#676F7C">字段标签</div></div>
+    </div>
+
+    <h3>形状与高度</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:150px">元素</th><th style="width:110px">圆角 / 高度</th><th>为什么是这个值</th></tr></thead>
+        <tbody>
+          <tr><td>卡片 <code>AppShapes.card</code></td><td class="num">20dp</td><td>约等于两行正文高的一半，圆角与内容块同源；再大在 360dp 宽上把卡切碎</td></tr>
+          <tr><td>衬底面板 <code>panel</code></td><td class="num">16dp</td><td>比白卡收一档，「外大内小」才读得出包裹关系</td></tr>
+          <tr><td>数据格 <code>stat</code></td><td class="num">15dp</td><td>卡内元素，再收一档</td></tr>
+          <tr><td>输入框 / 主按钮 <code>control</code></td><td class="num">14dp</td><td>控件圆角约为卡片一半，嵌套不糊</td></tr>
+          <tr><td>胶囊 / 标签</td><td class="num">∞（999）</td><td>宽度随内容，圆角给满才成胶囊</td></tr>
+          <tr><td>输入框高度</td><td class="num">40dp</td><td>低于 Material 默认 56dp；一屏六个字段差出 96dp</td></tr>
+          <tr><td>行内按钮</td><td class="num">44dp</td><td>单手握持时拇指可点的下限</td></tr>
+          <tr><td>页面主按钮</td><td class="num">50dp</td><td>最小高度而非固定高度：系统字号放到 1.3～2.0 时不裁字</td></tr>
+          <tr><td>列表行 / 族群行</td><td class="num">≥ 72 / 40dp</td><td>族群行走 40dp 是「扫读密度」的折中，仍高于 44dp 触摸区的一半以上</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>动效</h3>
+    <div class="grid3">
+      <div class="card"><h4>页面切换 0 ms</h4><p class="muted" style="font-size:13px;margin-bottom:0">瞬时切换不是省事：淡入淡出期间新旧两屏同时在组合树里，手指会穿透到上一屏的行上（已实际发生过误入详情）。</p></div>
+      <div class="card"><h4>骨架 850 ms 呼吸</h4><p class="muted" style="font-size:13px;margin-bottom:0">形状与真实行一致，数据到达时整页不重排。系统关掉动画时给稳定中间值，不闪。</p></div>
+      <div class="card"><h4>按钮涟漪 10% 墨</h4><p class="muted" style="font-size:13px;margin-bottom:0">列表与筛选片不给涟漪；按钮必须有——点「保存」后要等一个网络来回，没反馈就会再点一次。</p></div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 03 屏幕设计稿 ══════════════ -->
+  <section id="s3">
+    <h2 class="sec"><span class="idx">03</span>屏幕设计稿</h2>
+    <p class="sec-lead">
+      1:1 与真机同尺寸（360 × 740dp）。带 <span class="chip on" style="height:20px;font-size:10.5px">改</span>
+      标记的是这一版动过的屏；其余屏一并画出，用来确认改动之后整条链路仍然是一个应用。
+    </p>
+
+    <div class="frames">
+
+      <!-- ───── S1 登录 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="content" style="padding:0 24px;justify-content:center;gap:0">
+            <div style="text-align:center;margin-bottom:34px">
+              <div style="width:56px;height:56px;border-radius:18px;background:var(--brand);display:grid;place-items:center;margin:0 auto 14px;box-shadow:0 8px 20px rgba(29,111,224,.28)">
+                <svg style="width:26px;height:26px;fill:#fff"><use href="#i-home"/></svg>
+              </div>
+              <div style="font-size:24px;font-weight:700;letter-spacing:.02em">掌上村务</div>
+              <div style="font-size:12px;color:var(--ink-3);margin-top:6px">村级人口与重点人群精细化管理</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <div class="fld-label">账号</div>
+              <div class="fld">wangxiulan</div>
+            </div>
+            <div style="margin-bottom:20px">
+              <div class="fld-label">密码</div>
+              <div class="fld"><span style="letter-spacing:2px">••••••••</span><span class="trail"><svg><use href="#i-eye"/></svg></span></div>
+            </div>
+
+            <div class="btn-primary">登 录</div>
+
+            <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:22px;font-size:12px;color:var(--ink-3)">
+              <svg style="width:13px;height:13px;fill:currentColor"><use href="#i-server"/></svg>
+              服务器地址（192.168.1.100:8080）
+              <svg style="width:12px;height:12px;fill:currentColor"><use href="#i-chev-r"/></svg>
+            </div>
+
+            <div style="text-align:center;font-size:11px;color:var(--ink-3);margin-top:40px">版本 2.4.0（240）</div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S1</span>登录</div>
+          <ul>
+            <li>品牌只在一处：顶部 56dp 圆角标。<b>不做整屏渐变</b>——第一屏就是工作界面，不是宣传页。</li>
+            <li>服务器地址从「设置般的表单」收成一行可点文字：一装多村用，它只在首次配置时被碰。</li>
+            <li>表单与全应用同一只盒子（标签在上、40dp 白盒），登录页不再是一个例外。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S2 工作台 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="content" style="padding:12px 14px">
+            <!-- 头 -->
+            <div style="display:flex;align-items:center;gap:12px;flex:none">
+              <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:17px;font-weight:700">王</div>
+              <div>
+                <div style="font-size:18px;font-weight:700;line-height:1.3">你好，王秀兰</div>
+                <div style="font-size:12px;color:var(--ink-3)">10月21日 星期三 · 三合村</div>
+              </div>
+            </div>
+
+            <!-- 主数字 -->
+            <div class="p-card" style="flex:none;padding:14px 16px 12px">
+              <div style="display:flex;align-items:baseline">
+                <div>
+                  <div style="font-size:12px;color:var(--ink-3);margin-bottom:2px">在册人口</div>
+                  <div style="display:flex;align-items:baseline;gap:5px">
+                    <span style="font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums">1,286</span>
+                    <span style="font-size:13px;color:var(--ink-3)">人</span>
+                  </div>
+                </div>
+                <div style="margin-left:auto;text-align:right;font-size:11.5px;color:var(--ink-3);line-height:1.75">
+                  正常 1,241<br>迁入 45
+                </div>
+              </div>
+              <div class="hr" style="margin:11px 0 9px"></div>
+              <div style="display:flex;align-items:center;gap:0;font-size:12px;color:var(--ink-2)">
+                <div style="flex:1"><b style="font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">1,203</b><span style="color:var(--ink-3);margin-left:4px">户籍</span></div>
+                <div style="flex:1"><b style="font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">83</b><span style="color:var(--ink-3);margin-left:4px">流动</span></div>
+                <div style="flex:1"><b style="font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">512</b><span style="color:var(--ink-3);margin-left:4px">家庭户</span></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:5px;margin-top:10px;font-size:11.5px;color:var(--ink-3)">
+                <svg style="width:13px;height:13px;fill:currentColor;flex:none"><use href="#i-info"/></svg>
+                仅统计在册人口 · 口径说明
+                <svg style="width:12px;height:12px;fill:currentColor"><use href="#i-chev-d"/></svg>
+              </div>
+            </div>
+
+            <!-- 瓦片 -->
+            <div style="display:flex;gap:10px;flex:none">
+              <div style="flex:1;height:56px;border-radius:var(--r-panel);background:var(--brand-faint);border:1px solid var(--line-2);display:flex;align-items:center;gap:9px;padding:0 12px">
+                <span style="width:32px;height:32px;border-radius:50%;background:var(--brand-light);display:grid;place-items:center;flex:none"><svg style="width:16px;height:16px;fill:var(--brand-strong)"><use href="#i-plus"/></svg></span>
+                <span style="font-size:14px;font-weight:600">上门登记</span>
+              </div>
+              <div style="flex:1;height:56px;border-radius:var(--r-panel);background:var(--brand-faint);border:1px solid var(--line-2);display:flex;align-items:center;gap:9px;padding:0 12px">
+                <span style="width:32px;height:32px;border-radius:50%;background:var(--brand-light);display:grid;place-items:center;flex:none"><svg style="width:16px;height:16px;fill:var(--brand-strong)"><use href="#i-camera"/></svg></span>
+                <span style="font-size:14px;font-weight:600">拍照留痕</span>
+              </div>
+            </div>
+
+            <!-- 待办条 -->
+            <div style="flex:none;height:44px;border-radius:var(--r-panel);background:var(--amber-bg);border:1px solid var(--amber-line);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--amber)">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--amber);flex:none"></span>
+              <span style="font-size:13px;font-weight:700">12 条待核查</span>
+              <span style="font-size:11.5px;opacity:.85">身份证号缺失</span>
+              <span style="margin-left:auto;font-size:12px;font-weight:600;display:flex;align-items:center;gap:1px">去处理<svg style="width:12px;height:12px;fill:currentColor"><use href="#i-chev-r"/></svg></span>
+            </div>
+
+            <!-- 重点人群 -->
+            <div class="p-card" style="padding:12px 16px;flex:none">
+              <div class="sec-t" style="margin-bottom:2px">重点人群<span class="more">9 类<svg><use href="#i-chev-r"/></svg></span></div>
+              <div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#C0261B;flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">低保对象</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">62</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+                <div class="hr"></div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#8A5300;flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">特困供养</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">14</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+                <div class="hr"></div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#6B4FBB;flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">残疾人</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">87</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+                <div class="hr"></div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">老年人</span>
+                  <span class="pill" style="background:var(--quiet);color:var(--ink-3);margin-left:6px">按年龄</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">246</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+                <div class="hr"></div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">未成年人</span>
+                  <span class="pill" style="background:var(--quiet);color:var(--ink-3);margin-left:6px">按年龄</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">138</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+                <div class="hr"></div>
+                <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#B02A6B;flex:none"></span>
+                  <span style="margin-left:10px;font-weight:500">党员</span>
+                  <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">47</span>
+                  <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="nav">
+            <div class="on"><svg><use href="#i-home"/></svg><span>工作台</span></div>
+            <div><svg><use href="#i-search"/></svg><span>人口</span></div>
+            <div><svg><use href="#i-fact"/></svg><span>待核查</span><span class="bdg">12</span></div>
+            <div><svg><use href="#i-person"/></svg><span>我的</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S2</span>工作台 <span class="chip on" style="height:19px;font-size:10px">改</span></div>
+          <ul>
+            <li><b>主数字</b> 40sp、等宽字形；「正常/迁入」放在右侧两级小字，解释这个 1,286 是怎么来的。</li>
+            <li><b>口径说明</b>从三行卡收成一行，点开才展开（展开态见右侧说明）。它不可以删——报数要负责。</li>
+            <li><b>待核查</b>从白卡变琥珀条：它是唯一「今天必须办」的事，值得一条自己的颜色。</li>
+            <li><b>族群行</b> 44 → 40dp；年龄类空心点 +「按年龄」，不再各挂一行说明。首屏可见行数从 3 行增加到 6 行。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S3 人口列表 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb">
+            <h1>人口档案</h1>
+            <div class="rt">共 1,286 人</div>
+          </div>
+          <div class="content" style="gap:9px">
+            <div class="fld ph" style="flex:none"><svg><use href="#i-search"/></svg>搜姓名 / 身份证号 / 手机号 / 地址</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;flex:none">
+              <span class="chip on"><svg><use href="#i-check"/></svg>仅看在册</span>
+              <span class="chip">按村庄</span>
+              <span class="chip warn">重点人群：低保对象<svg><use href="#i-x"/></svg></span>
+              <span class="chip">重置</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:2px">
+              <div class="p-card" style="padding:12px 14px;display:flex;gap:11px;align-items:flex-start">
+                <div style="width:44px;height:44px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:17px;font-weight:700;flex:none">李</div>
+                <div style="min-width:0;flex:1">
+                  <div style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font-size:15px;font-weight:650">李桂英</span>
+                    <span style="font-size:11.5px;color:var(--ink-3)">女 · 68 岁</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">3201**********1234</div>
+                  <div class="pills" style="margin-top:5px">
+                    <span class="pill" style="background:#FDECEA;color:#C0261B">低保对象</span>
+                    <span class="pill" style="background:#F3EFFB;color:#6B4FBB">残疾人</span>
+                  </div>
+                </div>
+                <svg style="width:14px;height:14px;fill:var(--ink-3);margin-top:14px;flex:none"><use href="#i-chev-r"/></svg>
+              </div>
+
+              <div class="p-card" style="padding:12px 14px;display:flex;gap:11px;align-items:flex-start">
+                <div style="width:44px;height:44px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:17px;font-weight:700;flex:none">张</div>
+                <div style="min-width:0;flex:1">
+                  <div style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font-size:15px;font-weight:650">张建华</span>
+                    <span style="font-size:11.5px;color:var(--ink-3)">男 · 54 岁</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">3201**********0092</div>
+                  <div class="pills" style="margin-top:5px">
+                    <span class="pill" style="background:#FDF3E3;color:#8A5300">特困供养</span>
+                  </div>
+                </div>
+                <svg style="width:14px;height:14px;fill:var(--ink-3);margin-top:14px;flex:none"><use href="#i-chev-r"/></svg>
+              </div>
+
+              <div class="p-card" style="padding:12px 14px;display:flex;gap:11px;align-items:flex-start">
+                <div style="width:44px;height:44px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:17px;font-weight:700;flex:none">陈</div>
+                <div style="min-width:0;flex:1">
+                  <div style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font-size:15px;font-weight:650">陈小雨</span>
+                    <span style="font-size:11.5px;color:var(--ink-3)">女 · 9 岁</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">3201**********3388</div>
+                  <div class="pills" style="margin-top:5px">
+                    <span class="pill" style="background:#F8FAFD;color:#676F7C">按年龄 · 未成年</span>
+                  </div>
+                </div>
+                <svg style="width:14px;height:14px;fill:var(--ink-3);margin-top:14px;flex:none"><use href="#i-chev-r"/></svg>
+              </div>
+
+              <div class="p-card" style="padding:12px 14px;display:flex;gap:11px;align-items:flex-start">
+                <div style="width:44px;height:44px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:17px;font-weight:700;flex:none">赵</div>
+                <div style="min-width:0;flex:1">
+                  <div style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font-size:15px;font-weight:650">赵德贵</span>
+                    <span style="font-size:11.5px;color:var(--ink-3)">男 · 81 岁</span>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">3201**********7712</div>
+                  <div class="pills" style="margin-top:5px">
+                    <span class="pill" style="background:#F8FAFD;color:#676F7C">按年龄 · 老年</span>
+                    <span class="pill" style="background:#F3EFFB;color:#6B4FBB">独居老人</span>
+                  </div>
+                </div>
+                <svg style="width:14px;height:14px;fill:var(--ink-3);margin-top:14px;flex:none"><use href="#i-chev-r"/></svg>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;right:14px;bottom:70px;width:52px;height:52px;border-radius:18px;background:var(--brand);display:grid;place-items:center;box-shadow:0 6px 16px rgba(29,111,224,.35)">
+            <svg style="width:22px;height:22px;fill:#fff"><use href="#i-plus"/></svg>
+          </div>
+          <div class="nav">
+            <div><svg><use href="#i-home"/></svg><span>工作台</span></div>
+            <div class="on"><svg><use href="#i-search"/></svg><span>人口</span></div>
+            <div><svg><use href="#i-fact"/></svg><span>待核查</span><span class="bdg">12</span></div>
+            <div><svg><use href="#i-person"/></svg><span>我的</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S3</span>人口档案</div>
+          <ul>
+            <li>搜索框合并了姓名 / 身份证 / 电话 / 地址六个字段，一处输入；地址不再单独一个入口。</li>
+            <li>「共 N 人」在页头右侧：筛选后随时能看见，不随列表滚走。</li>
+            <li>筛选片换行而不横向滚动——横向滚动会把「重置」挤出屏幕，用户就退不出筛选。</li>
+            <li>年龄类标签走安静灰（不是彩色）：它不是打上去的标签，是算出来的。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S4 人员详情 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb">
+            <div class="bk"><svg><use href="#i-chev-l"/></svg></div>
+            <h1>人员详情</h1>
+          </div>
+          <div class="content" style="gap:10px">
+            <!-- 名片 -->
+            <div class="p-card" style="padding:14px;flex:none">
+              <div style="display:flex;gap:13px;align-items:center">
+                <div style="width:54px;height:54px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:21px;font-weight:700;flex:none;border:2px solid #fff;box-shadow:var(--shadow-card)">李</div>
+                <div style="min-width:0">
+                  <div style="font-size:22px;font-weight:800;line-height:1.25">李桂英</div>
+                  <div style="font-size:12px;color:var(--ink-3);margin-top:2px">女 · 68 岁 · 1958-03-12</div>
+                  <div class="pills" style="margin-top:5px">
+                    <span class="pill" style="background:#E8F7EE;color:#0D7A3C">在册</span>
+                    <span class="pill" style="background:#FDECEA;color:#C0261B">低保对象</span>
+                    <span class="pill" style="background:#F3EFFB;color:#6B4FBB">残疾人</span>
+                  </div>
+                </div>
+              </div>
+              <!-- 动作 -->
+              <div style="display:flex;gap:10px;margin-top:12px">
+                <div class="btn-2 fill" style="flex:1"><svg><use href="#i-phone"/></svg>拨打 138****6621</div>
+                <div class="btn-2" style="flex:1"><svg><use href="#i-camera"/></svg>拍照留痕</div>
+              </div>
+            </div>
+
+            <!-- 照片 -->
+            <div class="p-card" style="flex:none;padding:12px 14px">
+              <div class="sec-t" style="margin-bottom:8px">现场照片<span class="more">3 张<svg><use href="#i-chev-r"/></svg></span></div>
+              <div style="display:flex;gap:6px">
+                <div style="flex:1;height:50px;border-radius:9px;background:linear-gradient(135deg,#DDE6F3,#EEF3FA);position:relative">
+                  <span style="position:absolute;left:4px;bottom:3px;font-size:9px;color:#4A5260;background:rgba(255,255,255,.82);border-radius:3px;padding:0 4px">10-18</span>
+                </div>
+                <div style="flex:1;height:50px;border-radius:9px;background:linear-gradient(135deg,#E3E9F2,#F2F5FA);position:relative">
+                  <span style="position:absolute;left:4px;bottom:3px;font-size:9px;color:#4A5260;background:rgba(255,255,255,.82);border-radius:3px;padding:0 4px">10-18</span>
+                </div>
+                <div style="flex:1;height:50px;border-radius:9px;background:linear-gradient(135deg,#DCE4F1,#EDF2F9);position:relative">
+                  <span style="position:absolute;left:4px;bottom:3px;font-size:9px;color:#4A5260;background:rgba(255,255,255,.82);border-radius:3px;padding:0 4px">09-30</span>
+                </div>
+                <div style="width:56px;height:50px;border-radius:9px;border:1px dashed var(--line);display:grid;place-items:center;background:var(--quiet)">
+                  <svg style="width:17px;height:17px;fill:var(--ink-3)"><use href="#i-plus"/></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- 基本信息 -->
+            <div class="p-card" style="flex:none;padding:12px 16px">
+              <div class="sec-t" style="margin-bottom:4px">基本信息</div>
+              <div>
+                <div class="kv" style="padding:5px 0"><div class="k">身份证号</div><div class="v">3201**********1234</div></div>
+                <div class="hr"></div>
+                <div class="kv" style="padding:5px 0"><div class="k">本人电话</div><div class="v link">138****6621</div></div>
+                <div class="hr"></div>
+                <div class="kv" style="padding:5px 0"><div class="k">出生日期</div><div class="v">1958-03-12</div></div>
+                <div class="hr"></div>
+                <div class="kv" style="padding:5px 0"><div class="k">人员状态</div><div class="v">在册</div></div>
+              </div>
+            </div>
+
+            <!-- 折叠分组：两条低频分组并成一张卡，两张卡各自的内边距与间距省下来 -->
+            <div class="p-card" style="flex:none;padding:4px 16px">
+              <div style="display:flex;align-items:center;font-size:14px;padding:9px 0">
+                <span style="width:3px;height:12px;border-radius:2px;background:var(--line);margin-right:8px"></span>
+                <span style="font-weight:600;color:var(--ink-2)">服务台账</span>
+                <span style="font-size:11.5px;color:var(--ink-3);margin-left:8px">银行账号 · 补贴 · 健康评估</span>
+                <svg style="width:13px;height:13px;fill:var(--ink-3);margin-left:auto"><use href="#i-chev-d"/></svg>
+              </div>
+              <div class="hr" style="margin-left:11px"></div>
+              <div style="display:flex;align-items:center;font-size:14px;padding:9px 0">
+                <span style="width:3px;height:12px;border-radius:2px;background:var(--line);margin-right:8px"></span>
+                <span style="font-weight:600;color:var(--ink-2)">变更记录</span>
+                <span style="font-size:11.5px;color:var(--ink-3);margin-left:8px">最近 3 条</span>
+                <svg style="width:13px;height:13px;fill:var(--ink-3);margin-left:auto"><use href="#i-chev-d"/></svg>
+              </div>
+            </div>
+          </div>
+          <div style="flex:none;padding:10px 14px 14px;background:var(--bg)">
+            <div class="btn-primary">编辑档案</div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S4</span>人员详情 <span class="chip on" style="height:19px;font-size:10px">改</span></div>
+          <ul>
+            <li><b>动作前置</b>：拨打与拍照从「一行彩色文字」和「第三张卡里的文字按钮」提到名片下，44dp 实底/描边一对。</li>
+            <li><b>低频分组折叠</b>：服务台账、变更记录默认收起，页长 1950 → 约 1290dp，从三屏变成两屏；分组标题里写清「里面有什么」。</li>
+            <li>照片卡右侧留一枚虚线「+」：新增照片不必先滚到底部。</li>
+            <li>编辑从页头右上角挪到页底实底按钮——它是最重的动作，占最重的位置。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S5 上门登记 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb">
+            <div class="bk"><svg><use href="#i-chev-l"/></svg></div>
+            <h1>上门登记</h1>
+          </div>
+          <div class="content" style="gap:12px">
+            <div>
+              <div class="fld-label">身份证号</div>
+              <div class="fld" style="border-color:var(--brand);box-shadow:0 0 0 3px rgba(29,111,224,.12)">3201**********1234</div>
+              <div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--green);margin-top:5px">
+                <svg style="width:12px;height:12px;fill:currentColor"><use href="#i-check"/></svg>
+                已按证件号带出出生日期与性别
+              </div>
+            </div>
+            <div>
+              <div class="fld-label">姓名</div>
+              <div class="fld">李桂英</div>
+            </div>
+            <div>
+              <div class="fld-label">性别</div>
+              <div style="display:flex;gap:8px">
+                <span class="chip on" style="height:34px;padding:0 18px">女</span>
+                <span class="chip" style="height:34px;padding:0 18px">男</span>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1">
+                <div class="fld-label">出生日期</div>
+                <div class="fld">1958-03-12</div>
+              </div>
+              <div style="flex:1">
+                <div class="fld-label">本人电话</div>
+                <div class="fld">138****6621</div>
+              </div>
+            </div>
+            <div>
+              <div class="fld-label">所属村庄</div>
+              <div class="fld">三合村<span class="trail"><svg><use href="#i-chev-d"/></svg></span></div>
+            </div>
+            <div>
+              <div class="fld-label">现居住地址</div>
+              <div class="fld ph">三合村 3 组 · 门牌</div>
+            </div>
+            <div>
+              <div class="fld-label">人口标签</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <span class="chip on" style="height:30px">低保对象</span>
+                <span class="chip on" style="height:30px">残疾人</span>
+                <span class="chip" style="height:30px">特困供养</span>
+                <span class="chip" style="height:30px">党员</span>
+              </div>
+            </div>
+          </div>
+          <div style="flex:none;padding:10px 14px 14px;background:var(--bg);display:flex;gap:10px;border-top:1px solid var(--line-2)">
+            <div class="btn-2" style="width:96px">取消</div>
+            <div class="btn-primary" style="flex:1">保 存</div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S5</span>上门登记</div>
+          <ul>
+            <li>身份证号是第一字段：输入后自动带出出生日期与性别，提示是绿字一行，不弹窗。</li>
+            <li>标签用芯片不用复选框：走访时「点一下」比「勾选框再保存」少一步。</li>
+            <li>底部固定动作条：长表单里保存按钮永远在手边，也永远不压在键盘下面。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S6 拍照留痕 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb">
+            <div class="bk"><svg><use href="#i-chev-l"/></svg></div>
+            <h1>拍照留痕</h1>
+          </div>
+          <div class="content">
+            <div class="p-card" style="flex:none">
+              <div class="sec-t">关联人员</div>
+              <div style="display:flex;align-items:center;gap:11px">
+                <div style="width:38px;height:38px;border-radius:50%;background:var(--brand-light);color:var(--brand-strong);display:grid;place-items:center;font-size:15px;font-weight:700;flex:none">李</div>
+                <div>
+                  <div style="font-size:15px;font-weight:650">李桂英</div>
+                  <div style="font-size:11.5px;color:var(--ink-3)">女 · 68 岁 · 三合村 3 组</div>
+                </div>
+                <span class="chip" style="margin-left:auto;height:28px">更换</span>
+              </div>
+            </div>
+
+            <!-- 快门 -->
+            <div style="flex:1;min-height:190px;border-radius:var(--r-panel);border:1.5px dashed #B9CBE8;background:var(--brand-faint);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+              <div style="width:56px;height:56px;border-radius:50%;background:var(--brand-light);display:grid;place-items:center;box-shadow:0 2px 8px rgba(29,111,224,.16)">
+                <svg style="width:26px;height:26px;fill:var(--brand)"><use href="#i-camera"/></svg>
+              </div>
+              <div style="font-size:15px;font-weight:600;color:var(--brand-strong)">点这里拍照</div>
+              <div style="font-size:11.5px;color:var(--ink-3)">整块可点 · 调用系统相机</div>
+            </div>
+            <div style="text-align:center;font-size:12px;color:var(--ink-3);flex:none;margin-bottom:8px">也可以<u>从相册选一张</u>（支持 PDF）</div>
+
+            <div style="flex:none;display:flex;flex-direction:column;gap:8px;padding-bottom:4px">
+              <div class="btn-primary off">请先拍一张照片</div>
+              <div style="font-size:11px;color:var(--ink-3);text-align:center;line-height:1.6">
+                上传失败会自动暂存本机，与关联人员一起保留，联网后重传
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S6</span>拍照留痕 <span class="chip on" style="height:19px;font-size:10px">改</span></div>
+          <ul>
+            <li><b>空框即快门</b>：虚线画幅整块可点，直接开相机。少一次「找按钮」的定位动作。</li>
+            <li>已拍状态：画幅原位换成照片，右下角两枚行内按钮「重拍 / 删除」，主按钮变为「上传到李桂英」。</li>
+            <li>无需申请相机权限（走系统相机），所以这一屏没有权限弹窗——文案里直接说明。</li>
+            <li>上传按钮禁用时写明原因（「请先拍一张照片」），不摆一颗按不动的灰按钮。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S7 待核查 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb">
+            <h1>待核查</h1>
+            <div class="rt">12 条</div>
+          </div>
+          <div class="content" style="gap:10px">
+            <!-- 进度 -->
+            <div class="p-card" style="padding:12px 14px;flex:none">
+              <div style="display:flex;align-items:baseline;font-size:12px;color:var(--ink-3)">
+                <span>今日已处理</span>
+                <span style="margin-left:auto;font-size:14px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">3 / 15</span>
+              </div>
+              <div style="height:6px;border-radius:3px;background:var(--line-2);margin-top:8px;overflow:hidden">
+                <div style="width:20%;height:100%;background:var(--brand);border-radius:3px"></div>
+              </div>
+              <div style="font-size:11px;color:var(--ink-3);margin-top:7px">Excel 导入时身份证号为空或非法，补齐后即可入档</div>
+            </div>
+
+            <div class="fld ph" style="flex:none"><svg><use href="#i-search"/></svg>按姓名搜索</div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div class="p-card" style="padding:11px 13px;border-left:3px solid var(--amber)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="width:15px;height:15px;border-radius:4px;background:var(--brand);display:grid;place-items:center;flex:none">
+                    <svg style="width:11px;height:11px;fill:#fff"><use href="#i-check"/></svg>
+                  </span>
+                  <span style="font-size:14.5px;font-weight:650">王建国</span>
+                  <span style="font-size:11px;color:var(--ink-3);margin-left:auto">第 3 行</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px;line-height:1.55">身份证号为空 · 户籍地址「三合村 5 组」</div>
+                <div style="display:flex;gap:7px;margin-top:8px">
+                  <span class="chip" style="height:28px;border-color:var(--brand);color:var(--brand-strong)">补齐</span>
+                  <span class="chip" style="height:28px">忽略</span>
+                </div>
+              </div>
+
+              <div class="p-card" style="padding:11px 13px;border-left:3px solid var(--amber)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--line);flex:none"></span>
+                  <span style="font-size:14.5px;font-weight:650">刘桂芳</span>
+                  <span style="font-size:11px;color:var(--ink-3);margin-left:auto">第 7 行</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px;line-height:1.55">身份证号只有 14 位（导入表已脱敏）</div>
+                <div style="display:flex;gap:7px;margin-top:8px">
+                  <span class="chip" style="height:28px;border-color:var(--brand);color:var(--brand-strong)">补齐</span>
+                  <span class="chip" style="height:28px">忽略</span>
+                </div>
+              </div>
+
+              <div class="p-card" style="padding:11px 13px;border-left:3px solid var(--amber)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--line);flex:none"></span>
+                  <span style="font-size:14.5px;font-weight:650">陈志强</span>
+                  <span style="font-size:11px;color:var(--ink-3);margin-left:auto">第 9 行</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px;line-height:1.55">身份证号校验位不通过</div>
+                <div style="display:flex;gap:7px;margin-top:8px">
+                  <span class="chip" style="height:28px;border-color:var(--brand);color:var(--brand-strong)">补齐</span>
+                  <span class="chip" style="height:28px">忽略</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="flex:none;padding:9px 14px 12px;background:var(--card);border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px">
+            <span style="font-size:12px;color:var(--ink-2)">已勾选 <b style="font-variant-numeric:tabular-nums">1</b> 条</span>
+            <span class="btn-2" style="margin-left:auto;padding:0 14px;height:36px;color:var(--red);border-color:#F3D2CE">批量忽略</span>
+          </div>
+          <div class="nav">
+            <div><svg><use href="#i-home"/></svg><span>工作台</span></div>
+            <div><svg><use href="#i-search"/></svg><span>人口</span></div>
+            <div class="on"><svg><use href="#i-fact"/></svg><span>待核查</span><span class="bdg">12</span></div>
+            <div><svg><use href="#i-person"/></svg><span>我的</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S7</span>待核查 <span class="chip on" style="height:19px;font-size:10px">改</span></div>
+          <ul>
+            <li><b>加一条进度</b>：12 条堆着不动会让人不想开始；「3 / 15」把它变成一件有终点的事。</li>
+            <li>每张卡直接给「补齐 / 忽略」，不必先进详情再出来——原来要点两次才处理一条。</li>
+            <li>卡片左沿琥珀色条 = 待办，与工作台的待办条同一套语言。</li>
+            <li>批量条常驻底部，勾选数量与动作同一行，不靠长按。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S8 我的 ───── -->
+      <div class="frame">
+        <div class="phone">
+          <div class="sb"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="tb"><h1>我的</h1></div>
+          <div class="content">
+            <div class="p-card" style="display:flex;align-items:center;gap:13px;flex:none;padding:16px">
+              <div style="width:52px;height:52px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:21px;font-weight:700;flex:none">王</div>
+              <div>
+                <div style="font-size:17px;font-weight:700">王秀兰</div>
+                <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">网格员 · 账号 wangxiulan</div>
+              </div>
+            </div>
+
+            <div class="p-card" style="flex:none;padding:12px 14px;display:flex;align-items:center;gap:10px;background:var(--amber-bg);border-color:var(--amber-line)">
+              <svg style="width:17px;height:17px;fill:var(--amber);flex:none"><use href="#i-cloud-off"/></svg>
+              <div style="color:var(--amber)">
+                <div style="font-size:13px;font-weight:650">3 条记录未同步</div>
+                <div style="font-size:11px;opacity:.9">联网后自动上传，退出登录也不会丢</div>
+              </div>
+              <svg style="width:13px;height:13px;fill:var(--amber);margin-left:auto"><use href="#i-chev-r"/></svg>
+            </div>
+
+            <div class="p-card" style="padding:0;flex:none">
+              <div style="display:flex;align-items:center;gap:11px;padding:13px 16px">
+                <svg style="width:17px;height:17px;fill:var(--ink-3)"><use href="#i-server"/></svg>
+                <span style="font-size:14px">服务器地址</span>
+                <span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">192.168.1.100:8080</span>
+                <svg style="width:12px;height:12px;fill:var(--ink-3)"><use href="#i-chev-r"/></svg>
+              </div>
+              <div class="hr" style="margin-left:44px"></div>
+              <div style="display:flex;align-items:center;gap:11px;padding:13px 16px">
+                <svg style="width:17px;height:17px;fill:var(--ink-3)"><use href="#i-refresh"/></svg>
+                <span style="font-size:14px">检查更新</span>
+                <span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">当前 2.4.0</span>
+                <svg style="width:12px;height:12px;fill:var(--ink-3)"><use href="#i-chev-r"/></svg>
+              </div>
+              <div class="hr" style="margin-left:44px"></div>
+              <div style="display:flex;align-items:center;gap:11px;padding:13px 16px">
+                <svg style="width:17px;height:17px;fill:var(--ink-3)"><use href="#i-lock"/></svg>
+                <span style="font-size:14px">修改密码</span>
+                <svg style="width:12px;height:12px;fill:var(--ink-3);margin-left:auto"><use href="#i-chev-r"/></svg>
+              </div>
+              <div class="hr" style="margin-left:44px"></div>
+              <div style="display:flex;align-items:center;gap:11px;padding:13px 16px">
+                <svg style="width:17px;height:17px;fill:var(--ink-3)"><use href="#i-bug"/></svg>
+                <span style="font-size:14px">崩溃诊断</span>
+                <span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">暂无记录</span>
+                <svg style="width:12px;height:12px;fill:var(--ink-3)"><use href="#i-chev-r"/></svg>
+              </div>
+            </div>
+
+            <div class="p-card" style="flex:none;padding:0">
+              <div style="display:flex;align-items:center;gap:11px;padding:14px 16px;color:var(--red)">
+                <svg style="width:17px;height:17px;fill:currentColor"><use href="#i-logout"/></svg>
+                <span style="font-size:14px;font-weight:500">退出登录</span>
+              </div>
+            </div>
+
+            <div style="font-size:10.5px;color:var(--ink-3);text-align:center;line-height:1.7;margin-top:4px">
+              掌上村务 2.4.0（240）<br>
+              统计口径为在册人口（正常 / 迁入）
+            </div>
+          </div>
+          <div class="nav">
+            <div><svg><use href="#i-home"/></svg><span>工作台</span></div>
+            <div><svg><use href="#i-search"/></svg><span>人口</span></div>
+            <div><svg><use href="#i-fact"/></svg><span>待核查</span><span class="bdg">12</span></div>
+            <div class="on"><svg><use href="#i-person"/></svg><span>我的</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S8</span>我的</div>
+          <ul>
+            <li>待同步是这一屏唯一的彩色块：它是「现在需要你注意」的事，其余设置项一律安静。</li>
+            <li>「退出登录」单独一张卡并改红：它就在设置列表里，紧挨着「修改密码」，误触代价很大。</li>
+            <li>服务器地址、崩溃诊断都在这一屏，是运维视角的入口，不占主流程。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ───── S9 深色档 ───── -->
+      <div class="frame">
+        <div class="phone dark" style="--bg:#12161C;--card:#1A1F27;--ink:#E6EAF0;--ink-2:#B6BFCB;--ink-3:#8B94A3;--placeholder:#8B94A3;--line:#2C3441;--line-2:#242B35;--quiet:#1B212A;--brand:#6FA8F5;--brand-strong:#A8C9F7;--brand-light:#1E2C42;--brand-faint:#1C232D;--amber:#F2B34C;--amber-bg:#38290F;--amber-line:#5A431A;--green:#6FD39A;--green-bg:#14301F;--red:#FF8A80;--red-bg:#3B1412;background:#12161C;border-color:#242B35">
+          <div class="sb"><span>21:08</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div>
+          <div class="content" style="padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:12px;flex:none">
+              <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#08192E;display:grid;place-items:center;font-size:17px;font-weight:700">王</div>
+              <div>
+                <div style="font-size:18px;font-weight:700;line-height:1.3">你好，王秀兰</div>
+                <div style="font-size:12px;color:var(--ink-3)">10月21日 星期三 · 三合村</div>
+              </div>
+            </div>
+
+            <div class="p-card" style="flex:none;padding:14px 16px 12px">
+              <div style="display:flex;align-items:baseline">
+                <div>
+                  <div style="font-size:12px;color:var(--ink-3);margin-bottom:2px">在册人口</div>
+                  <div style="display:flex;align-items:baseline;gap:5px">
+                    <span style="font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums">1,286</span>
+                    <span style="font-size:13px;color:var(--ink-3)">人</span>
+                  </div>
+                </div>
+                <div style="margin-left:auto;text-align:right;font-size:11.5px;color:var(--ink-3);line-height:1.75">正常 1,241<br>迁入 45</div>
+              </div>
+              <div class="hr" style="margin:11px 0 9px"></div>
+              <div style="display:flex;font-size:12px;color:var(--ink-2)">
+                <div style="flex:1"><b style="font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums">1,203</b><span style="color:var(--ink-3);margin-left:4px">户籍</span></div>
+                <div style="flex:1"><b style="font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums">83</b><span style="color:var(--ink-3);margin-left:4px">流动</span></div>
+                <div style="flex:1"><b style="font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums">512</b><span style="color:var(--ink-3);margin-left:4px">家庭户</span></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:5px;margin-top:10px;font-size:11.5px;color:var(--ink-3)">
+                <svg style="width:13px;height:13px;fill:currentColor"><use href="#i-info"/></svg>
+                仅统计在册人口 · 口径说明
+                <svg style="width:12px;height:12px;fill:currentColor"><use href="#i-chev-d"/></svg>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex:none">
+              <div style="flex:1;height:56px;border-radius:var(--r-panel);background:var(--brand-faint);border:1px solid var(--line-2);display:flex;align-items:center;gap:9px;padding:0 12px">
+                <span style="width:32px;height:32px;border-radius:50%;background:var(--brand-light);display:grid;place-items:center;flex:none"><svg style="width:16px;height:16px;fill:var(--brand)"><use href="#i-plus"/></svg></span>
+                <span style="font-size:14px;font-weight:600">上门登记</span>
+              </div>
+              <div style="flex:1;height:56px;border-radius:var(--r-panel);background:var(--brand-faint);border:1px solid var(--line-2);display:flex;align-items:center;gap:9px;padding:0 12px">
+                <span style="width:32px;height:32px;border-radius:50%;background:var(--brand-light);display:grid;place-items:center;flex:none"><svg style="width:16px;height:16px;fill:var(--brand)"><use href="#i-camera"/></svg></span>
+                <span style="font-size:14px;font-weight:600">拍照留痕</span>
+              </div>
+            </div>
+
+            <div style="flex:none;height:44px;border-radius:var(--r-panel);background:var(--amber-bg);border:1px solid var(--amber-line);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--amber)">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></span>
+              <span style="font-size:13px;font-weight:700">12 条待核查</span>
+              <span style="margin-left:auto;font-size:12px;font-weight:600;display:flex;align-items:center">去处理<svg style="width:12px;height:12px;fill:currentColor"><use href="#i-chev-r"/></svg></span>
+            </div>
+
+            <div class="p-card" style="padding:12px 16px;flex:none">
+              <div class="sec-t" style="margin-bottom:2px">重点人群<span class="more">9 类<svg><use href="#i-chev-r"/></svg></span></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;background:#FF8A80"></span>
+                <span style="margin-left:10px">低保对象</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">62</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+              <div class="hr"></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;background:#F2B34C"></span>
+                <span style="margin-left:10px">特困供养</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">14</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+              <div class="hr"></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink-3)"></span>
+                <span style="margin-left:10px">老年人</span>
+                <span class="pill" style="background:var(--quiet);color:var(--ink-3);margin-left:6px">按年龄</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">246</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+              <div class="hr"></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink-3)"></span>
+                <span style="margin-left:10px">未成年人</span>
+                <span class="pill" style="background:var(--quiet);color:var(--ink-3);margin-left:6px">按年龄</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">138</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+              <div class="hr"></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;background:#A98BF0"></span>
+                <span style="margin-left:10px">残疾人</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">87</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+              <div class="hr"></div>
+              <div style="display:flex;align-items:center;height:40px;font-size:14.5px">
+                <span style="width:9px;height:9px;border-radius:50%;background:#E86A97"></span>
+                <span style="margin-left:10px">党员</span>
+                <span style="font-size:15px;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums">47</span>
+                <span style="font-size:10.5px;color:var(--ink-3);margin-left:2px">人</span>
+              </div>
+            </div>
+          </div>
+          <div class="nav">
+            <div class="on"><svg><use href="#i-home"/></svg><span>工作台</span></div>
+            <div><svg><use href="#i-search"/></svg><span>人口</span></div>
+            <div><svg><use href="#i-fact"/></svg><span>待核查</span><span class="bdg">12</span></div>
+            <div><svg><use href="#i-person"/></svg><span>我的</span></div>
+          </div>
+        </div>
+        <div class="cap">
+          <div class="nm"><span class="no">S9</span>工作台（深色档）</div>
+          <ul>
+            <li>深色不是把浅色反相：色相不动，亮底压暗、暗底提亮，品牌蓝提到 #6FA8F5 才在暗底上够亮。</li>
+            <li>卡片 #1A1F27 与页面 #12161C 只差一档——夜间在巷子里看，层次靠描边而不是亮度差。</li>
+            <li>语义色同步提亮（红 / 琥珀 / 绿），对比度仍按 AA 校验，不靠「发光」制造高亮。</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════ 04 改版前后 ══════════════ -->
+  <section id="s4">
+    <h2 class="sec"><span class="idx">04</span>三处改版的前后对照</h2>
+    <p class="sec-lead">
+      只列动过结构的屏。数字是实际布局尺寸（dp），可以拿去和实现后的截图对账。
+    </p>
+
+    <h3>1 · 工作台：一屏之内换主角</h3>
+    <div class="ba">
+      <div class="col old">
+        <h5><span class="tagx">现在</span>四张等大数字卡</h5>
+        <ul>
+          <li>头 44 + 间距 12 + <b>口径说明 76</b> + 12 + 瓦片 58 + 12 + 概况卡 238</li>
+          <li>进入族群区已用掉 464dp，656dp 的视口只剩 192dp：<b>看到 3 行</b></li>
+          <li>「按年龄自动判定」重复出现 2 次，各占 15dp</li>
+          <li>待核查是一张和别的卡一样重的白卡，排在第 5 位</li>
+        </ul>
+      </div>
+      <div class="col new">
+        <h5><span class="tagx">改后</span>一个主数字 + 一行参照值</h5>
+        <ul>
+          <li>头 40 + 12 + <b>主数字卡 160</b> + 12 + 瓦片 56 + 12 + 待办条 44 + 12</li>
+          <li>进入族群区用掉 348dp，剩 308dp：<b>看到 6 行</b>，且多出待办条</li>
+          <li>口径收成一行（30dp），展开时仍然是完整原文</li>
+          <li>净收益：<b>首屏多 3 行族群 + 一个大数字 + 一条待办</b>，前四块少用 116dp</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>2 · 人员详情：先能打电话，再看档案</h3>
+    <div class="ba">
+      <div class="col old">
+        <h5><span class="tagx">现在</span>七张卡平铺 ≈ 1950dp</h5>
+        <ul>
+          <li>拨打 = 一行 30dp 的蓝色文字（<code>InfoRow</code> 的 onValueClick）</li>
+          <li>拍照 = 照片卡里的 <code>TextButton</code>，触摸高 40dp</li>
+          <li>服务台账 / 残疾档案 / 变更记录与基本信息同权重，合计约 660dp</li>
+          <li>「编辑」在页头右上角，视觉上比「重试」还轻</li>
+        </ul>
+      </div>
+      <div class="col new">
+        <h5><span class="tagx">改后</span>名片 + 动作 + 折叠 ≈ 1290dp</h5>
+        <ul>
+          <li>拨打 / 拍照 = 名片下 44dp 一对按钮（实底 + 描边），触摸目标达标</li>
+          <li>低频三组折叠，标题里写明内含字段；展开是同一批 <code>InfoRows</code></li>
+          <li>「编辑」改为页底 50dp 主按钮</li>
+          <li>净收益：<b>少滚 660dp（约 1 屏）</b>，高频动作全部在首屏</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>3 · 拍照留痕：空框即快门</h3>
+    <div class="ba">
+      <div class="col old">
+        <h5><span class="tagx">现在</span>空框 + 框下按钮</h5>
+        <ul>
+          <li>灰底 104dp 空框里只有图标与「拍照或从相册选择」</li>
+          <li>真按钮在其下 60dp，与空框是两个各自独立的视觉块</li>
+          <li>空态下主按钮变灰，但没有说明为什么不能按</li>
+        </ul>
+      </div>
+      <div class="col new">
+        <h5><span class="tagx">改后</span>画幅本身可点</h5>
+        <ul>
+          <li>196dp 虚线画幅 + 中心相机圆牌 +「点这里拍照」，整块一个点击区</li>
+          <li>相册入口退成画幅下一行小字（低频动作降级）</li>
+          <li>禁用按钮写明原因：「请先拍一张照片」</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 05 状态覆盖 ══════════════ -->
+  <section id="s5">
+    <h2 class="sec"><span class="idx">05</span>状态覆盖</h2>
+    <p class="sec-lead">
+      设计稿最容易漏的不是「有数据」的那一屏，而是没数据、没网、出错的那些。下面四种状态每一屏都要成立，
+      本轮一并落到组件里，不再逐屏零散处理。
+    </p>
+
+    <div class="states">
+      <div class="state-demo">
+        <div class="hd">加载中 · 骨架（与真行同形）</div>
+        <div class="bd">
+          <div style="background:var(--card);border:1px solid var(--line-2);border-radius:20px;padding:12px 14px;display:flex;gap:11px">
+            <div class="sk" style="width:44px;height:44px;border-radius:50%;flex:none"></div>
+            <div style="flex:1">
+              <div class="sk" style="width:42%;height:14px"></div>
+              <div class="sk" style="width:72%;height:11px;margin-top:8px"></div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <div class="sk" style="width:46px;height:16px;border-radius:9px"></div>
+                <div class="sk" style="width:38px;height:16px;border-radius:9px"></div>
+              </div>
+            </div>
+          </div>
+          <div style="background:var(--card);border:1px solid var(--line-2);border-radius:20px;padding:12px 14px;display:flex;gap:11px;opacity:.7">
+            <div class="sk" style="width:44px;height:44px;border-radius:50%;flex:none"></div>
+            <div style="flex:1">
+              <div class="sk" style="width:34%;height:14px"></div>
+              <div class="sk" style="width:66%;height:11px;margin-top:8px"></div>
+            </div>
+          </div>
+        </div>
+        <div class="ft">村里网慢，首屏常要一两秒。转圈只说「在等」，骨架说「马上有一列人，长这样」——等的是同一段时间，但页面不像空的。</div>
+      </div>
+
+      <div class="state-demo">
+        <div class="hd">空 · 说清为什么空，并给一个动作</div>
+        <div class="bd">
+          <div class="empty-center">
+            <div class="ic"><svg><use href="#i-inbox"/></svg></div>
+            <div class="t">没有找到匹配的村民</div>
+            <div class="d">换个关键词试试，或者清空筛选看全部在册人员</div>
+            <span class="chip" style="height:32px;border-color:var(--brand);color:var(--brand-strong);margin-top:4px">清空筛选</span>
+          </div>
+        </div>
+        <div class="ft">「暂无数据」四个字几乎从不解决问题。空态必须回答两件事：为什么空、现在能做什么。没有动作可给时，不摆一颗按不出效果的按钮。</div>
+      </div>
+
+      <div class="state-demo">
+        <div class="hd">错误 · 保留现场，给重试</div>
+        <div class="bd">
+          <div class="empty-center">
+            <div class="ic" style="background:var(--red-bg)"><svg style="fill:var(--red)"><use href="#i-warn"/></svg></div>
+            <div class="t">连不上服务器</div>
+            <div class="d">请检查手机是否连上村委网络，或联系技术员确认服务器地址</div>
+            <span class="chip" style="height:32px;border-color:var(--brand);color:var(--brand-strong);margin-top:4px">重试</span>
+          </div>
+        </div>
+        <div class="ft">错误文案不写技术细节（不出现 <code>SocketTimeoutException</code>），而是写「下一步该做什么」。原始异常只进日志。</div>
+      </div>
+
+      <div class="state-demo">
+        <div class="hd">离线 · 旧数据要标注年龄</div>
+        <div class="bd">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:16px;padding:9px 11px;display:flex;gap:8px;color:var(--amber);font-size:12px;line-height:1.6">
+              <svg style="width:15px;height:15px;fill:currentColor;flex:none;margin-top:2px"><use href="#i-cloud-off"/></svg>
+              当前显示的是本地缓存数据（2 小时前），只可作为参考，上报口径请以联网结果为准。
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-3)">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></span>
+              用琥珀不用红：数据没坏，只是不新。红色会把「需要留意」说成「出事了」。
+            </div>
+          </div>
+        </div>
+        <div class="ft">村里报数字是要负责的。拿着三天前的数字开会和拿今天的数字开会，后果完全不同——所以横幅必须写明「几小时前」。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 06 落地 ══════════════ -->
+  <section id="s6">
+    <h2 class="sec"><span class="idx">06</span>落地映射</h2>
+    <p class="sec-lead">
+      评审通过后按这张表执行。不含新依赖、不含后端改动、不含权限变更——只动 Compose 层。
+    </p>
+
+    <div class="flow">
+      <span class="fl p">示例 · M1 主数字</span><span class="ar">→</span>
+      <span class="fl">HomeScreen · 新 HeroStatCard</span><span class="ar">→</span>
+      <span class="fl">Theme 新增 40sp 档</span>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th style="width:52px">编号</th><th style="width:200px">改动</th><th style="width:250px">落点文件</th><th>验收口径</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>M1</td>
+            <td>在册人口主数字（40sp，等宽）</td>
+            <td><code>home/HomeScreen.kt</code>、<code>theme/Theme.kt</code></td>
+            <td>首屏不滚动即可见主数字；3 个参照值在同一张卡内一行排开</td>
+          </tr>
+          <tr>
+            <td>M2</td>
+            <td>口径说明折叠（可展开，默认收）</td>
+            <td><code>home/HomeScreen.kt</code></td>
+            <td>收起态 30dp；展开后文案与现在逐字一致</td>
+          </tr>
+          <tr>
+            <td>M3</td>
+            <td>族群行 40dp、年龄类空心点 +「按年龄」</td>
+            <td><code>components/Common.kt</code>（<code>GrowRow</code> 增 <code>byAge</code>）</td>
+            <td>「按年龄自动判定」旧文案从屏上消失；首屏可见 ≥5 行</td>
+          </tr>
+          <tr>
+            <td>M4</td>
+            <td>详情页动作前置 + 低频分组折叠</td>
+            <td><code>person/PersonDetailScreen.kt</code></td>
+            <td>拨打/拍照按钮在名片下；页长减少约 660dp；折叠状态不跨页面记忆</td>
+          </tr>
+          <tr>
+            <td>M5</td>
+            <td>拍照页「空框即快门」</td>
+            <td><code>capture/CaptureScreen.kt</code></td>
+            <td>空态整块可点；相册入口降为一行文字；禁用主按钮带原因</td>
+          </tr>
+          <tr>
+            <td>M6</td>
+            <td>待核查进度条 + 卡片行内动作</td>
+            <td><code>pending/PendingScreen.kt</code></td>
+            <td>顶部显示「已处理 / 总数」；卡片内可直接补齐或忽略</td>
+          </tr>
+          <tr>
+            <td>M7</td>
+            <td>触摸目标统一 ≥44dp</td>
+            <td><code>components/Common.kt</code>、详情页</td>
+            <td>全应用不再有 <code>TextButton</code> 作为唯一动作入口</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>需要评审拍板的三处</h3>
+    <div class="grid3">
+      <div class="card">
+        <h4>① 待办条的颜色</h4>
+        <p class="muted" style="font-size:13px;margin-bottom:0">
+          现在用琥珀。也可以改成白卡 + 一颗红点（更安静，但会被当成普通卡跳过）。
+          设计倾向琥珀：这是全屏唯一「今天必须办」的事。
+        </p>
+      </div>
+      <div class="card">
+        <h4>② 详情页折叠的默认态</h4>
+        <p class="muted" style="font-size:13px;margin-bottom:0">
+          默认全收（页更短）或默认展开「服务台账」（补贴金额有人要天天看）。
+          设计倾向全收，但若村里反馈「金额要翻两次」，改成默认展开台账。
+        </p>
+      </div>
+      <div class="card">
+        <h4>③ 族群行的顺序</h4>
+        <p class="muted" style="font-size:13px;margin-bottom:0">
+          现在以后端返回顺序排（照色板来的）。可以改成「人数多的在前」，报数时会更好念，
+          但每次人数变化顺序都会动，不利记忆。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p style="margin-bottom:6px">
+      掌上村务 · 移动端界面设计稿 v4　|　2026-10-21　|　待评审
+    </p>
+    <p style="margin:0">
+      色值与 <code>docs/移动端设计说明.html</code> 的 <code>:root</code> 同一套，由 <code>AppTokensTest</code> 逐值比对；
+      形状取 <code>AppShapes</code>；字号取 <code>AppTypography</code>。设计稿与实现不一致时，以测试为准、回头改稿。
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
