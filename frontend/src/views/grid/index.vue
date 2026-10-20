@@ -92,7 +92,7 @@
               负责人：{{ v.manager || '—' }}，手机号：{{ v.phone || '—' }}
             </span>
             <div class="foot-actions">
-              <el-button link type="primary" size="small" @click="viewPersons({ village: v.name })">人员</el-button>
+              <el-button link type="primary" size="small" @click="viewPersons({ villages: v.name })">人员</el-button>
               <el-button v-if="auth.hasPermission('grid:manage')" link type="primary" size="small" @click="openVillageEdit(v)">编辑</el-button>
             </div>
           </div>
@@ -206,8 +206,8 @@ function onDimensionChange() {
 }
 function doSearch() { query.page = 1; load(); }
 
-/** 跳转到人员列表并带入网格 / 村庄筛选 */
-function viewPersons(params: { gridId?: number; village?: string }) {
+/** 跳转到人员列表并带入网格 / 村庄筛选（村庄是多选字段，单选下钻即单元素数组） */
+function viewPersons(params: { gridId?: number; villages?: string }) {
   router.push({ path: '/persons', query: params as any });
 }
 function openCreate() { Object.assign(form, { id: null, gridNo: '', name: '', manager: '', staff: '', description: '' }); formVisible.value = true; }

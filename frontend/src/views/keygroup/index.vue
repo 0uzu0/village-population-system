@@ -3,7 +3,7 @@
     <div class="vp-page-header">
       <div>
         <h2 class="vp-page-title">重点人群</h2>
-        <div class="vp-page-subtitle">按标签精准筛查，交集/并集口径清晰可辨</div>
+        <div class="vp-page-subtitle">按标签精准筛查，多标签取交集</div>
       </div>
     </div>
 
@@ -29,19 +29,15 @@
     <div ref="filterCard" class="vp-container">
       <div class="card-title">筛选条件</div>
       <div class="vp-search-bar">
-        <el-select v-model="query.tagIds" placeholder="个人标签（可多选）" multiple filterable collapse-tags style="width: 280px">
+        <el-select v-model="query.tagIds" placeholder="个人标签（可多选，取交集）" multiple filterable collapse-tags style="width: 280px" @change="query.tagMode = 'ALL'">
           <el-option v-for="t in personTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
-        <el-radio-group v-model="query.tagMode">
-          <el-radio-button value="ANY">并集</el-radio-button>
-          <el-radio-button value="ALL">交集</el-radio-button>
-        </el-radio-group>
         <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 130px">
           <el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" />
         </el-select>
-        <el-input-number v-model="query.minAge" :min="0" :max="150" placeholder="最小年龄" controls-position="right" style="width: 110px" />
-        <span class="sep">—</span>
-        <el-input-number v-model="query.maxAge" :min="0" :max="150" placeholder="最大年龄" controls-position="right" style="width: 110px" />
+        <el-select v-model="query.villages" placeholder="村庄" clearable filterable multiple collapse-tags style="width: 160px">
+          <el-option v-for="v in villages" :key="v" :label="v" :value="v" />
+        </el-select>
         <el-checkbox v-model="activeOnly">只看在册（排除已迁出/已死亡）</el-checkbox>
         <el-button type="primary" @click="doSearch"><el-icon><Search /></el-icon>查询</el-button>
         <el-button @click="reset">重置</el-button>
@@ -185,7 +181,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 // 导出功能按需求移除，因此不再引入 excelApi 与权限 store
-import { keyGroupApi, tagApi, gridApi } from '@/api';
+import { keyGroupApi, tagApi, personApi } from '@/api';
 import { toPersonDetail } from '@/utils/nav';
 // 个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）按需求整体移除，
 // 因此这里只保留列表「残疾等级」列展示需要的 disabilityLevelShort
@@ -204,21 +200,19 @@ const searched = ref(false);
 const filterCard = ref<HTMLElement | null>(null);
 const personTags = ref<any[]>([]);
 const grids = ref<any[]>([]);
+const villages = ref<string[]>([]);
 const stats = ref<any>({ gender: [], grids: [] });
 const hitTagIds = ref<number[]>([]);
 
 /** 只统计在册人员：已死亡/迁出的不再计入重点人群服务名单 */
 const activeOnly = ref(true);
 
-/** 枚举型筛选字段的可选值，恢复地址栏参数时用于挡掉非法值 */
-const TAG_MODES = ['ANY', 'ALL'];
-/** 只接受白名单内的值，其余按未设置处理（否则非法值会被原样发给后端 → 400） */
-const pickOne = (allowed: readonly string[]) => (raw: string) =>
-  allowed.includes(raw) ? raw : undefined;
-
 /**
  * 筛选条件 ↔ 地址栏同步。新增筛选项只要往 fields 加一行，
  * 就同时获得写入 URL / 还原 / 重置 / 组装请求参数四件事。
+ * minAge/maxAge 不再提供手输入口（年龄区间由「快捷入口」的年龄类卡片设置）。
+ * tagMode 不再提供 UI 选择器：默认 ALL（交集）；快捷入口身份类族群
+ * （「党员」= 正式+预备）天然是并集，点卡片时内部切成 ANY。
  */
 const {
   query,
@@ -232,15 +226,17 @@ const {
     page: 1,
     pageSize: 20,
     tagIds: [] as number[],
-    tagMode: 'ANY',
+    tagMode: 'ALL',
     gridId: null as number | null,
+    villages: [] as string[],
     minAge: null as number | null,
     maxAge: null as number | null,
   }),
   fields: [
     { key: 'tagIds', type: 'numberArray' },
-    { key: 'tagMode', defaultValue: 'ANY', parse: pickOne(TAG_MODES) },
+    { key: 'tagMode', defaultValue: 'ALL', parse: (raw: string) => (['ANY', 'ALL'].includes(raw) ? raw : undefined) },
     { key: 'gridId', type: 'number' },
+    { key: 'villages', type: 'stringArray' },
     { key: 'minAge', type: 'number' },
     { key: 'maxAge', type: 'number' },
   ],
@@ -273,10 +269,11 @@ const activeChips = computed(() => {
   if (query.tagIds.length) {
     chips.push({
       key: 'tagIds',
-      text: `个人标签（${query.tagMode === 'ALL' ? '交集' : '并集'}）：${query.tagIds.map(tagName).join('、')}`,
+      text: `个人标签（${query.tagMode === 'ANY' ? '并集' : '交集'}）：${query.tagIds.map(tagName).join('、')}`,
     });
   }
   if (query.gridId) chips.push({ key: 'gridId', text: `网格：${gridName(query.gridId)}` });
+  if (query.villages.length) chips.push({ key: 'villages', text: `村庄：${query.villages.join('、')}` });
   if (query.minAge != null || query.maxAge != null) {
     chips.push({ key: 'age', text: `年龄：${ageRangeText(query.minAge, query.maxAge)}` });
   }
@@ -303,6 +300,7 @@ function isQuickActive(g: any) {
 function removeChip(key: string) {
   if (key === 'tagIds') query.tagIds = [];
   else if (key === 'gridId') query.gridId = null;
+  else if (key === 'villages') query.villages = [];
   else if (key === 'age') { query.minAge = null; query.maxAge = null; }
   // 条件被拆完就回到未筛查状态，而不是退回全量人口
   if (!hasFilter.value) { reset(); return; }
@@ -332,6 +330,7 @@ const hasFilter = computed(
   () =>
     query.tagIds.length > 0 ||
     query.gridId != null ||
+    query.villages.length > 0 ||
     query.minAge != null ||
     query.maxAge != null
 );
@@ -353,7 +352,7 @@ async function load() {
 function doSearch() {
   // 无条件时不跑全量：既没必要，也会把整表拉出来
   if (!hasFilter.value) {
-    ElMessage.warning('请先选择标签、网格或年龄区间等条件后再筛查');
+    ElMessage.warning('请先选择标签、网格或村庄等条件后再筛查');
     focusFilter();
     return;
   }
@@ -383,14 +382,18 @@ function focusFilter() {
  */
 function setQuickTag(g: any) {
   query.tagIds = [];
-  query.tagMode = 'ANY';
   query.gridId = null;
+  query.villages = [];
   query.minAge = null;
   query.maxAge = null;
   if (g.byAge) {
+    query.tagMode = 'ALL';
     query.minAge = g.minAge ?? null;
     query.maxAge = g.maxAge ?? null;
   } else {
+    // 身份类族群的一个 code 常对应多个标签（「党员」= 正式+预备），
+    // 语义是「任一即可」，必须按并集筛，否则会漏掉只打了一个标签的人
+    query.tagMode = 'ANY';
     const ids = quickTagIds(g);
     if (!ids.length) return;
     query.tagIds = ids;
@@ -403,7 +406,6 @@ function setQuickTag(g: any) {
  *
  * 必须按 `tagCodes` 解析而不是只看 `code`：「党员」要含预备党员，
  * 用单个 code 筛选会比卡片上的人数少一截（卡片与工作台都是按 tagCodes 求和的）。
- * 并集语义，所以 tagMode 固定为 ANY。
  */
 function quickTagIds(g: any) {
   const codes: string[] = g.tagCodes?.length ? g.tagCodes : [g.code];
@@ -413,15 +415,16 @@ function quickTagIds(g: any) {
 }
 
 onMounted(async () => {
-  const [q, pt, g] = await Promise.all([
+  const [q, pt, opts] = await Promise.all([
     keyGroupApi.quick(),
     tagApi.definitions({ pageSize: 200, objectType: 'PERSON' }),
-    gridApi.list({ pageSize: 100 }),
+    personApi.options(),
   ]);
   quick.value = q.data.list;
   if (q.data.note) quickNote.value = `注：${q.data.note}`;
   personTags.value = pt.data.list;
-  grids.value = g.data.list;
+  grids.value = opts.data.grids;
+  villages.value = (opts.data.villages || []).map((v: any) => v.name);
   // 地址栏带条件时（从人员详情返回、或打开分享链接）直接还原筛查结果；
   // 否则停在引导态，等用户设置条件，避免一进页面就拉全量人口
   restoreQuery();
@@ -443,7 +446,6 @@ onMounted(async () => {
 .quick-card .num { font-size: var(--font-size-xl); font-weight: 700; color: var(--color-primary); }
 .quick-card .lbl { font-size: var(--font-size-sm); color: var(--color-text-regular); margin-top: 4px; }
 .note { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 10px; }
-.sep { color: var(--color-text-secondary); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 /* 筛选条件标签 */

@@ -29,11 +29,11 @@ describe('buildPersonListQuery', () => {
   });
 
   it('keyword 与网格/村庄条件可叠加', () => {
-    const q = listQuerySchema.parse({ keyword: '李', gridId: 3, village: '艾园村' });
+    const q = listQuerySchema.parse({ keyword: '李', gridId: 3, villages: '艾园村' });
     const { whereSql, params } = buildPersonListQuery(q);
     expect(whereSql).toContain('p.name LIKE ?');
     expect(whereSql).toContain('p.grid_id = ?');
-    expect(whereSql).toContain('p.village = ?');
+    expect(whereSql).toContain('p.village IN (?)');
     expect(params).toHaveLength(8); // 6（keyword）+ 1 + 1
   });
 
@@ -47,6 +47,15 @@ describe('buildPersonListQuery', () => {
     const q = listQuerySchema.parse({ activeOnly: 'false' });
     const { whereSql } = buildPersonListQuery(q);
     expect(whereSql).toBe('1=1');
+  });
+
+  it('villages 多选按 IN 匹配（逗号分隔，忽略空段）', () => {
+    const q = listQuerySchema.parse({ villages: '艾园村,李家村,' });
+    const { whereSql, params } = buildPersonListQuery(q);
+    expect(whereSql).toContain('p.village IN (?,?)');
+    expect(params).toContain('艾园村');
+    expect(params).toContain('李家村');
+    expect(params).toHaveLength(2);
   });
 
   it('sortBy 走白名单：非白名单字段回退 p.id，防注入', () => {
@@ -65,8 +74,8 @@ describe('excel 导出与人员列表口径一致', () => {
     );
   });
 
-  it('导出支持 village 筛选（列表有、导出也必须有）', () => {
-    expect(exportSrc).toContain("village: z.string().max(64).optional()");
-    expect(exportSrc).toContain("p.village = ?");
+  it('导出支持 villages 多选筛选（列表有、导出也必须有）', () => {
+    expect(exportSrc).toContain('villages: z.string().max(512).optional()');
+    expect(exportSrc).toContain('p.village IN (');
   });
 });

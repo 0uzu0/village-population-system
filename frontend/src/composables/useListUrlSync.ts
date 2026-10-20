@@ -13,10 +13,11 @@ import { useRoute, useRouter } from 'vue-router';
  *  - string  ：空串视为未设置，不写入 URL
  *  - number  ：null / undefined 视为未设置
  *  - numberArray：逗号连接，空数组视为未设置
+ *  - stringArray：同 numberArray，但元素是字符串（如村庄名多选）
  *  - defaultValue：与默认值相同的字段不写入 URL（避免 ?tagMode=ANY 这种噪声）
  *  - extras  ：额外布尔开关（如「只看在册」），等于默认值时不写入 URL
  */
-export type FieldType = 'string' | 'number' | 'numberArray';
+export type FieldType = 'string' | 'number' | 'numberArray' | 'stringArray';
 
 export interface UrlField {
   /** query 对象里的字段名 */
@@ -57,7 +58,9 @@ export function useListUrlSync<Q extends Record<string, any>>(opts: UseListUrlSy
   const query = reactive(opts.initial()) as Q;
 
   const isEmpty = (v: any, type: FieldType) =>
-    type === 'numberArray' ? !Array.isArray(v) || v.length === 0 : v === null || v === undefined || v === '';
+    type === 'numberArray' || type === 'stringArray'
+      ? !Array.isArray(v) || v.length === 0
+      : v === null || v === undefined || v === '';
 
   /** 把筛选条件写入地址栏；与默认值相同的字段不写，保持链接干净 */
   function syncUrl() {
@@ -67,7 +70,7 @@ export function useListUrlSync<Q extends Record<string, any>>(opts: UseListUrlSy
       const value = (query as any)[f.key];
       if (isEmpty(value, type)) continue;
       if (f.defaultValue !== undefined && value === f.defaultValue) continue;
-      q[f.urlKey || f.key] = type === 'numberArray' ? value.join(',') : String(value);
+      q[f.urlKey || f.key] = type === 'numberArray' || type === 'stringArray' ? value.join(',') : String(value);
     }
     for (const [name, spec] of Object.entries(opts.extras || {})) {
       if (spec.ref.value !== spec.defaultValue) q[name] = String(spec.ref.value);
@@ -98,6 +101,8 @@ export function useListUrlSync<Q extends Record<string, any>>(opts: UseListUrlSy
           .split(',')
           .map((s) => Number(s))
           .filter((n) => !Number.isNaN(n));
+      } else if (type === 'stringArray') {
+        (query as any)[f.key] = String(raw).split(',').filter((s) => s !== '');
       } else {
         (query as any)[f.key] = String(raw);
       }
@@ -124,7 +129,7 @@ export function useListUrlSync<Q extends Record<string, any>>(opts: UseListUrlSy
   function buildParams(): Record<string, any> {
     const params: Record<string, any> = { ...(query as any) };
     for (const f of opts.fields) {
-      if (f.type === 'numberArray') {
+      if (f.type === 'numberArray' || f.type === 'stringArray') {
         if ((query as any)[f.key]?.length) params[f.key] = (query as any)[f.key].join(',');
         else delete params[f.key];
       }

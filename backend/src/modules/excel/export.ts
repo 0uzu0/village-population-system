@@ -27,7 +27,8 @@ const exportSchema = z.object({
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
   gender: z.string().optional(),
-  village: z.string().max(64).optional(),
+  /** 村庄多选（逗号分隔），与人员列表同口径 */
+  villages: z.string().max(512).optional(),
   status: z.string().optional(),
   tagIds: z.string().optional(),
   tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
@@ -116,9 +117,12 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
     );
     params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`);
   }
-  if (body.village) {
-    where.push('p.village = ?');
-    params.push(body.village);
+  if (body.villages) {
+    const names = body.villages.split(',').map((s) => s.trim()).filter((s) => s !== '');
+    if (names.length) {
+      where.push(`p.village IN (${names.map(() => '?').join(',')})`);
+      params.push(...names);
+    }
   }
   if (body.gridId) {
     where.push('p.grid_id = ?');

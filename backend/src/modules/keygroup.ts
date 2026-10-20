@@ -78,8 +78,15 @@ const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   tagIds: z.string().optional(),
-  tagMode: queryEnum(['ANY', 'ALL'], 'ANY'),
+  /**
+   * 多标签组合方式：默认 ALL（交集）。UI 不再提供交并集选择器，
+   * 但参数保留——快捷入口的身份类族群（「党员」= 正式+预备）天然是并集，
+   * 点卡片下钻时由前端显式传 ANY；手工多选标签固定走交集。
+   */
+  tagMode: queryEnum(['ANY', 'ALL'], 'ALL'),
   gridId: z.coerce.number().optional(),
+  /** 村庄多选：逗号分隔村庄名，任一命中即返回 */
+  villages: z.string().max(512).optional(),
   minAge: z.coerce.number().optional(),
   maxAge: z.coerce.number().optional(),
   keyword: z.string().optional(),
@@ -105,7 +112,7 @@ const querySchema = z.object({
 });
 
 /**
- * 重点人群查询：支持个人标签交集/并集、家庭级标签、网格、年龄区间
+ * 重点人群查询：个人标签（默认交集）、网格、村庄多选、年龄区间（快捷入口用）
  * 返回：符合条件人数 + 人员列表 + 当前筛选条件（用于界面明确展示）
  */
 router.get('/query', requirePermission('keygroup:view'), async (req: Request, res: Response) => {
@@ -130,6 +137,15 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     where.push('p.grid_id = ?'); params.push(q.gridId);
     const g = await queryOne<any>('SELECT name FROM grid WHERE id = ?', [q.gridId]);
     conditions.push(`网格：${g?.name || q.gridId}`);
+  }
+
+  if (q.villages) {
+    const names = q.villages.split(',').map((s) => s.trim()).filter((s) => s !== '');
+    if (names.length) {
+      where.push(`p.village IN (${names.map(() => '?').join(',')})`);
+      params.push(...names);
+      conditions.push(`村庄：${names.join('、')}`);
+    }
   }
 
   const ageFilter = buildAgeFilter(q.minAge, q.maxAge, 'p');
@@ -207,10 +223,11 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
     : [];
 
   if (selectedTagIds.length) {
-    const tf = buildPersonTagFilter({ tags: selectedTagIds, mode: q.tagMode === 'ALL' ? 'ALL' : 'ANY' }, 'p');
+    // 默认交集；快捷入口身份类族群（如「党员」= 正式+预备）由前端显式传 ANY
+    const tf = buildPersonTagFilter({ tags: selectedTagIds, mode: q.tagMode === 'ANY' ? 'ANY' : 'ALL' }, 'p');
     if (tf.where) { where.push(tf.where.replace(/^ AND /, '')); params.push(...tf.params); }
     const names = await tagNames(selectedTagIds);
-    conditions.push(`个人标签(${q.tagMode === 'ALL' ? '交集' : '并集'}): ${names.join('、')}`);
+    conditions.push(`个人标签(${q.tagMode === 'ANY' ? '并集' : '交集'}): ${names.join('、')}`);
   }
 
   const whereSql = where.join(' AND ');
@@ -305,6 +322,7 @@ router.get('/query', requirePermission('keygroup:view'), async (req: Request, re
       tagMode: selectedTagIds.length ? q.tagMode : null,
       tagIds: selectedTagIds,
       gridId: q.gridId || null,
+      villages: q.villages ? q.villages.split(',').filter((s) => s !== '') : [],
       minAge: q.minAge ?? null,
       maxAge: q.maxAge ?? null,
       keyword: q.keyword || null,

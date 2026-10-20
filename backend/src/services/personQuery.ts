@@ -99,7 +99,8 @@ export const listQuerySchema = z.object({
   gender: z.string().optional(),
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
-  village: z.string().optional(),
+  /** 村庄多选：逗号分隔村庄名，任一命中即返回 */
+  villages: z.string().max(512).optional(),
   status: z.string().optional(),
   /**
    * 只看在册（默认开启）：排除死亡/迁出人员，避免日常翻名单时混进历史档案。
@@ -152,9 +153,12 @@ export function buildPersonListQuery(q: PersonListQuery): BuiltPersonListQuery {
     where.push('p.family_id = ?');
     params.push(q.familyId);
   }
-  if (q.village) {
-    where.push('p.village = ?');
-    params.push(q.village);
+  if (q.villages) {
+    const names = q.villages.split(',').map((s) => s.trim()).filter((s) => s !== '');
+    if (names.length) {
+      where.push(`p.village IN (${names.map(() => '?').join(',')})`);
+      params.push(...names);
+    }
   }
   if (q.status) {
     where.push('p.status = ?');

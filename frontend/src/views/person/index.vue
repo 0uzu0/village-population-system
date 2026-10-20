@@ -31,7 +31,7 @@
         <el-select v-model="query.gridId" placeholder="网格" clearable filterable style="width: 140px" @change="doSearch">
           <el-option v-for="g in options.grids" :key="g.id" :label="g.name" :value="g.id" />
         </el-select>
-        <el-select v-model="query.village" placeholder="村庄" clearable filterable style="width: 140px" @change="doSearch">
+        <el-select v-model="query.villages" placeholder="村庄" clearable filterable multiple collapse-tags style="width: 160px" @change="doSearch">
           <el-option v-for="v in options.villages" :key="v.name" :label="v.name" :value="v.name" />
         </el-select>
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="doSearch">
@@ -413,7 +413,7 @@ const {
     keyword: '',
     gender: '',
     gridId: null as number | null,
-    village: '',
+    villages: [] as string[],
     status: '',
     sortBy: '',
     sortOrder: '',
@@ -422,7 +422,7 @@ const {
     { key: 'keyword' },
     { key: 'gender' },
     { key: 'gridId', type: 'number' },
-    { key: 'village' },
+    { key: 'villages', type: 'stringArray' },
     { key: 'status' },
   ],
   extras: { activeOnly: { ref: activeOnly, defaultValue: true } },
@@ -816,7 +816,7 @@ async function submitExport() {
       ...exportForm,
       keyword: query.keyword,
       gridId: query.gridId,
-      village: query.village || undefined,
+      villages: query.villages.join(',') || undefined,
       status: query.status,
       gender: query.gender,
       // 导出的数据范围与列表保持一致
