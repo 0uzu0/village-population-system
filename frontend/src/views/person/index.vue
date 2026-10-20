@@ -22,10 +22,7 @@
     <!-- 搜索与筛选 -->
     <div class="vp-container">
       <div class="vp-search-bar">
-        <el-input v-model="query.keyword" placeholder="搜索姓名 / 身份证号 / 手机号" clearable style="width: 280px" @keyup.enter="doSearch" @clear="doSearch">
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-input v-model="query.address" placeholder="搜索户籍 / 居住地址" clearable style="width: 220px" @keyup.enter="doSearch" @clear="doSearch">
+        <el-input v-model="query.keyword" placeholder="搜索姓名 / 身份证号 / 手机号 / 地址" clearable style="width: 300px" @keyup.enter="doSearch" @clear="doSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <el-select v-model="query.gender" placeholder="性别" clearable style="width: 100px" @change="doSearch">
@@ -414,7 +411,6 @@ const {
     page: 1,
     pageSize: 20,
     keyword: '',
-    address: '',
     gender: '',
     gridId: null as number | null,
     village: '',
@@ -424,7 +420,6 @@ const {
   }),
   fields: [
     { key: 'keyword' },
-    { key: 'address' },
     { key: 'gender' },
     { key: 'gridId', type: 'number' },
     { key: 'village' },
@@ -820,7 +815,6 @@ async function submitExport() {
     const res: any = await excelApi.export({
       ...exportForm,
       keyword: query.keyword,
-      address: query.address,
       gridId: query.gridId,
       village: query.village || undefined,
       status: query.status,

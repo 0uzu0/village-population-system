@@ -96,8 +96,6 @@ export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   keyword: z.string().optional(),
-  /** 地址模糊查询：同时匹配户籍地址与实际居住地址，任一命中即返回 */
-  address: z.string().max(100).optional(),
   gender: z.string().optional(),
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
@@ -136,13 +134,11 @@ export function buildPersonListQuery(q: PersonListQuery): BuiltPersonListQuery {
   const params: any[] = [];
 
   if (q.keyword) {
-    // 姓名 / 身份证号 / 手机号（含备用）模糊匹配
-    where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
-    params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`);
-  }
-  if (q.address) {
-    where.push('(p.hukou_address LIKE ? OR p.live_address LIKE ?)');
-    params.push(`%${q.address}%`, `%${q.address}%`);
+    // 姓名 / 身份证号 / 手机号（含备用）/ 户籍地址 / 实际居住地址 模糊匹配
+    where.push(
+      '(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ? OR p.hukou_address LIKE ? OR p.live_address LIKE ?)'
+    );
+    params.push(`%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`, `%${q.keyword}%`);
   }
   if (q.gender) {
     where.push('p.gender = ?');

@@ -24,8 +24,6 @@ const router = Router();
 const exportSchema = z.object({
   fields: z.array(z.string()).optional(),
   keyword: z.string().optional(),
-  /** 地址模糊查询（户籍/居住任一命中），与人员列表同口径 */
-  address: z.string().max(100).optional(),
   gridId: z.coerce.number().optional(),
   familyId: z.coerce.number().optional(),
   gender: z.string().optional(),
@@ -111,15 +109,12 @@ router.post('/export', requirePermission('excel:export'), async (req: Request, r
 
   const where: string[] = ['1=1'];
   const params: any[] = [];
-  // 与人员列表保持同一搜索口径：姓名 / 身份证号 / 手机号（含备用）
+  // 与人员列表保持同一搜索口径：姓名 / 身份证号 / 手机号（含备用）/ 户籍地址 / 实际居住地址
   if (body.keyword) {
-    where.push('(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ?)');
-    params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`);
-  }
-  // 地址口径同 personQuery.buildPersonListQuery：户籍地址 / 实际居住地址任一命中
-  if (body.address) {
-    where.push('(p.hukou_address LIKE ? OR p.live_address LIKE ?)');
-    params.push(`%${body.address}%`, `%${body.address}%`);
+    where.push(
+      '(p.name LIKE ? OR p.id_card LIKE ? OR p.phone LIKE ? OR p.phone_backup LIKE ? OR p.hukou_address LIKE ? OR p.live_address LIKE ?)'
+    );
+    params.push(`%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`, `%${body.keyword}%`);
   }
   if (body.village) {
     where.push('p.village = ?');
