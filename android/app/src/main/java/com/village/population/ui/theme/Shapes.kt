@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.dp
  * 形状令牌（shape tokens）。
  *
  * 为什么要有这一层：改版前圆角值是「一个组件一个样」——
- * StatCard 10dp、SectionCard 12dp、入口 11dp、输入框 10dp、标签 10dp，
+ * 指标块 15dp、卡片 20dp、入口 11dp、输入框 10dp、标签 10dp，
  * 没有任何两个对得上。单看都不难看，摆到一屏里就是「不整齐」：
  * 同一屏六张卡片三种圆角，视觉上会读成三个层级，而它们其实是平级的。
  *
@@ -66,13 +66,4 @@ object AppShapes {
      * `.amber-banner` 都是 16px）。
      */
     val panel = 16.dp
-
-    /**
-     * 数据格：首页 2×2 指标块。
-     *
-     * 15dp（设计稿 `.stat`）。它是白卡**内部**的元素，按「外大内小」比卡片
-     * [card] 再收一档；与 [panel] 同值但语义不同——一个是面板、一个是格，
-     * 各自独立演进，不互相牵连。
-     */
-    val stat = 15.dp
 }

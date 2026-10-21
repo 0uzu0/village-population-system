@@ -91,9 +91,6 @@ import com.village.population.ui.theme.AppTheme
 /** 10.5sp：字段标签、人群行的小注（设计稿 `.fld-label` / `.grp-name .by-age`） */
 val HintTextStyle = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp)
 
-/** 11sp：数据格标签（设计稿 `.stat .sl`） */
-val StatLabelStyle = TextStyle(fontSize = 11.sp, lineHeight = 15.sp)
-
 /** 11sp：列表行副标题（设计稿 `.p-meta` / `.p-id`） */
 val MetaTextStyle = TextStyle(fontSize = 11.sp, lineHeight = 16.sp)
 
@@ -197,21 +194,37 @@ fun ErrorBox(
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
 ) {
+    // 与 [EmptyBox] 同一套骨架：圆牌图标 + 一句人话 + 一颗按钮。
+    // 错误态最容易做坏的地方是「只剩一行报错」——用户看完不知道下一步干什么。
+    // 重试因此是一颗 44dp 的按钮，而不是一行点得中的小字：出错的时候，
+    // 全屏只有这一个动作，它值得被看见（也值得一个够大的触摸目标）。
+    val t = AppTheme.tokens
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier.padding(horizontal = 40.dp, vertical = 32.dp),
         ) {
-            Icon(
-                Icons.Filled.ErrorOutline,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
+            Box(
+                Modifier.size(56.dp).background(t.redBg, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.ErrorOutline,
+                    contentDescription = null,
+                    tint = t.red,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = t.ink2,
             )
-            Spacer(Modifier.height(12.dp))
-            Text(message, style = MaterialTheme.typography.bodyLarge)
             if (onRetry != null) {
                 Spacer(Modifier.height(16.dp))
-                androidx.compose.material3.TextButton(onClick = onRetry) { Text("重试") }
+                ActionButton("重试", onRetry, filled = false)
             }
         }
     }
@@ -303,88 +316,6 @@ fun OfflineBanner(text: String, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = t.amber,
             )
-        }
-    }
-}
-
-/** 指标块的色调档位，对应设计稿 `.stat` / `.stat.q`。
- *
- *  只有两档：首要数字（品牌浅底）与参照数字（安静灰）。
- *  原第三档 Green 是家庭户数专用——改版时按设计稿删掉：一屏四张卡里
- *  出现第三种底色，会把平级的四个数字读出主次，而家庭户数与户籍/常住
- *  本质都是参照数，不该比总人口更「跳」。 */
-enum class StatTone {
-    /** 品牌极浅底 + 品牌字（在册人口这类首要数字） */
-    Primary,
-
-    /** 中性极浅底 + 二级墨色字（家庭户数/户籍/常住这类参照数字，不能跟首要数字抢眼） */
-    Quiet,
-}
-
-/** 指标块，对应设计稿的 `.stat`：15dp 圆角（卡内元素，比卡片收一档）+ 23sp 数字 + 11sp 标签 */
-@Composable
-fun StatCard(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    tone: StatTone = StatTone.Primary,
-    hint: String? = null,
-    onClick: (() -> Unit)? = null,
-) {
-    val t = AppTheme.tokens
-    val bg = when (tone) {
-        StatTone.Primary -> t.brandFaint
-        StatTone.Quiet -> t.quiet
-    }
-    val fg = when (tone) {
-        StatTone.Primary -> t.brand
-        StatTone.Quiet -> t.ink2
-    }
-    // 标签色也跟着分档：主指标标签二级墨、参照指标三级墨（设计稿 .stat.p/.stat.q .sl）
-    val labelFg = when (tone) {
-        StatTone.Primary -> t.ink2
-        StatTone.Quiet -> t.ink3
-    }
-    Surface(
-        color = bg,
-        shape = RoundedCornerShape(AppShapes.stat),
-        // 安静档按设计稿补 1px 浅描边：它没有品牌色「压」着，描边替它把边界说清
-        border = if (tone == StatTone.Quiet) BorderStroke(1.dp, t.line2) else null,
-        // 只加阴影、不加 tonalElevation：tonal 会给卡片叠一层品牌色染色，
-        // 与设计稿里「白卡就是白卡」的取值对不上；阴影才是层次的来源
-        shadowElevation = AppShapes.cardElevation,
-        tonalElevation = 0.dp,
-        modifier = if (onClick != null) modifier.clickableNoRipple(true, onClick) else modifier,
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                value,
-                style = MaterialTheme.typography.titleLarge.tabular(),
-                color = fg,
-                // 设计稿 .stat .sv 是 800：报数的场合数字要「砸」在屏幕上
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                label,
-                style = StatLabelStyle,
-                color = labelFg,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (hint != null) {
-                Text(
-                    hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = t.ink3,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }
