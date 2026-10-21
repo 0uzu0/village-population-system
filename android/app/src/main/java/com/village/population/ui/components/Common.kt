@@ -1041,29 +1041,41 @@ fun GrowRow(
                     ),
             )
             Spacer(Modifier.width(10.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = AppTheme.tokens.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (byAge) {
-                Spacer(Modifier.width(6.dp))
-                // 「按年龄」灰底胶囊：比正文小一号、比说明文字实，读作「这是个属性」
-                Surface(
-                    color = AppTheme.tokens.quiet,
-                    shape = RoundedCornerShape(AppShapes.chip),
-                ) {
-                    Text(
-                        "按年龄",
-                        style = PillTextStyle,
-                        color = AppTheme.tokens.ink3,
-                        maxLines = 1,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp),
-                    )
+            // 名称 + 「按年龄」胶囊包成一个整体，由它独占中间那一段宽度。
+            //
+            // 这里踩过一个坑：先前标签文字自己 weight(1f, fill = false)、后面再放一个
+            // weight(1f) 的占位，两个权重在 Compose 里是**平分**剩余宽度的——文字只拿到
+            // 一半，「老年人（≥60岁）」正好被切在括号里，变成「老年人（≥6…」。
+            // 现在只留一个权重：外层 Row 吃满中间，内层文字 fill = false 按需取宽，
+            // 文字短时胶囊紧跟在名称后面（设计稿就是这个排法），文字长时先压缩名称。
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppTheme.tokens.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (byAge) {
+                    Spacer(Modifier.width(6.dp))
+                    // 「按年龄」灰底胶囊：比正文小一号、比说明文字实，读作「这是个属性」
+                    Surface(
+                        color = AppTheme.tokens.quiet,
+                        shape = RoundedCornerShape(AppShapes.chip),
+                    ) {
+                        Text(
+                            "按年龄",
+                            style = PillTextStyle,
+                            color = AppTheme.tokens.ink3,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp),
+                        )
+                    }
                 }
             }
             // hint 保留给真正的补充说明（目前无调用方传值）；
@@ -1072,7 +1084,8 @@ fun GrowRow(
                 Spacer(Modifier.width(6.dp))
                 Text(hint, style = HintTextStyle, color = AppTheme.tokens.ink3, maxLines = 1)
             }
-            Spacer(Modifier.weight(1f))
+            // 人数贴着右边缘：中间那段已被上面的 Row(weight(1f)) 吃满，
+            // 这里不再需要额外的 weight 占位（多一个权重就会回头去分文字的地盘）
             // 人数是墨色而不是品牌色：这一行要读的是「多少人」，不是「点我」——
             // 行本身可点已经由箭头暗示，数字再上品牌色就跟主操作抢眼
             Text(
