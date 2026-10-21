@@ -181,7 +181,8 @@ fun AppRoot() {
                 TextButton(onClick = {
                     container.session.consumeExpiredReason()
                     scope.launch {
-                        container.logout()
+                        // 清本机登录态失败也必须放行到登录页，否则用户卡在失效态里出不来
+                        runCatching { container.logout() }
                         navController.navigate(Routes.LOGIN) {
                             popUpTo(0) { inclusive = true }
                         }

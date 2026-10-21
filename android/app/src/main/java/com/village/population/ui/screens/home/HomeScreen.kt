@@ -97,30 +97,49 @@ class HomeViewModel(private val meta: MetaRepository) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            try {
-                // 四个请求互不依赖，并发发出（串行会让首屏多等三个来回）
-                val dashboard = async { meta.dashboard() }
-                val groups = async { meta.quickGroups() }
-                val pending = async { meta.pendingSummary() }
-                // 标签字典只服务于「点重点人群跳列表」这一个动作，
-                // 拿不到（无权限/没缓存）不该把整个工作台变成错误页，所以单独消化
-                val tags = async { runCatching { meta.personTags().value }.getOrDefault(emptyList()) }
 
-                val d = dashboard.await()
-                val g = groups.await()
-                _state.update {
-                    it.copy(
-                        loading = false,
-                        dashboard = d.value,
-                        groups = g.value,
-                        pending = runCatching { pending.await() }.getOrNull(),
-                        tags = tags.await(),
-                        fromCache = d.fromCache || g.fromCache,
-                        savedAt = maxOf(d.savedAt, g.savedAt),
-                    )
-                }
-            } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = e.toUserMessage()) }
+            // 四个请求互不依赖，并发发出（串行会让首屏多等三个来回）。
+            //
+            // ⚠️ 每一路都必须用 runCatching 包成 Result，**不能只在外面套一个 try/catch**。
+            // 这是本项目踩过的真实事故（用户报「APK 一进就退」）：
+            //   1. 第一路 await() 抛异常 → 被外层 catch 接住；
+            //   2. 此时其余几路协程仍在跑，随后它们也失败（服务端 502 / 断网时必然如此）；
+            //   3. 已经没有人 await 它们了，异常顺着 Job 冒泡到 viewModelScope；
+            //   4. viewModelScope 没配 CoroutineExceptionHandler → 交给线程默认处理器 → 进程被杀。
+            // 表现就是冷启动进工作台瞬间闪退，而网络正常时四路全成功、这条路径永远走不到，
+            // 所以本地/模拟器极难复现。改成 Result 之后 async 本身永远不会失败，从根上堵死。
+            val dashboard = async { runCatching { meta.dashboard() } }
+            val groups = async { runCatching { meta.quickGroups() } }
+            val pending = async { runCatching { meta.pendingSummary() } }
+            // 标签字典只服务于「点重点人群跳列表」这一个动作，
+            // 拿不到（无权限/没缓存）不该把整个工作台变成错误页，所以单独消化
+            val tags = async { runCatching { meta.personTags().value }.getOrDefault(emptyList()) }
+
+            val d = dashboard.await()
+            val g = groups.await()
+            val p = pending.await()
+            val t = tags.await()
+
+            // 人口口径是工作台的主内容，它和重点人群口径失败才算整页失败；
+            // 待核查数字是角标性质的次要信息，失败就留空，不该遮住主数字
+            val primary = d.exceptionOrNull() ?: g.exceptionOrNull()
+            if (primary != null) {
+                _state.update { it.copy(loading = false, error = primary.toUserMessage()) }
+                return@launch
+            }
+
+            val dv = d.getOrNull()
+            val gv = g.getOrNull()
+            _state.update {
+                it.copy(
+                    loading = false,
+                    dashboard = dv?.value,
+                    groups = gv?.value.orEmpty(),
+                    pending = p.getOrNull(),
+                    tags = t,
+                    fromCache = (dv?.fromCache ?: false) || (gv?.fromCache ?: false),
+                    savedAt = maxOf(dv?.savedAt ?: 0L, gv?.savedAt ?: 0L),
+                )
             }
         }
     }

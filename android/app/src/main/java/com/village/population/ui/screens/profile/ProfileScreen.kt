@@ -335,9 +335,17 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        container.settings.saveBaseUrl(baseUrl)
-                        baseUrl = container.settings.baseUrlInMemory
-                        baseUrlMessage = "已保存：${container.settings.baseUrlInMemory}"
+                        // 这里写的是 DataStore 与文件系统，都可能抛 IOException。
+                        // rememberCoroutineScope 的异常同样没人接，会直接把应用打死，
+                        // 所以每一处「改本机数据」的协程都必须自己兜住。
+                        val r = runCatching {
+                            container.settings.saveBaseUrl(baseUrl)
+                            baseUrl = container.settings.baseUrlInMemory
+                        }
+                        baseUrlMessage = r.fold(
+                            onSuccess = { "已保存：${container.settings.baseUrlInMemory}" },
+                            onFailure = { it.toUserMessage() },
+                        )
                     }
                 }) { Text("保存") }
             },
@@ -345,9 +353,14 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                 Row {
                     TextButton(onClick = {
                         scope.launch {
-                            container.settings.resetBaseUrl()
-                            baseUrl = container.settings.baseUrlInMemory
-                            baseUrlMessage = "已恢复打包时注入的默认地址"
+                            val r = runCatching {
+                                container.settings.resetBaseUrl()
+                                baseUrl = container.settings.baseUrlInMemory
+                            }
+                            baseUrlMessage = r.fold(
+                                onSuccess = { "已恢复打包时注入的默认地址" },
+                                onFailure = { it.toUserMessage() },
+                            )
                         }
                     }) { Text("恢复默认") }
                     TextButton(onClick = { showServerDialog = false; baseUrlMessage = null }) { Text("关闭") }
@@ -386,8 +399,10 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                             text = "清空缓存",
                             onClick = {
                                 scope.launch {
-                                    container.cache.clear()
-                                    message = "已清空本地缓存（未上传的数据保留）"
+                                    message = runCatching {
+                                        container.cache.clear()
+                                        "已清空本地缓存（未上传的数据保留）"
+                                    }.getOrElse { it.toUserMessage() }
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -413,7 +428,7 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                                     )
                                 }
                                 TextButton(onClick = {
-                                    scope.launch { container.queue.removeWithFile(op); refreshLocal() }
+                                    scope.launch { runCatching { container.queue.removeWithFile(op) }; refreshLocal() }
                                 }) { Text("删除") }
                             }
                         }
@@ -472,7 +487,8 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                 TextButton(onClick = {
                     showLogoutDialog = false
                     scope.launch {
-                        container.logout()
+                        // 退出登录即使清缓存失败也必须放行，否则用户被困在已失效的登录态里
+                        runCatching { container.logout() }
                         onLoggedOut()
                     }
                 }) { Text("退出") }

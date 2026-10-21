@@ -86,7 +86,13 @@ class LoginViewModel(
                 _state.update { it.copy(error = "请填写服务器地址") }
                 return@launch
             }
-            settings.saveBaseUrl(raw)
+            // 写 DataStore 会抛 IOException（磁盘只读 / 存储写满），
+            // 在 viewModelScope 里没人接就是整个进程被杀——一律 runCatching 兜住
+            val saved = runCatching { settings.saveBaseUrl(raw) }
+            if (saved.isFailure) {
+                _state.update { it.copy(error = saved.exceptionOrNull()?.toUserMessage() ?: "保存失败") }
+                return@launch
+            }
             _state.update {
                 it.copy(
                     baseUrl = settings.baseUrlInMemory,
@@ -100,7 +106,11 @@ class LoginViewModel(
 
     fun resetBaseUrl() {
         viewModelScope.launch {
-            settings.resetBaseUrl()
+            val reset = runCatching { settings.resetBaseUrl() }
+            if (reset.isFailure) {
+                _state.update { it.copy(error = reset.exceptionOrNull()?.toUserMessage() ?: "恢复失败") }
+                return@launch
+            }
             _state.update {
                 it.copy(baseUrl = settings.baseUrlInMemory, notice = "已恢复默认服务器地址", error = null)
             }
