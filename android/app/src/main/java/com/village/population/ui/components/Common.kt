@@ -378,6 +378,7 @@ fun InfoRow(
     dense: Boolean = false,
     onValueClick: (() -> Unit)? = null,
 ) {
+    val empty = value.isNullOrBlank()
     Row(modifier.fillMaxWidth().padding(vertical = if (dense) 5.dp else 7.dp)) {
         Text(
             label,
@@ -385,11 +386,19 @@ fun InfoRow(
             color = AppTheme.tokens.ink3,
             modifier = Modifier.width(82.dp),
         )
+        // 空值写「未登记」而不是一个破折号：13sp 的「—」在下一条分隔线上面
+        // 只有一根短横，看着像残留的下划线（截图里就是这样），也不说明任何事。
+        // 「未登记」是村里填表时的原话，读到的人知道"这一栏确实没填"，而不是"坏了"。
+        // 占位用三级墨色：它是"没有内容"，不能和真实值一样黑
         Text(
-            value?.takeIf { it.isNotBlank() } ?: "—",
+            if (empty) "未登记" else value.orEmpty(),
             style = InfoValueStyle,
-            color = if (onValueClick != null) AppTheme.tokens.brandStrong else AppTheme.tokens.ink,
-            modifier = if (onValueClick != null) {
+            color = when {
+                empty -> AppTheme.tokens.ink3
+                onValueClick != null -> AppTheme.tokens.brandStrong
+                else -> AppTheme.tokens.ink
+            },
+            modifier = if (onValueClick != null && !empty) {
                 Modifier.weight(1f).clickableNoRipple(true, onValueClick)
             } else {
                 Modifier.weight(1f)

@@ -24,14 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Refresh
@@ -290,11 +285,12 @@ fun PersonDetailScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Spacer(Modifier.height(2.dp))
+                                // 生日不在这里再写一遍：下方「基本信息」有精确日期。
+                                // 名片副标题只回答「男的女的、多大」，那是核人时第一眼要的
                                 Text(
                                     listOfNotNull(
                                         if (person.gender == "FEMALE") "女" else "男",
                                         (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" },
-                                        person.birthDate?.takeIf { it.isNotBlank() }?.let { DateText.formatCn(it) },
                                     ).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = tokens.ink3,
@@ -318,23 +314,30 @@ fun PersonDetailScreen(
                         Spacer(Modifier.height(12.dp))
 
                         // 动作对（M4）：拨打是**实底**——两个手机号任取一个能打的，
-                        // 走访时「给他打个电话」比「拍张照」更常发生；
-                        // 两个号都空时按钮禁用并说明原因，不做「点了没反应」的按钮
+                        // 走访时「给他打个电话」比「拍张照」更常发生。
+                        //
+                        // 按钮上只写「拨打电话」，不再把号码印在按钮里：号码的**正本**
+                        // 是下方「基本信息 → 本人电话」，同一个 11 位数字在首屏出现两次，
+                        // 既占掉了按钮一半宽度（窄屏上还会被省略号切断），
+                        // 也让人怀疑两处是不是同一个号。没号码时这颗按钮直接不出现——
+                        // 不做「没有电话」的灰按钮：摆一颗点了没反应的按钮，
+                        // 比不摆更让人犹豫。
                         val dialNumber = person.phone?.takeIf { it.isNotBlank() }
                             ?: person.phoneBackup?.takeIf { it.isNotBlank() }
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            ActionButton(
-                                text = dialNumber?.let { "拨打 $it" } ?: "没有电话",
-                                onClick = { dialNumber?.let { context.dial(it) } },
-                                enabled = dialNumber != null,
-                                filled = true,
-                                icon = Icons.Filled.Phone,
-                                height = 44.dp,
-                                modifier = Modifier.weight(1f),
-                            )
+                            if (dialNumber != null) {
+                                ActionButton(
+                                    text = "拨打电话",
+                                    onClick = { context.dial(dialNumber) },
+                                    filled = true,
+                                    icon = Icons.Filled.Phone,
+                                    height = 44.dp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             ActionButton(
                                 text = "拍照留痕",
                                 onClick = onCapture,
@@ -346,53 +349,31 @@ fun PersonDetailScreen(
                     }
                 }
 
-                // 现场照片：拍照留痕的落点。横滑一行 —— 照片多于三张时不再换行把卡片
-                // 撑成两三行，尾部那枚虚线「+」常驻，新增照片不必先滚到底部找按钮
+                // 现场照片：横滑一行，只负责「看」。
+                //
+                // 这里原本还有两个添加入口（空态整块可点、末尾一枚虚线「+」），
+                // 加上名片下的「拍照留痕」，同一个动作在一屏里出现了三次——
+                // 用户站在这里会先犹豫「点哪个」。现在统一收归名片下那枚 44dp 按钮，
+                // 这张卡不再放任何按钮：有照片就横滑看，没照片就写明「还没有」。
+                // 卡本身留着——「查过了，确实没留过痕」和「这屏没有照片分区」
+                // 是两件事，前者也是要报给村里知道的信息。
                 SectionCard(title = if (state.photos.isEmpty()) "现场照片" else "现场照片（${state.photos.size}）") {
                     if (state.photos.isEmpty()) {
-                        // 空态本身就是入口：整块虚线画幅可点，与拍照页的「空框即快门」同一套语言
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 64.dp)
-                                .background(tokens.quiet, RoundedCornerShape(AppShapes.control))
-                                .border(1.dp, tokens.line2, RoundedCornerShape(AppShapes.control))
-                                .clickableNoRipple(true, onCapture)
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(
-                                Modifier
-                                    .size(30.dp)
-                                    .background(tokens.brandLight, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Filled.PhotoCamera,
-                                    contentDescription = null,
-                                    tint = tokens.brandStrong,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "还没有现场照片",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = tokens.ink2,
-                                )
-                                Text(
-                                    "点这里拍第一张",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                                    color = tokens.ink3,
-                                )
-                            }
                             Icon(
-                                Icons.Filled.PhotoCamera,
+                                Icons.Filled.Image,
                                 contentDescription = null,
                                 tint = tokens.ink3,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "还没有现场照片 · 用上方「拍照留痕」拍第一张",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.ink3,
                             )
                         }
                     } else {
@@ -403,7 +384,6 @@ fun PersonDetailScreen(
                             items(state.photos, key = { it.id }) { photo ->
                                 PhotoThumb(photo) { vm.view(photo) }
                             }
-                            item { AddPhotoTile(onCapture) }
                         }
                     }
                 }
@@ -420,10 +400,13 @@ fun PersonDetailScreen(
                         InfoEntry("备用电话", person.phoneBackup, onClick = {
                             person.phoneBackup?.let { context.dial(it) }
                         }),
+                        // 「年龄」与「人员状态」两行已删：两者在名片上都有——
+                        // 年龄在副标题（男 · 71 岁），状态是那枚胶囊（在册）。
+                        // 同一个事实写两遍，除了让这张卡变长，还会制造"哪个才是准的"
+                        // 的疑问：状态一行写的是后端原值「正常」，胶囊写的是报数用的
+                        //「在册」，两种叫法并排放，读的人会以为是两件事。
                         InfoEntry("出生日期", person.birthDate),
-                        InfoEntry("年龄", (person.age ?: DateText.ageOf(person.birthDate))?.let { "$it 岁" }),
                         InfoEntry("人员编号", person.personNo),
-                        InfoEntry("人员状态", PersonText.status(person.status)),
                         dense = true
                     )
                 }
@@ -789,46 +772,6 @@ private fun PhotoViewerDialog(
                 }
             }
         }
-    }
-}
-
-/**
- * 照片行尾部的「加一张」虚线格（设计稿 S4 那枚虚线 +）。
- *
- * 它替代了原先卡片底部那颗「拍照留痕」文字按钮：
- *  · 按钮在照片下面，要新增一张得先滚到底、再回头确认跳转是对的；
- *    放在照片行尾，视线扫到照片就看见了「这里还能加」；
- *  · 虚线是通用语言：它的意思是「这个位置暂时是空的」，
- *    而不是「这里有一个次要动作」——后者会被读成可点可不点。
- */
-@Composable
-private fun AddPhotoTile(onClick: () -> Unit) {
-    val t = AppTheme.tokens
-    Box(
-        Modifier
-            .width(80.dp)
-            .height(56.dp)
-            .clip(RoundedCornerShape(AppShapes.card))
-            .background(t.quiet)
-            .drawBehind {
-                drawRoundRect(
-                    color = t.line,
-                    cornerRadius = CornerRadius(AppShapes.card.toPx()),
-                    style = Stroke(
-                        width = 2f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 9f)),
-                    ),
-                )
-            }
-            .clickableNoRipple(true, onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Filled.Add,
-            contentDescription = "拍一张现场照片",
-            tint = t.ink3,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }
 
