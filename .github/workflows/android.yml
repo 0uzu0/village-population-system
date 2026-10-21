@@ -139,7 +139,17 @@ jobs:
 
       # ---------------- debug 包：PR / push 都出，供测试机安装 ----------------
       - name: 构建 Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          # 版本号同样取自标签/run_number。以前这里直接用 gradle 的默认值，
+          # 于是任何一版 debug 包在「我的」页都显示写死的 2.2.3——
+          # 出了「装了新包却像旧界面」的问题时，没有任何办法从界面上判断
+          # 手上这个包到底是哪次构建。debug 变体另有 -debug 后缀，两者不冲突。
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then VERSION_NAME="0.0.${GITHUB_RUN_NUMBER}"; fi
+
+          ./gradlew assembleDebug --stacktrace \
+            -PversionCode="${GITHUB_RUN_NUMBER}" \
+            -PversionName="$VERSION_NAME"
 
       - name: 重命名 Debug APK
         run: |
