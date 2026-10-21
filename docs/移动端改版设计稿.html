@@ -805,6 +805,7 @@
           <div class="tb">
             <div class="bk"><svg><use href="#i-chev-l"/></svg></div>
             <h1>人员详情</h1>
+            <span style="margin-left:auto;font-size:14px;font-weight:600;color:var(--brand-strong);padding-right:2px">编辑</span>
           </div>
           <div class="content" style="gap:10px">
             <!-- 名片 -->
@@ -877,9 +878,6 @@
               </div>
             </div>
           </div>
-          <div style="flex:none;padding:10px 14px 14px;background:var(--bg)">
-            <div class="btn-primary">编辑档案</div>
-          </div>
         </div>
         <div class="cap">
           <div class="nm"><span class="no">S4</span>人员详情 <span class="chip on" style="height:19px;font-size:10px">改</span></div>
@@ -948,9 +946,10 @@
               </div>
             </div>
           </div>
-          <div style="flex:none;padding:10px 14px 14px;background:var(--bg);display:flex;gap:10px;border-top:1px solid var(--line-2)">
-            <div class="btn-2" style="width:96px">取消</div>
-            <div class="btn-primary" style="flex:1">保 存</div>
+          <!-- 吸底操作条：细线与内容分开，按钮永远全宽、滚到哪儿都按得到。
+               「返回」平时不出现（与页头返回键重复），只在出现提示时与保存并排 -->
+          <div style="flex:none;padding:10px 14px 14px;background:var(--bg);border-top:1px solid var(--line-2)">
+            <div class="btn-primary">保 存</div>
           </div>
         </div>
         <div class="cap">

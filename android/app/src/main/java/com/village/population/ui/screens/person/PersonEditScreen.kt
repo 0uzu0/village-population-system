@@ -1,8 +1,10 @@
 package com.village.population.ui.screens.person
 
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,12 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +52,7 @@ import com.village.population.ui.components.PickerField
 import com.village.population.ui.components.PickerOption
 import com.village.population.ui.components.PrimaryButton
 import com.village.population.ui.components.SectionCard
+import com.village.population.ui.theme.AppTheme
 import com.village.population.util.FormRules
 import com.village.population.util.IdCard
 import com.village.population.util.PersonText
@@ -295,12 +300,53 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
 
     LaunchedEffect(personId) { vm.init() }
 
+    // 保存逻辑提到 Scaffold 外面：按钮搬进吸底操作条后，这段逻辑不能跟着
+    // 一堆布局代码埋在底栏里，读代码时要能一眼看到"点保存会发生什么"
+    val onSave: () -> Unit = {
+        vm.save { result ->
+            when (result) {
+                is SubmitResult.Sent -> onDone()
+
+                // 未填身份证号：后端**没有建正式档案**，而是转进了待核查。
+                // 留在本页说明去向，不要返回列表——那里找不到这个人，
+                // 用户会以为数据丢了再录一遍，待核查里就多一条重复。
+                is SubmitResult.Pending -> {
+                    val no = result.pendingId?.let { "（记录 #$it）" }.orEmpty()
+                    resultMessage = "未填写身份证号，已转入待核查人员$no；" +
+                        "到「待核查」补录身份证后点「确认入库」即可建档"
+                }
+
+                is SubmitResult.Queued -> {
+                    // 明确告诉用户「数据没丢」，否则他会以为保存失败而反复点
+                    resultMessage = "当前无网络，${result.label} 已暂存本机，联网后会自动上传"
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             AppTopBar(
                 title = if (vm.isEdit) "编辑人员" else "上门登记",
                 onBack = onDone,
             )
+        },
+        // 保存条吸底（不再是内容流末尾那颗孤零零的蓝按钮）：
+        // 这张表单有十几张卡片，主操作跟着内容滚到最后一行，用户要么先滚到底
+        // 才找得到保存，要么在半途以为"这页没法保存"。吸底条给三件事——
+        // 一条分隔线（说明它不属于内容，是这一屏的工具）、
+        // 一颗全宽 50dp 主按钮、以及"刚发生了什么"贴在按钮上方。
+        // 加载中与加载失败时不显示：那时表单还没出来，能点的只有重试。
+        bottomBar = {
+            if (!state.loading && state.loadError == null) {
+                SaveBar(
+                    message = resultMessage,
+                    saving = state.saving,
+                    canSave = vm.canSave,
+                    onSave = onSave,
+                    onDone = onDone,
+                )
+            }
         },
     ) { padding ->
         // 关键：档案没读回来之前**不渲染表单**。
@@ -520,54 +566,78 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
                 )
             }
 
-            resultMessage?.let {
-                Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
-            }
+            // 底部留白收窄：真正的"底"由吸底条承担，这里只是最后一张卡与条之间的呼吸
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // 保存是这一屏的页面级主操作：按设计稿 .btn-primary 走 PrimaryButton
-                //（品牌实底 + 14.5sp 加粗 + 蓝色投影），而不是 Material Button 的
-                // 默认样式——后者的圆角是全圆角、字重与投影都是另一套，
-                // 摆到已对齐的界面里会一眼看出「这颗不一样」
-                PrimaryButton(
-                    text = if (state.saving) "保存中…" else "保存",
-                    onClick = {
-                        vm.save { result ->
-                            when (result) {
-                                is SubmitResult.Sent -> onDone()
-
-                                // 未填身份证号：后端**没有建正式档案**，而是转进了待核查。
-                                // 留在本页说明去向，不要返回列表——那里找不到这个人，
-                                // 用户会以为数据丢了再录一遍，待核查里就多一条重复。
-                                is SubmitResult.Pending -> {
-                                    val no = result.pendingId?.let { "（记录 #$it）" }.orEmpty()
-                                    resultMessage = "未填写身份证号，已转入待核查人员$no；" +
-                                        "到「待核查」补录身份证后点「确认入库」即可建档"
-                                }
-
-                                is SubmitResult.Queued -> {
-                                    // 明确告诉用户「数据没丢」，否则他会以为保存失败而反复点
-                                    resultMessage = "当前无网络，${result.label} 已暂存本机，联网后会自动上传"
-                                }
-                            }
-                        }
-                    },
-                    // 档案没读回来就不给点：空表单提交会把原档案覆盖成空
-                    enabled = vm.canSave,
-                    modifier = Modifier.weight(1f),
-                )
-                if (resultMessage != null) {
-                    // 返回是次操作（.btn-line）：白底细描边。高度与主按钮对齐到 50dp，
-                    // 两颗按钮并排时顶天立地，不出现一高一低的错位
-                    ActionButton(
-                        text = "返回",
-                        onClick = onDone,
-                        modifier = Modifier.width(96.dp),
-                        height = 50.dp,
+/**
+ * 表单底部吸底操作条。
+ *
+ * 为什么不是"内容流末尾一颗全宽按钮"：这张表单十几张卡片，那颗按钮在屏幕上
+ * 只出现在滚到底的那一刻；而它一旦出现，又是页面最后一行下面孤零零一条蓝色，
+ * 上不着卡、下不着地——用户的原话是"在底部有点突兀"。
+ *
+ * 吸底条把它变成"这一屏的工具"：一条细线与内容分开、白底托住、与系统手势区
+ * 隔开；按钮永远是全宽 50dp，滚到哪儿都按得到。键盘弹出时整条随 imePadding
+ * 抬起（而不是被键盘盖住），刚发生的提示（转入待核查 / 已暂存本机）也贴在这里
+ * ——它是对刚才那次点击的回应，就该出现在按钮旁边。
+ */
+@Composable
+private fun SaveBar(
+    message: String?,
+    saving: Boolean,
+    canSave: Boolean,
+    onSave: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val t = AppTheme.tokens
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        // 12dp 是"压得住内容"的一档：条与滚动的内容之间要有明确分界，
+        // 否则滚到一半会以为按钮是卡片的一部分
+        shadowElevation = 12.dp,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                // 手势区留白 + 键盘避让：这两个 padding 都加在条内部，
+                // Scaffold 会把"条的高度"从内容区让出来，字段不会被挡
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(t.line2))
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                if (message != null) {
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = t.ink2,
                     )
+                    Spacer(Modifier.height(8.dp))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PrimaryButton(
+                        text = if (saving) "保存中…" else "保存",
+                        onClick = onSave,
+                        enabled = canSave,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (message != null) {
+                        // 返回只在"发生了需要解释的事"时出现：平时它和页头的
+                        // 返回键重复，占着一半宽度；出事之后它是"我不改了，退出去"，
+                        // 与保存并排才合理
+                        ActionButton(
+                            text = "返回",
+                            onClick = onDone,
+                            modifier = Modifier.width(96.dp),
+                            height = 50.dp,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(24.dp))
         }
     }
 }

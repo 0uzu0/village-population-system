@@ -74,7 +74,6 @@ import com.village.population.ui.components.InfoEntry
 import com.village.population.ui.components.InfoRows
 import com.village.population.ui.components.LoadingBox
 import com.village.population.ui.components.OfflineBanner
-import com.village.population.ui.components.PrimaryButton
 import com.village.population.ui.components.SectionCard
 import com.village.population.ui.components.TagPill
 import com.village.population.ui.components.clickableNoRipple
@@ -205,13 +204,35 @@ fun PersonDetailScreen(
     Scaffold(
         topBar = {
             // 标题用固定的「人员详情」而不是人名：人名就在下面第一张卡片上，
-            // 页头再写一遍会挤掉返回键右侧的空间，滚动时也没有额外信息量
-            AppTopBar(title = "人员详情", onBack = onBack)
+            // 页头再写一遍会挤掉返回键右侧的空间，滚动时也没有额外信息量。
+            //
+            // 「编辑」放在右上角而不是内容流末尾：上一版是滚到底才出现的一颗
+            // 全宽蓝按钮，页面读完之后孤零零挂在最后一行「数据来源」下面，
+            // 既像状态条又像广告条，视觉上没有落点。详情页的主操作属于标题栏
+            // ——它不随滚动消失，也不占用内容区的垂直空间。
+            AppTopBar(
+                title = "人员详情",
+                onBack = onBack,
+                actions = {
+                    Box(
+                        Modifier
+                            .height(44.dp)
+                            .clickableNoRipple(true, onEdit)
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "编辑",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.brandStrong,
+                        )
+                    }
+                },
+            )
         },
-        // 底部操作栏已按设计稿撤掉：设计稿这一屏只有一个全宽主按钮「编辑」，
-        // 三图标操作栏是上一版的形态。撤掉后电话与拍照两个动作并没有消失——
-        // 电话号码行可直接点按拨号（见 InfoRow 的 onValueClick），
-        // 拍照入口收进「现场照片」卡（见下方空态与按钮）
+        // 底部操作栏不设：这一屏没有"页面级主按钮"了——编辑进了标题栏，
+        // 拨打与拍照在名片下，页面末尾只留数据来源一行小字。
     ) { padding ->
         when {
             state.loading && person == null -> LoadingBox(Modifier.padding(padding))
@@ -534,16 +555,8 @@ fun PersonDetailScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = tokens.ink3,
                 )
-                Spacer(Modifier.height(20.dp))
-                // 全宽主按钮「编辑」（设计稿 .btn-primary）：撤掉底部三图标操作栏后，
-                // 这一屏的主操作回到内容流末尾——50dp 高 + 品牌实底 + 14dp 圆角，
-                // 滚到底必然看见，也不再和底部导航抢拇指区
-                PrimaryButton(
-                    text = "编辑",
-                    onClick = onEdit,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(20.dp))
+                // 末尾不再放按钮：编辑在标题栏。这里留一口气的余量就够
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
