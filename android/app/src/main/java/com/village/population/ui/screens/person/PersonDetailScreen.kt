@@ -316,19 +316,28 @@ fun PersonDetailScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = tokens.ink3,
                                 )
-                                Spacer(Modifier.height(5.dp))
-                                // 状态徽章与标签同一套胶囊（设计稿 .d-tags）：状态其实也是
-                                // 一种标签，两种样子摆在一行会读出两种信息层级
-                                val (statusText, statusColor) = statusTag(person.status)
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    TagPill(statusText, statusColor)
-                                    person.tags.forEach { tag ->
-                                        TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
-                                    }
-                                }
+                            }
+                        }
+
+                        // 标签行独占一整行，不再塞在头像右侧那条窄列里。
+                        //
+                        // 塞在窄列里的问题是实打实的：那一列只有「卡片宽度 − 头像 54dp
+                        // − 间距」≈ 230dp，四个标签加状态就要换行；一旦换行，这一列比
+                        // 头像高，行高被撑开，下面的按钮行跟着压上来——真机上就出现过
+                        // 标签被按钮切掉半个字。整行摆放后宽度多出 54dp，五个标签能排下，
+                        // 排不下也只是自己换行，不会顶到底下的按钮。
+                        val (statusText, statusColor) = statusTag(person.status)
+                        Spacer(Modifier.height(10.dp))
+                        // 状态徽章与标签同一套胶囊（设计稿 .d-tags）：状态其实也是
+                        // 一种标签，两种样子摆在一行会读出两种信息层级
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            TagPill(statusText, statusColor)
+                            person.tags.forEach { tag ->
+                                TagPill(tag.name, parseHexColor(tag.color, tokens.brand))
                             }
                         }
 
