@@ -325,6 +325,15 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
     }
 
     Scaffold(
+        // 键盘避让**只在这一处**做，加在整个骨架上：骨架收缩到键盘上方，topBar 不动，
+        // 吸底条贴着键盘上沿，内容区拿到「收缩后高度 − topBar − 吸底条」。
+        //
+        // ⚠️ 踩过的坑（v2.4.3 用户截图：点进输入框，整张表单消失、只剩一根输入框
+        // 浮在顶上）：当时内容区加了一次 imePadding()、SaveBar 内部又加了一次。
+        // SaveBar 在 bottomBar 里，它的 padding 会被算进「条的高度」，Scaffold 再从
+        // 内容区把这一坨让出来 → 内容区高度直接归零。**吸底条内部永远不要再加
+        // imePadding()**，只留 navigationBarsPadding()。
+        modifier = Modifier.imePadding(),
         topBar = {
             AppTopBar(
                 title = if (vm.isEdit) "编辑人员" else "上门登记",
@@ -367,9 +376,8 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // 键盘弹出时把内容整体抬到键盘上方：否则底部保存按钮被挡，
-                // 表单又长，用户输完姓名找不到保存的地方
-                .imePadding()
+                // 键盘避让交给外层 Scaffold 统一处理，这里不再加 imePadding()：
+                // 两处都加会把键盘高度扣两次，内容区被压成 0（键盘一弹表单就没了）
                 .verticalScroll(rememberScrollState())
                 // 点空白处收起键盘。子级（输入框/芯片）吃掉的点击到不了这里，
                 // 只有落在空白处的点击会触发收起
@@ -580,8 +588,9 @@ fun PersonEditScreen(personId: Int, onDone: () -> Unit) {
  * 上不着卡、下不着地——用户的原话是"在底部有点突兀"。
  *
  * 吸底条把它变成"这一屏的工具"：一条细线与内容分开、白底托住、与系统手势区
- * 隔开；按钮永远是全宽 50dp，滚到哪儿都按得到。键盘弹出时整条随 imePadding
- * 抬起（而不是被键盘盖住），刚发生的提示（转入待核查 / 已暂存本机）也贴在这里
+ * 隔开；按钮永远是全宽 50dp，滚到哪儿都按得到。键盘弹出时整条随**外层 Scaffold**
+ * 的 imePadding 抬起（而不是被键盘盖住，也不是自己吃一遍 ime 高度），
+ * 刚发生的提示（转入待核查 / 已暂存本机）也贴在这里
  * ——它是对刚才那次点击的回应，就该出现在按钮旁边。
  */
 @Composable
@@ -603,10 +612,10 @@ private fun SaveBar(
         Column(
             Modifier
                 .fillMaxWidth()
-                // 手势区留白 + 键盘避让：这两个 padding 都加在条内部，
-                // Scaffold 会把"条的高度"从内容区让出来，字段不会被挡
-                .navigationBarsPadding()
-                .imePadding(),
+                // 只留手势区留白。键盘避让由外层 Scaffold 的 imePadding() 统一负责：
+                // 若在条内部再加一次，Scaffold 会把「键盘高度」当成条的高度从内容区让出，
+                // 内容区归零，整张表单消失。
+                .navigationBarsPadding(),
         ) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(t.line2))
             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {

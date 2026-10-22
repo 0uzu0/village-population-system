@@ -1384,14 +1384,20 @@ fun parseHexColor(hex: String?, fallback: Color): Color {
 fun Modifier.tapRipple(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val tint = AppTheme.tokens.ink.copy(alpha = 0.10f)
+    // ⚠️ 必须 this.then(...) / this 收尾。早先这里直接返回一个新建的 Modifier，
+    // 调用方链在它前面的东西（fillMaxWidth、weight、padding、background…）会被**整个丢掉**：
+    // 表现为吸底条的「保存」缩成文字大小的一小块、宽度不再撑满，
+    // 而代码里明明写着 weight(1f) —— 排查时极难往这个工具函数上想。
     return if (enabled) {
-        Modifier.clickable(
-            interactionSource = interaction,
-            indication = ripple(color = tint),
-            onClick = onClick,
+        this.then(
+            Modifier.clickable(
+                interactionSource = interaction,
+                indication = ripple(color = tint),
+                onClick = onClick,
+            )
         )
     } else {
-        Modifier
+        this
     }
 }
 
