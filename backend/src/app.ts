@@ -22,6 +22,9 @@ import pendingModule from './modules/pending';
 import auditModule from './modules/audit';
 import ledgerModule from './modules/ledger';
 import fileModule from './modules/file';
+// MCP（Model Context Protocol）接入：把现有 REST 能力以工具形式暴露给 AI 客户端。
+// 它复用同一套 JWT 与权限码，因此挂载位置与其它业务模块并列即可。
+import mcpModule from './modules/mcp';
 
 export function createApp(): Express {
   const app = express();
@@ -83,6 +86,7 @@ export function createApp(): Express {
   app.use('/api/audit-logs', auditModule);
   app.use('/api/ledgers', ledgerModule);
   app.use('/api/files', fileModule);
+  app.use('/api/mcp', mcpModule);
 
   // 未匹配路由与错误处理
   app.use(notFoundHandler);

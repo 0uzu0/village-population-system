@@ -64,6 +64,17 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
     next();
     return;
   }
+  /**
+   * MCP 相关的写请求不在这里记账，两层原因：
+   * - `/api/mcp` 本身：协议层会写一条 mcp.<工具名> 的审计，带工具参数与真实来源 IP，
+   *   比这里记一条 POST /api/mcp + 整个 JSON-RPC 包更准确。
+   * - MCP 内部转发的请求（X-MCP-Call: 1）：它的来源地址是 127.0.0.1，
+   *   记下来只会得到一条假 IP 的噪声；真实操作者已在上面那条里。
+   */
+  if (req.originalUrl.startsWith('/api/mcp') || req.headers['x-mcp-call'] === '1') {
+    next();
+    return;
+  }
   const action = `${method} ${req.baseUrl}${req.path}`;
   res.on('finish', () => {
     const user = req.user;

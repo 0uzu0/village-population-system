@@ -44,6 +44,16 @@ services:
       # 只有把前端单独部署在另一个域名下时才需要填，多个来源用英文逗号分隔。
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       UPLOAD_DIR: /app/uploads
+      # ---- MCP（AI 工具接口，端点 /api/mcp）----
+      # 三档写入开关分开配置：off 只读（默认）/ basic 可建档记账 / full 含批量与高危。
+      # 之所以默认 off——绝大多数使用场景是「查」，让 AI 改数据的收益远小于误操作代价。
+      MCP_WRITE_LEVEL: ${MCP_WRITE_LEVEL:-off}
+      # 敏感字段是否打码。默认 mask：身份证保留前 6 后 4、手机号前 3 后 4、
+      # 银行账号只留后 4。接自建可信模型时才改成 full。
+      MCP_PII_MODE: ${MCP_PII_MODE:-mask}
+      # 删除类操作（danger）的独立开关：即使 MCP_WRITE_LEVEL=full，
+      # 没有这一项也不会注册删除工具。两个开关是有意分开的。
+      MCP_ALLOW_DESTRUCTIVE: ${MCP_ALLOW_DESTRUCTIVE:-false}
     volumes:
       # 「绑到宿主机目录」而不是 docker named volume —— 附件（现场照片、合同扫描件）
       # 是这套系统里**唯一不能靠重新部署恢复的东西**：数据库有迁移和备份，
