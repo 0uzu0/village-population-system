@@ -95,13 +95,49 @@ function moduleMounts(): Map<string, string> {
 
 /** 模块（单文件，或拆分后的目录）里声明的全部路由 */
 function routesOf(target: string): Route[] {
+  return collectRoutes(target, '', new Set());
+}
+
+/**
+ * 递归收集路由，支持**子路由挂载**。
+ *
+ * 背景：`modules/mcp/index.ts` 里写着 `router.use('/tokens', tokenRoutes)`，
+ * 令牌管理路由在另一个文件里声明。早先的实现只看模块目录下的文件、不认 `use(前缀, 子router)`，
+ * 于是前端调用 `/api/mcp/tokens` 会被误报成「后端不存在该接口」——
+ * 测试能力不足伪装成代码缺陷，比没有测试更误导人。
+ */
+function collectRoutes(target: string, prefix: string, seen: Set<string>): Route[] {
   const single = `${target}.ts`;
   const files = fs.existsSync(single) ? [single] : walk(target, ['.ts']);
   const routes: Route[] = [];
+
   for (const file of files) {
+    // 已经被当作子路由挂载收集过的文件不再按「无前缀」收一遍，
+    // 否则同一个路由会出现两条（带前缀 + 不带前缀），排障时看着像重复定义
+    if (seen.has(file)) continue;
     const src = fs.readFileSync(file, 'utf8');
+
+    // 本文件里 import 进来的本地模块，供子路由挂载解析
+    const local = new Map<string, string>();
+    for (const m of src.matchAll(/import\s+(\w+)\s+from\s+'(\.[^']+)'/g)) {
+      local.set(m[1], path.resolve(path.dirname(file), m[2]));
+    }
+
     for (const m of src.matchAll(/\brouter\w*\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]/gi)) {
-      routes.push({ method: m[1].toUpperCase(), path: m[2], file: path.relative(REPO, file) });
+      routes.push({
+        method: m[1].toUpperCase(),
+        path: canonical(`${prefix}/${m[2]}`),
+        file: path.relative(REPO, file),
+      });
+    }
+
+    // `router.use('/前缀', 子router)` —— 只认「字符串前缀 + 变量名」这种形状；
+    // `router.use(authMiddleware)`、`router.use(rateLimit({...}))` 不会被误判
+    for (const m of src.matchAll(/\brouter\w*\.use\(\s*['"]([^'"]+)['"]\s*,\s*(\w+)\s*\)/g)) {
+      const sub = local.get(m[2]);
+      if (!sub || seen.has(sub)) continue;
+      seen.add(sub);
+      routes.push(...collectRoutes(sub, `${prefix}/${m[1]}`, seen));
     }
   }
   return routes;

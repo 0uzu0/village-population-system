@@ -23,6 +23,17 @@ declare global {
       user?: AuthUser;
       /** 请求 ID：由 requestLog 中间件注入，用于日志串联 */
       id?: string;
+      /**
+       * 本次请求是用「MCP 长期令牌」认证时才有值（浏览器登录的请求没有）。
+       * 用于：read 令牌强制只读、审计里区分「谁在用 AI」。
+       */
+      mcpToken?: { id: number; name: string; scope: 'read' | 'write' };
+      /**
+       * MCP 内部转发用的短命 JWT。
+       * 长期令牌本身在业务接口上不认，所以认证通过后临时签一枚 5 分钟的 JWT，
+       * 转发 `GET /api/persons` 这类请求时用它——权限判定仍然只有一套实现。
+       */
+      mcpForwardToken?: string;
     }
   }
 }

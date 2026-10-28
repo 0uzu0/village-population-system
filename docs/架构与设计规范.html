@@ -450,7 +450,7 @@
         <div class="box"><div class="lbl">端点</div><div class="val">POST /api/mcp</div></div>
       </div>
       <div class="arch-row">
-        <div class="box"><div class="lbl">① 鉴权</div><div class="val">authMiddleware（同一 JWT）</div></div>
+        <div class="box"><div class="lbl">① 鉴权</div><div class="val">mcpAuth：JWT 或长期令牌</div></div>
         <div class="arrow">→</div>
         <div class="box"><div class="lbl">② 协议层</div><div class="val">JSON-RPC · tools/list · tools/call</div></div>
         <div class="arrow">→</div>
@@ -484,6 +484,51 @@
         <div class="d"><code>MCP_WRITE_LEVEL=off|basic|full</code> 控制读写；删除类（danger）还需要额外的 <code>MCP_ALLOW_DESTRUCTIVE=true</code>。</div>
       </div>
     </div>
+
+    <h3>长期令牌：为什么不能直接用 JWT</h3>
+    <p class="lead">MCP 客户端是把配置存成 JSON 常驻的。用网页 JWT（7 天）意味着每 7 天改一次配置文件、改密码后所有客户端静默失效、而且没地方单独吊销某一台设备。所以单开一张 <code>mcp_token</code> 表，与 JWT <strong>并存</strong>而不是替换：JWT 给人用，短命；令牌给机器用，长命、可吊销、可限只读。</p>
+    <div class="grid2">
+      <div class="card">
+        <div class="h">库里不存明文</div>
+        <div class="d">只存 <code>sha256</code>，明文仅在创建响应里出现一次。生成在<strong>服务端</strong>（<code>crypto.randomBytes(32)</code>），前端只负责把返回的串展示一次——<code>Math.random</code> 不是密码学安全的，且前端生成会让明文先经过请求体与日志。</div>
+      </div>
+      <div class="card">
+        <div class="h">三条失效路径</div>
+        <div class="d">手动吊销（<code>revoked_at</code>）、过期（<code>expires_at</code>，默认 NULL 即长期）、改密码/停用账号（<code>sys_user.token_version</code> +1）。「长期」指不按天到期，不是改密码也杀不掉。</div>
+      </div>
+      <div class="card">
+        <div class="h">只读默认</div>
+        <div class="d">令牌 <code>scope=read</code> 时写入等级被压到 <code>off</code>，写工具<strong>根本不出现在工具列表里</strong>。与全局 <code>MCP_WRITE_LEVEL</code> 取更严的那个。</div>
+      </div>
+      <div class="card">
+        <div class="h">边界不外溢</div>
+        <div class="d">令牌<strong>只对 <code>/api/mcp</code> 有效</strong>。全局 <code>authMiddleware</code> 完全不认识它；认证通过后临时签一枚 5 分钟 JWT 去转发业务请求，所以权限判定仍然只有一套实现。测试里有静态守卫盯着这条边界。</div>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>顺序</th><th>中间件</th><th>为什么必须是这个顺序</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><code>/tokens</code> 管理接口（仅 JWT）</td><td>若排在 mcpAuth 之后，一枚泄露的长期令牌就能给自己续签，吊销立刻失去意义</td></tr>
+          <tr><td>2</td><td><code>mcpAuth</code></td><td>未鉴权就在此被 401 挡住，后面的限流与协议层都拿不到未认证请求</td></tr>
+          <tr><td>3</td><td><code>rateLimit</code></td><td>按账号计数需要 <code>req.user.id</code>；按 IP 会让全村共用出口 IP 的人互相拖累</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>令牌管理接口</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:36%">方法与路径</th><th>作用</th><th style="width:28%">谁能用</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /api/mcp/tokens</code></td><td>我的令牌列表（管理员加 <code>?all=1</code> 看全员）</td><td>登录用户</td></tr>
+          <tr><td><code>POST /api/mcp/tokens</code></td><td>新建令牌，<strong>明文仅此一次</strong></td><td>登录用户（只能给自己建）</td></tr>
+          <tr><td><code>DELETE /api/mcp/tokens/:id</code></td><td>吊销单枚</td><td>本人；管理员可吊销任意</td></tr>
+          <tr><td><code>POST /api/mcp/tokens/revoke-all</code></td><td>一键全吊销（疑似泄露时止血）</td><td>本人</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lead">网页入口在「系统设置 → AI 接入」：建令牌、看最近使用时间与来源 IP、随时吊销；创建成功那一刻直接把客户端配置片段给出来，不用去翻文档拼 JSON。</p>
 
     <h3>协议要点</h3>
     <div class="tbl-wrap">
@@ -648,7 +693,11 @@
       <li>统一 <code>ok()</code> / <code>okPage()</code> / <code>AppError</code>，不自己拼响应体。</li>
       <li>写操作必须 <code>withTransaction</code> + <code>writeAudit</code>；涉及人员统计的查询必须带 <code>activeSql</code>。</li>
       <li>前端 <code>api/index.ts</code> 加一行；<code>apiRouteCoverage.test.ts</code> 会校验路径存在。</li>
+      <li>需要拆子路由时用 <code>router.use('/前缀', 子router)</code> 这一种写法——一致性测试已支持解析它并拼上前缀；写成 <code>app.use</code> 或动态前缀则不会被识别，前端调用会被误报为「接口不存在」。</li>
     </ol>
+
+    <h3>加一种鉴权方式</h3>
+    <p>先问一句：它会扩大「能打到哪些接口」的范围吗？MCP 长期令牌之所以只放在 <code>modules/mcp/mcpAuth.ts</code> 里、不碰全局 <code>authMiddleware</code>，就是为了让新型凭证<strong>只对 <code>/api/mcp</code> 有效</strong>。<code>mcpToken.test.ts</code> 有一条静态守卫盯着这件事——如果在全局中间件里加分支，测试会红。新增凭证的通用做法：先换算成 <code>user_id</code>，再复用 <code>authenticateToken</code> 同源的停用 / 令牌版本判定，不要各写一套。</p>
 
     <h3>加一类重点人群</h3>
     <p>只改 <code>utils/focusGroups.ts</code>：工作台卡片、快捷入口、网格/村庄统计列、导出标志列全部由它派生。改完跑 <code>quickGroups.test.ts</code>。</p>
@@ -662,10 +711,11 @@
       <table>
         <thead><tr><th style="width:34%">闸门</th><th style="width:34%">拦住什么</th><th style="width:32%">当前规模</th></tr></thead>
         <tbody>
-          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>41 个文件 / 455 条</td></tr>
+          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>42 个文件 / 484 条</td></tr>
           <tr><td><code>apiRouteCoverage</code></td><td>前端调用了后端不存在的接口</td><td>静态扫描全量</td></tr>
           <tr><td><code>personStatus</code> 全项目扫描</td><td>有人又手写状态列表</td><td>本次拦下 MCP 一处</td></tr>
-          <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码</td><td>29 条</td></tr>
+          <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码</td><td>30 条</td></tr>
+          <tr><td><code>mcpToken.test</code></td><td>明文入库、令牌冒充 JWT 打业务接口、只读令牌拿到写工具、改密码不失效</td><td>25 条（含 5 条静态守卫）</td></tr>
           <tr><td><code>frontend: vue-tsc</code></td><td>路由/组件/接口类型不一致</td><td>全量</td></tr>
           <tr><td><code>frontend: eslint</code></td><td>未使用变量、any 滥用、导入顺序</td><td>全量</td></tr>
           <tr><td><code>frontend: build</code></td><td>构建期错误（含 Element Plus 按需引入）</td><td>必须通过</td></tr>
@@ -675,8 +725,9 @@
 
     <h3>本次验证结果</h3>
     <ul>
-      <li>后端类型检查通过；全量 <strong>455 条测试通过</strong>（含新增 29 条 MCP 测试）。</li>
+      <li>后端类型检查通过；全量 <strong>484 条测试通过</strong>（MCP 协议 30 条 + 长期令牌 25 条）。</li>
       <li>前端 <code>vue-tsc</code>、<code>eslint</code>、<code>build</code> 全部通过。</li>
+      <li>「令牌不能冒充 JWT 打业务接口」这条守卫做过反向验证：在 <code>authMiddleware</code> 里加一行相关引用，测试立刻报红。</li>
       <li>MCP 端到端（真实登录 → 工具调用）未在本地执行：这台机器没有可用的 MySQL，无法起后端。协议层与工具映射由单测覆盖，部署前建议在 NAS 上跑一次冒烟。</li>
     </ul>
 

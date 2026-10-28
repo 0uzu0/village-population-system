@@ -5,10 +5,12 @@
  * 1. **先鉴权再谈协议**：未登录直接 401，不返回任何工具信息。
  * 2. **工具清单按权限过滤**：看不见的工具就调不到，避免模型反复尝试注定失败的调用。
  * 3. **每次调用落审计**：AI 查了谁的数据，与人工在网页上点开是同一种行为，必须留痕。
+ *
+ * 两条鉴权通道见 mcpAuth.ts：网页登录的 JWT（7 天）与长期令牌（可单独吊销、可限只读）。
+ * 令牌的管理接口挂在 `/api/mcp/tokens`，**只认 JWT**，且必须早于 mcpAuth 注册。
  */
 
 import { Router, Request, Response } from 'express';
-import { authMiddleware } from '../../middleware/auth';
 import { rateLimit } from '../../middleware/rateLimit';
 import { writeAudit } from '../../middleware/audit';
 import { ok } from '../../utils/response';
@@ -16,16 +18,28 @@ import { logger } from '../../utils/logger';
 import { groupByDomain, visibleTools, writeLevel } from './registry';
 import { PROTOCOL_VERSION, SERVER_INFO, handleRpc, rpcError } from './protocol';
 import { request } from './invoke';
+import { mcpAuth, tokenWriteCeiling } from './mcpAuth';
+import tokenRoutes from './tokenRoutes';
 import { ToolCtx, ToolDef } from './types';
 
 const router = Router();
 
-// 鉴权必须最先：MCP 工具里没有任何一个是匿名可用的。
-router.use(authMiddleware);
+/**
+ * 令牌管理接口先挂载。
+ *
+ * 必须在下面的 mcpAuth 之前：它自带 authMiddleware（只认 JWT），
+ * 如果先过 mcpAuth，一枚长期令牌就能给自己签发新令牌——吊销会立刻失去意义。
+ */
+router.use('/tokens', tokenRoutes);
+
+// 两条通道的鉴权：JWT 或 MCP 长期令牌
+router.use(mcpAuth);
 
 /**
  * 限流按**账号**而不是 IP。
  * 村里往往是全村共用一个出口 IP，按 IP 限流会让一个人跑批处理把所有人卡住。
+ * 放在 mcpAuth 之后是因为需要 req.user.id；未鉴权的请求在此之前已被 401 挡住，
+ * 不构成爆破面（JWT 验签是纯计算，长期令牌是一次带唯一索引的查询）。
  */
 router.use(
   rateLimit({
@@ -36,10 +50,23 @@ router.use(
   })
 );
 
+/**
+ * 本次请求可见的工具。
+ *
+ * 只读令牌把写入等级压到 off：于是 `person_create` 这类工具**根本不出现在清单里**，
+ * 而不是调用了才报没权限——模型看到不存在的工具就不会反复尝试。
+ * 全局 MCP_WRITE_LEVEL 与令牌 scope 取更严的那个。
+ */
+function toolsFor(req: Request): ToolDef[] {
+  const ceiling = tokenWriteCeiling(req);
+  return visibleTools(req.user!, ceiling ?? writeLevel());
+}
+
 /** 组装工具执行上下文：把 Express 的请求身份转成工具层需要的最小信息 */
 function makeCtx(req: Request, tools: ToolDef[]): ToolCtx {
   const user = req.user!;
-  const token = (req.headers.authorization || '').slice('Bearer '.length);
+  // 长期令牌换来的 5 分钟 JWT 优先：业务接口只认 JWT，直接拿令牌去转发会被 401
+  const token = req.mcpForwardToken || (req.headers.authorization || '').slice('Bearer '.length);
   const toolName: string | undefined = req.body?.params?.name;
 
   return {
@@ -60,13 +87,17 @@ function makeCtx(req: Request, tools: ToolDef[]): ToolCtx {
  * 给「系统设置」页与运维排障用：一眼看出这台机器开了哪些工具、写入是否开启。
  */
 router.get('/manifest', (req: Request, res: Response) => {
-  const tools = visibleTools(req.user!);
+  const tools = toolsFor(req);
   return ok(res, {
     server: SERVER_INFO,
     protocol: PROTOCOL_VERSION,
     endpoint: '/api/mcp',
     writeLevel: writeLevel(),
+    // 令牌自身的上限比全局更低时，实际生效的是令牌的
+    effectiveWriteLevel: tokenWriteCeiling(req) ?? writeLevel(),
     piiMode: process.env.MCP_PII_MODE === 'full' ? 'full' : 'mask',
+    // 用长期令牌访问时告诉调用方「你是哪枚令牌、什么等级」，便于自检
+    token: req.mcpToken ? { id: req.mcpToken.id, name: req.mcpToken.name, scope: req.mcpToken.scope } : null,
     total: tools.length,
     byDomain: groupByDomain(tools),
     tools: tools.map((t) => ({
@@ -100,7 +131,7 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const tools = visibleTools(req.user!);
+  const tools = toolsFor(req);
   const ctx = makeCtx(req, tools);
 
   try {

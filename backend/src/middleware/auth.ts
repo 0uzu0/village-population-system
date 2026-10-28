@@ -16,10 +16,19 @@ interface JwtPayload {
   tv?: number;
 }
 
-/** 签发 JWT */
-export function signToken(user: { id: number; username: string; tokenVersion?: number }): string {
+/**
+ * 签发 JWT。
+ *
+ * expiresIn 可选：MCP 长期令牌换取的身份需要一枚**短命** JWT（5 分钟）
+ * 才能在内部转发时被 authMiddleware 认出来，见 modules/mcp/mcpAuth.ts。
+ * 不传时仍是全局默认有效期，行为与以前一致。
+ */
+export function signToken(
+  user: { id: number; username: string; tokenVersion?: number },
+  expiresIn: string | number = env.jwtExpiresIn
+): string {
   const payload: JwtPayload = { uid: user.id, username: user.username, tv: user.tokenVersion ?? 0 };
-  return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, env.jwtSecret, { expiresIn } as jwt.SignOptions);
 }
 
 /** 校验 JWT 并解析 */
@@ -113,38 +122,51 @@ export async function loadAuthContext(userId: number): Promise<AuthUser> {
   return ctx;
 }
 
-/** 认证中间件：解析 Bearer Token 并加载用户上下文 */
-export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+/**
+ * 认一枚 JWT，返回「用户上下文」或「该拦下来的原因」。
+ *
+ * 抽成独立函数是为了让 MCP 的长期令牌鉴权（modules/mcp/mcpAuth.ts）复用同一套
+ * 停用账号 / 令牌版本校验：令牌换算出 user_id 之后，剩下的规则与浏览器登录完全相同。
+ * 若各写一遍，早晚会出现「网页上停用了账号，AI 那边还能用」这种缝。
+ */
+export type AuthOutcome =
+  | { ok: true; user: AuthUser }
+  | { ok: false; status: 401 | 403; message: string; code: string };
+
+export async function authenticateToken(rawToken: string): Promise<AuthOutcome> {
+  if (!rawToken) return { ok: false, status: 401, message: '未登录或登录已过期', code: 'UNAUTHORIZED' };
+
+  const payload = verifyToken(rawToken);
+  if (!payload) return { ok: false, status: 401, message: '未登录或登录已过期', code: 'UNAUTHORIZED' };
+
   try {
-    const header = req.headers.authorization || '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (!token) {
-      fail(res, '未登录或登录已过期', 401, 'UNAUTHORIZED');
-      return;
-    }
-    const payload = verifyToken(token);
-    if (!payload) {
-      fail(res, '未登录或登录已过期', 401, 'UNAUTHORIZED');
-      return;
-    }
     const ctx = await loadAuthContext(payload.uid);
     // 账号被停用后，已签发的 token 在有效期内仍然合法，必须在每次请求时校验启用状态，
     // 否则停用只是「登录拦得住、旧 token 拦不住」。
-    if (!ctx.active) {
-      fail(res, '账号已被停用', 403, 'ACCOUNT_DISABLED');
-      return;
-    }
+    if (!ctx.active) return { ok: false, status: 403, message: '账号已被停用', code: 'ACCOUNT_DISABLED' };
     // 令牌版本校验：改密码 / 停用账号时库里 token_version +1，手里还没过期的
     // 旧 token 立刻作废。缺 tv 的老 token 按 0 处理，与迁移默认值一致，
     // 所以升级本身不会把正在使用的用户踢下线。
     if ((payload.tv ?? 0) !== ctx.tokenVersion) {
-      fail(res, '登录状态已失效，请重新登录', 401, 'TOKEN_REVOKED');
-      return;
+      return { ok: false, status: 401, message: '登录状态已失效，请重新登录', code: 'TOKEN_REVOKED' };
     }
-    req.user = ctx;
-    next();
+    return { ok: true, user: ctx };
   } catch {
     // 任何解析/查询异常都统一按未认证处理，不向外泄露内部原因
-    fail(res, '认证失败', 401, 'UNAUTHORIZED');
+    return { ok: false, status: 401, message: '认证失败', code: 'UNAUTHORIZED' };
   }
+}
+
+/** 认证中间件：解析 Bearer Token 并加载用户上下文 */
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+
+  const outcome = await authenticateToken(token);
+  if (!outcome.ok) {
+    fail(res, outcome.message, outcome.status, outcome.code);
+    return;
+  }
+  req.user = outcome.user;
+  next();
 }

@@ -307,11 +307,23 @@ describe('真实工具的取数映射', () => {  it('person_search 把参数转�
 describe('MCP 接线守卫', () => {
   const read = (p: string) => fs.readFileSync(path.resolve(__dirname, '..', 'src', p), 'utf8');
 
-  it('MCP 路由强制鉴权', () => {
+  it('MCP 路由强制鉴权，且令牌管理接口排在最前', () => {
     const src = read('modules/mcp/index.ts');
+    // 协议端点的双通道鉴权（JWT 或长期令牌），两者都在 mcpAuth 里，不得绕过
+    expect(src).toMatch(/router\.use\(mcpAuth\)/);
+    // 顺序要求 1：鉴权必须在限流之前，否则未登录请求也会占配额
+    expect(src.indexOf('router.use(mcpAuth)')).toBeLessThan(src.indexOf('router.use(\n  rateLimit'));
+    // 顺序要求 2：令牌管理必须早于 mcpAuth —— 否则一枚泄露的长期令牌能给自己续签，
+    // 吊销立刻失去意义。这条比上面那条更隐蔽，删掉不会报错只会静默失去安全性。
+    expect(src.indexOf("router.use('/tokens', tokenRoutes)")).toBeGreaterThanOrEqual(0);
+    expect(src.indexOf("router.use('/tokens', tokenRoutes)")).toBeLessThan(src.indexOf('router.use(mcpAuth)'));
+  });
+
+  it('令牌管理接口只认 JWT，不认长期令牌', () => {
+    const src = read('modules/mcp/tokenRoutes.ts');
+    // 必须用 authMiddleware 而不是 mcpAuth
     expect(src).toMatch(/router\.use\(authMiddleware\)/);
-    // 顺序要求：鉴权必须在限流之前，否则未登录请求也会占配额
-    expect(src.indexOf('router.use(authMiddleware)')).toBeLessThan(src.indexOf('router.use(\n  rateLimit'));
+    expect(src).not.toMatch(/mcpAuth/);
   });
 
   it('应用挂载了 /api/mcp', () => {

@@ -132,6 +132,23 @@ export const auditApi = {
   dicts: (type: string) => get(`/audit-logs/dicts/${type}`),
 };
 
+// ===== AI 接入（MCP）=====
+/**
+ * 长期令牌与能力清单。
+ * 令牌的明文只在 create 的响应里出现一次，之后任何接口都拿不回来——
+ * 所以页面必须在创建成功的那一次就把值交给用户复制。
+ */
+export const mcpApi = {
+  /** 我有哪些令牌（管理员加 all=1 看全员） */
+  tokens: (all = false) => get('/mcp/tokens', all ? { all: 1 } : undefined),
+  createToken: (data: { name: string; scope: 'read' | 'write'; expiresInDays?: number }) =>
+    post<{ id: number; token: string; name: string; scope: string; expiresAt: string | null }>('/mcp/tokens', data),
+  revokeToken: (id: number) => del(`/mcp/tokens/${id}`),
+  revokeAll: () => post('/mcp/tokens/revoke-all'),
+  /** 能力清单：当前账号能用多少工具、写入开没开 */
+  manifest: () => get('/mcp/manifest'),
+};
+
 // ===== 专项条口台账 =====
 export const ledgerApi = {
   meta: () => get('/ledgers/meta'),
