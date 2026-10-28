@@ -159,7 +159,7 @@ export async function handleRpc(
                   {
                     error: err.message,
                     code: err.bizCode,
-                    hint: hintFor(err.bizCode),
+                    hint: hintFor(err.bizCode, err.message),
                   },
                   null,
                   2
@@ -177,8 +177,15 @@ export async function handleRpc(
   }
 }
 
-/** 把常见业务错误码翻译成「下一步该做什么」，避免模型原地重试 */
-function hintFor(code: string): string | undefined {
+/**
+ * 把常见业务错误码翻译成「下一步该做什么」，避免模型原地重试。
+ *
+ * 需要原始 message，因为 NOT_FOUND 有歧义：可能是「这条记录没了」，
+ * 也可能是「MCP 工具指向的后端接口根本不存在」（部署版本与工具定义不匹配）。
+ * 前者该换个 id 再试，后者让模型换 id 是白费功夫，得提示人去看部署版本——
+ * 线上曾真实出现：内部转发漏了 /api 前缀，全部工具都在报「记录不存在」。
+ */
+function hintFor(code: string, message = ''): string | undefined {
   switch (code) {
     case 'FORBIDDEN':
       return '当前账号没有该数据的查看权限，请让用户用有权限的账号登录，或不要继续尝试。';
@@ -186,6 +193,9 @@ function hintFor(code: string): string | undefined {
     case 'TOKEN_REVOKED':
       return '登录状态已失效，请用户在网页端重新登录后更新客户端里的 token。';
     case 'NOT_FOUND':
+      if (message.includes('接口不存在')) {
+        return '这不是数据问题：MCP 工具指向的后端接口不存在，通常是后端版本与工具定义不匹配。请让管理员确认服务已升级到包含 MCP 的版本。';
+      }
       return '记录不存在，可能已被删除或 id 填错；可先用列表类工具确认 id。';
     case 'DUPLICATE_ID_CARD':
       return '该身份证已在人员档案中，请改用 person_search 查找已有人员。';

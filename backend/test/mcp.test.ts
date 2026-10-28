@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { ALL_TOOLS, enabledTools, isEnabled, visibleTools, writeLevel } from '../src/modules/mcp/registry';
 import { coerceArgs, toJsonSchema } from '../src/modules/mcp/params';
-import { maskPii, normalizeKeys } from '../src/modules/mcp/invoke';
+import { internalUrl, maskPii, normalizeKeys } from '../src/modules/mcp/invoke';
 import { handleRpc } from '../src/modules/mcp/protocol';
 import { ToolCtx, ToolDef, ToolRunError } from '../src/modules/mcp/types';
 
@@ -255,6 +255,27 @@ describe('MCP 协议层', () => {
     expect(payload.hint).toMatch(/id/);
   });
 
+  it('接口不存在与记录不存在的提示要能区分开', async () => {
+    // 同样是 NOT_FOUND，但「接口不存在」是部署/路径问题，
+    // 让模型换个 id 再试是白费功夫，提示必须指向版本/部署。
+    const noRoute: ToolDef = {
+      ...echoTool,
+      name: 'boom_route',
+      async exec() {
+        throw new ToolRunError('接口不存在: GET /persons', 'NOT_FOUND');
+      },
+    };
+    const r: any = await handleRpc(
+      { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'boom_route', arguments: {} } },
+      fakeCtx(),
+      [noRoute],
+      onCall
+    );
+    const payload = JSON.parse(r.result.content[0].text);
+    expect(payload.hint).toMatch(/版本/);
+    expect(payload.hint).not.toMatch(/id 填错/);
+  });
+
   it('未知方法回 -32601', async () => {
     const r: any = await handleRpc({ jsonrpc: '2.0', id: 7, method: 'foo/bar' }, fakeCtx(), tools);
     expect(r.error.code).toBe(-32601);
@@ -334,6 +355,61 @@ describe('MCP 接线守卫', () => {
     const src = read('middleware/audit.ts');
     expect(src).toMatch(/x-mcp-call/);
     expect(src).toMatch(/\/api\/mcp/);
+  });
+});
+
+/**
+ * 内部转发 URL 的拼接规则。
+ *
+ * 这一组是**线上事故补的**：曾用 `new URL(path, baseUrl())` 拼地址，工具传入的
+ * `/persons` 是绝对路径，把 base 的 `/api` 整段替换掉，于是所有 tools/call 统一
+ * 404「接口不存在: GET /persons」。当时全部单测都是绿的，因为它们在 ctx.call 那层
+ * 就被 mock 掉了，根本没走到拼 URL 这一步。
+ */
+describe('MCP 内部转发地址', () => {
+  const saved = process.env.MCP_INTERNAL_BASE;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MCP_INTERNAL_BASE;
+    else process.env.MCP_INTERNAL_BASE = saved;
+  });
+
+  it('必须带上 /api 前缀', () => {
+    process.env.MCP_INTERNAL_BASE = 'http://127.0.0.1:3000';
+    expect(internalUrl('/persons').pathname).toBe('/api/persons');
+    expect(internalUrl('/auth/me').pathname).toBe('/api/auth/me');
+  });
+
+  it('path 没有前导斜杠也能拼对，不会粘成一串', () => {
+    process.env.MCP_INTERNAL_BASE = 'http://127.0.0.1:3000';
+    expect(internalUrl('persons/7').pathname).toBe('/api/persons/7');
+  });
+
+  it('覆盖值自带 /api 时不重复拼接', () => {
+    process.env.MCP_INTERNAL_BASE = 'http://backend:3000/api';
+    expect(internalUrl('/persons').pathname).toBe('/api/persons');
+  });
+
+  it('尾斜杠不会拼出双斜杠', () => {
+    process.env.MCP_INTERNAL_BASE = 'http://backend:3000/';
+    expect(internalUrl('/persons').pathname).toBe('/api/persons');
+  });
+
+  it('查询参数：空串与 null 丢弃，其余转字符串', () => {
+    process.env.MCP_INTERNAL_BASE = 'http://127.0.0.1:3000';
+    const url = internalUrl('/persons', { keyword: '张', page: 2, empty: '', nil: null, undef: undefined });
+    expect(url.searchParams.get('keyword')).toBe('张');
+    expect(url.searchParams.get('page')).toBe('2');
+    expect(url.searchParams.has('empty')).toBe(false);
+    expect(url.searchParams.has('nil')).toBe(false);
+    expect(url.searchParams.has('undef')).toBe(false);
+  });
+
+  it('记录 new URL 的陷阱本身（这条红了说明有人把手写拼接改回去了）', () => {
+    // 反例：绝对路径会吃掉 base 的路径段，这正是当初的 bug
+    expect(new URL('/persons', 'http://127.0.0.1:3000/api').pathname).toBe('/persons');
+    // 正解：手写拼接后 /api 保留
+    process.env.MCP_INTERNAL_BASE = 'http://127.0.0.1:3000';
+    expect(internalUrl('/persons').pathname.startsWith('/api/')).toBe(true);
   });
 });
 

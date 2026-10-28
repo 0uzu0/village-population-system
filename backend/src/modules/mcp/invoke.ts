@@ -15,8 +15,34 @@ import { ToolRunError } from './types';
  * 默认打本进程监听端口；容器里同进程，一定通。
  * 允许用 MCP_INTERNAL_BASE 覆盖，是为了将来把 MCP 拆成独立进程时不必改代码。
  */
+/**
+ * 所有业务路由都挂在 `/api` 下，内部转发也必须带，否则一定 404。
+ * 这里写成常量而不是散落在各工具里，是因为漏一次就是「所有工具全废」。
+ */
+const API_PREFIX = '/api';
+
 function baseUrl(): string {
-  return process.env.MCP_INTERNAL_BASE || `http://127.0.0.1:${env.port}`;
+  const raw = (process.env.MCP_INTERNAL_BASE || `http://127.0.0.1:${env.port}`).replace(/\/+$/, '');
+  // 允许覆盖值自带 /api（http://host:port/api 也认），避免拼成 /api/api
+  return raw.endsWith(API_PREFIX) ? raw : raw + API_PREFIX;
+}
+
+/**
+ * 拼出内部请求 URL。
+ *
+ * 必须手工拼接，**不能**用 `new URL(path, baseUrl())`：
+ * 工具传入的 path 以 `/` 开头属于「绝对路径」，会连同 base 的路径段一起替换掉，
+ * `/api` 就这样被静默吃掉——所有工具统一 404，而单测里 mock 掉 request 完全发现不了。
+ * 曾真实发生过：线上 tools/call 全报「接口不存在: GET /persons」。
+ */
+export function internalUrl(path: string, query?: Record<string, unknown>): URL {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(baseUrl() + p);
+  for (const [k, v] of Object.entries(query || {})) {
+    if (v === undefined || v === null || v === '') continue;
+    url.searchParams.set(k, String(v));
+  }
+  return url;
 }
 
 const TIMEOUT_MS = 15_000;
@@ -42,11 +68,7 @@ export async function request(
   path: string,
   options: { query?: Record<string, unknown>; body?: unknown; tool?: string } = {}
 ): Promise<any> {
-  const url = new URL(path, baseUrl());
-  for (const [k, v] of Object.entries(options.query || {})) {
-    if (v === undefined || v === null || v === '') continue;
-    url.searchParams.set(k, String(v));
-  }
+  const url = internalUrl(path, options.query);
 
   let res: Response;
   try {
