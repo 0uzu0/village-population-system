@@ -97,7 +97,7 @@
       <el-table :data="list" v-loading="loading" @row-click="(row: any) => $router.push(toPersonDetail(route, row.id))" class="result-table">
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column prop="gender" label="性别" width="60">
-          <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
+          <template #default="{ row }">{{ genderLabel(row.gender) }}</template>
         </el-table-column>
         <el-table-column prop="age" label="年龄" width="70">
           <template #default="{ row }">{{ row.age ?? '—' }}</template>
@@ -186,6 +186,7 @@ import { toPersonDetail } from '@/utils/nav';
 // 个性化筛选（特困供养方式 / 残疾等级 / 发放金额 / 监护人）按需求整体移除，
 // 因此这里只保留列表「残疾等级」列展示需要的 disabilityLevelShort
 import { disabilityLevelShort } from '@/utils/disability';
+import { genderLabel } from '@/utils/format';
 import { useListUrlSync } from '@/composables/useListUrlSync';
 import TagPill from '@/components/TagPill.vue';
 
@@ -313,7 +314,7 @@ const genderStats = computed(() => {
   const sum = rows.reduce((a: number, r: any) => a + r.count, 0) || 1;
   return rows.map((r: any) => ({
     key: r.key,
-    label: r.key === 'MALE' ? '男' : r.key === 'FEMALE' ? '女' : '未知',
+    label: genderLabel(r.key),
     count: r.count,
     pct: Math.round((r.count / sum) * 100),
     color: r.key === 'MALE' ? '#3978F6' : r.key === 'FEMALE' ? '#0E7C6B' : '#B0B7C3',

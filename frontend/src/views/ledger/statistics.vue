@@ -75,6 +75,7 @@ import { useRouter } from 'vue-router';
 import { Search, ArrowLeft } from '@element-plus/icons-vue';
 import type { EChartsOption } from 'echarts';
 import { ledgerApi } from '@/api';
+import { formatMoney } from '@/utils/format';
 import VpChart from '@/components/VpChart.vue';
 
 const router = useRouter();
@@ -87,9 +88,8 @@ const summary = reactive({ recordCount: 0, totalCost: 0, laborCost: 0, invoiceCo
 const byCategory = ref<any[]>([]);
 const byWorkType = ref<any[]>([]);
 
-function money(n: number) {
-  return '¥' + Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// 与台账列表页共用同一实现，避免两处小数位/千分位写法逐渐分叉
+const money = formatMoney;
 
 function onCategoryChange() {
   filters.workType = '';

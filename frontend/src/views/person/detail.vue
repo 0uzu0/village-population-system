@@ -23,7 +23,7 @@
         <el-descriptions :column="3" border>
           <el-descriptions-item label="姓名">{{ person?.name }}</el-descriptions-item>
           <el-descriptions-item label="曾用名">{{ person?.formerName || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="性别">{{ person?.gender === 'MALE' ? '男' : '女' }}</el-descriptions-item>
+          <el-descriptions-item label="性别">{{ genderLabel(person?.gender) }}</el-descriptions-item>
           <el-descriptions-item label="出生日期">{{ person?.birthDate || '—' }}</el-descriptions-item>
           <el-descriptions-item label="年龄">{{ person?.age ?? '—' }} 岁</el-descriptions-item>
           <el-descriptions-item label="人员状态">
@@ -214,6 +214,7 @@ import request from '@/api/request';
 import { parseFrom } from '@/utils/nav';
 import { useAuthStore } from '@/stores/auth';
 import { statusLabel, statusTagType } from '@/utils/personStatus';
+import { genderLabel } from '@/utils/format';
 import TagPill from '@/components/TagPill.vue';
 import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 

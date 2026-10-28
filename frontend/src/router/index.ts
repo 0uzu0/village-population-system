@@ -1,6 +1,16 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { NAV_ITEMS } from './navigation';
 
+/**
+ * 路由表。
+ *
+ * 菜单页一律由 NAV_ITEMS 派生（见 router/navigation.ts）：标题、权限码只有一份，
+ * 不会再出现「菜单改了、守卫没改」这类错位。
+ * 这里只额外声明两类页面：
+ *   1. 登录页（公开，没有菜单入口）；
+ *   2. 非菜单页（人员详情、台账统计）——它们靠列表页跳转进入，不该出现在侧边栏。
+ */
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -13,19 +23,23 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/dashboard',
     children: [
-      { path: 'dashboard', name: 'dashboard', component: () => import('@/views/dashboard/index.vue'), meta: { title: '工作台', perm: 'dashboard:view' } },
-      { path: 'persons', name: 'person-list', component: () => import('@/views/person/index.vue'), meta: { title: '人口档案', perm: 'person:view' } },
-      { path: 'persons/:id', name: 'person-detail', component: () => import('@/views/person/detail.vue'), meta: { title: '人口详情', perm: 'person:view' } },
-      { path: 'families', name: 'family', component: () => import('@/views/family/index.vue'), meta: { title: '家庭管理', perm: 'family:view' } },
-      { path: 'grids', name: 'grid', component: () => import('@/views/grid/index.vue'), meta: { title: '网格管理', perm: 'grid:view' } },
-      { path: 'tags', name: 'tag', component: () => import('@/views/tag/index.vue'), meta: { title: '人口标签', perm: 'tag:view' } },
-      { path: 'key-groups', name: 'keygroup', component: () => import('@/views/keygroup/index.vue'), meta: { title: '重点人群', perm: 'keygroup:view' } },
-      { path: 'ledgers', name: 'ledger', component: () => import('@/views/ledger/index.vue'), meta: { title: '专项台账', perm: 'ledger:view' } },
-      { path: 'ledgers/statistics', name: 'ledger-statistics', component: () => import('@/views/ledger/statistics.vue'), meta: { title: '台账统计', perm: 'ledger:view' } },
-      { path: 'excel', name: 'excel', component: () => import('@/views/excel/index.vue'), meta: { title: 'Excel 导入导出', perm: 'excel:import' } },
-      { path: 'pending', name: 'pending', component: () => import('@/views/pending/index.vue'), meta: { title: '待核查人员', perm: 'excel:import' } },
-      { path: 'users', name: 'user', component: () => import('@/views/user/index.vue'), meta: { title: '用户与权限', perm: 'user:view' } },
-      { path: 'system', name: 'system', component: () => import('@/views/system/index.vue'), meta: { title: '系统设置', perm: 'system:view' } },
+      ...NAV_ITEMS.map((item) => ({
+        path: item.path.replace(/^\//, ''),
+        component: item.component,
+        meta: { title: item.title, perm: item.perm },
+      })),
+      // 人员详情：从人口档案 / 重点人群 / 家庭页点击行进入，带 ?from 可原路返回
+      {
+        path: 'persons/:id',
+        component: () => import('@/views/person/detail.vue'),
+        meta: { title: '人口详情', perm: 'person:view' },
+      },
+      // 台账统计：从台账页顶部入口进入，不占菜单
+      {
+        path: 'ledgers/statistics',
+        component: () => import('@/views/ledger/statistics.vue'),
+        meta: { title: '台账统计', perm: 'ledger:view' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
@@ -47,6 +61,7 @@ router.beforeEach((to, _from, next) => {
     next({ path: '/login', query: { redirect: to.fullPath } });
     return;
   }
+  // 无权限统一回工作台：停在原页面只会让人反复点、反复被弹
   if (to.meta.perm && !auth.hasPermission(to.meta.perm as string)) {
     next('/dashboard');
     return;

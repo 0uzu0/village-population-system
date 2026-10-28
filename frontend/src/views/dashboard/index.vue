@@ -63,6 +63,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { statisticsApi } from '@/api';
+import { genderLabel } from '@/utils/format';
 import VpChart from '@/components/VpChart.vue';
 import type { EChartsOption } from 'echarts';
 
@@ -108,7 +109,7 @@ const genderOption = computed<EChartsOption>(() => ({
   series: [{
     type: 'pie',
     radius: ['45%', '68%'],
-    data: dist.value.gender.map((g: any) => ({ name: g.gender === 'MALE' ? '男' : '女', value: g.cnt })),
+    data: dist.value.gender.map((g: any) => ({ name: genderLabel(g.gender), value: g.cnt })),
     label: { formatter: '{b}: {c}' },
     color: ['#3978F6', '#0E7C6B'],
   }],

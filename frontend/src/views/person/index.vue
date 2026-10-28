@@ -92,7 +92,7 @@
           </template>
         </el-table-column>
         <el-table-column v-if="isColVisible('gender')" prop="gender" label="性别" width="60">
-          <template #default="{ row }">{{ row.gender === 'MALE' ? '男' : '女' }}</template>
+          <template #default="{ row }">{{ genderLabel(row.gender) }}</template>
         </el-table-column>
         <el-table-column v-if="isColVisible('id_card')" prop="idCard" label="身份证号" width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.idCard || '—' }}</template>
@@ -372,6 +372,7 @@ import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
 import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
+import { formatTime, genderLabel } from '@/utils/format';
 import { DISABILITY_LEVELS, DISABILITY_TYPES } from '@/utils/disability';
 import { birthFromIdCard, genderFromIdCard } from '@/utils/idcard';
 import { useListUrlSync } from '@/composables/useListUrlSync';
@@ -546,30 +547,15 @@ function onColumnCommand(prop: string) {
   else toggleColumn(prop);
 }
 
-const exportFields = [
-  { key: 'person_no', label: '人员编号' },
-  { key: 'name', label: '姓名' },
-  { key: 'gender', label: '性别' },
-  { key: 'birth_date', label: '出生日期' },
-  { key: 'id_card', label: '身份证号' },
-  { key: 'phone', label: '手机号' },
-  { key: 'phone_backup', label: '备用手机号' },
-  { key: 'hukou_address', label: '户籍地址' },
-  { key: 'live_address', label: '实际居住地址' },
-  { key: 'grid_name', label: '所属网格' },
-  { key: 'family_name', label: '所属家庭' },
-  { key: 'status', label: '人员状态' },
-  // 重点人群台账字段（V008）
-  { key: 'bank_account', label: '银行账号' },
-  { key: 'subsidy_amount', label: '发放金额' },
-  { key: 'disability_type', label: '残疾类别' },
-  { key: 'disability_level_label', label: '残疾等级' },
-  { key: 'disability_card', label: '残疾证号' },
-  { key: 'guardian_name', label: '监护人' },
-  { key: 'guardian_phone', label: '监护人手机' },
-  { key: 'family_condition', label: '家庭情况描述' },
-  { key: 'health_assessment', label: '身体评估结果' },
-];
+/**
+ * 导出可选字段。**从后端取，不在前端硬编码**。
+ *
+ * 原先这里抄了一份字段表，与后端 EXPORT_FIELDS 已经漂移：少了「所属村庄」、
+ * 重点人群标志列（党员/退役/低保…）与「全部标签」。用户勾不到这些列，
+ * 但后端一直支持——这种"功能其实有、界面却没有"的问题最难被发现。
+ * 现在后端 GET /excel/export-fields 是唯一来源，加字段只改一处。
+ */
+const exportFields = ref<{ key: string; label: string }[]>([]);
 
 // 表单
 const formVisible = ref(false);
@@ -620,10 +606,10 @@ const transferVisible = ref(false);
 const transferForm = reactive({ targetGridId: null as number | null, reason: '' });
 
 const exportVisible = ref(false);
-const exportForm = reactive({ fields: exportFields.map((f) => f.key), activeOnly: true });
+// 字段清单在打开弹窗时按需拉取，所以这里先留空，拉到后再全选
+const exportForm = reactive({ fields: [] as string[], activeOnly: true });
 
 function statusTag(s: string): any { return statusTagType(s); }
-function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '—'; }
 
 /**
  * 列表查询。请求参数由 buildParams() 统一组装（数组字段转逗号串、布尔开关转 'true'/'false'），
@@ -808,7 +794,22 @@ async function submitTransfer() {
   } finally { saving.value = false; }
 }
 
-function openExport() { exportVisible.value = true; }
+/**
+ * 打开导出弹窗。字段清单按需拉取并缓存：清单由后端定义，可能随版本增减，
+ * 每次打开都取一次最稳妥，但同一次会话里没必要反复请求。
+ */
+async function openExport() {
+  exportVisible.value = true;
+  if (exportFields.value.length) return;
+  try {
+    const res = await excelApi.exportFields();
+    exportFields.value = res.data || [];
+    // 默认全选：用户点「导出」通常就是想要完整一份
+    exportForm.fields = exportFields.value.map((f) => f.key);
+  } catch {
+    ElMessage.error('导出字段加载失败，请稍后重试');
+  }
+}
 async function submitExport() {
   exporting.value = true;
   try {

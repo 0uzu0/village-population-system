@@ -194,6 +194,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Search, Plus, DataAnalysis, Document, Picture } from '@element-plus/icons-vue';
 import { ledgerApi } from '@/api';
+import { formatMoney } from '@/utils/format';
 import { useAuthStore } from '@/stores/auth';
 import request from '@/api/request';
 import AttachmentUploader, { type Attachment } from '@/components/AttachmentUploader.vue';
@@ -249,9 +250,8 @@ function resetFilters() {
   loadData();
 }
 
-function money(n: number) {
-  return '¥' + Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// 金额格式统一走 utils/format：原先台账页与台账统计页各写了一份一模一样的实现
+const money = formatMoney;
 
 // ---- 弹窗表单 ----
 const dialogVisible = ref(false);

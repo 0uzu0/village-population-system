@@ -92,6 +92,12 @@ export const excelApi = {
   importTasks: (params: any) => get<PageResult>('/excel/import-tasks', params),
   importErrors: (id: number) => get(`/excel/import-tasks/${id}/errors`),
   export: (data: any) => post('/excel/export', data),
+  /**
+   * 导出可选字段。
+   * 必须从后端取：这份清单原先在前端硬编码过一份，已经与后端漂移
+   * （少了所属村庄、重点人群标志列与全部标签），用户勾不到这些列。
+   */
+  exportFields: () => get<{ key: string; label: string }[]>('/excel/export-fields'),
   exportTasks: () => get('/excel/export-tasks'),
   downloadExport: (id: number) => request.get(`/excel/export-tasks/${id}/download`, { responseType: 'blob' }),
   downloadErrors: (id: number) => request.get(`/excel/import-tasks/${id}/errors/download`, { responseType: 'blob' }),

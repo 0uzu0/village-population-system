@@ -88,6 +88,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useAuthStore } from '@/stores/auth';
+import { NAV_ITEMS } from '@/router/navigation';
 import { authApi } from '@/api';
 
 const route = useRoute();
@@ -109,31 +110,12 @@ const pwdForm = ref({ oldPassword: '', newPassword: '' });
  */
 const buildLabel = __APP_BUILD__;
 
-interface MenuItem {
-  path: string;
-  title: string;
-  icon: string;
-  perm?: string;
-}
-
-const menus: MenuItem[] = [
-  { path: '/dashboard', title: '工作台', icon: 'Odometer' },
-  { path: '/persons', title: '人口档案', icon: 'User', perm: 'person:view' },
-  // 重点人群紧排在人口档案**下面**（仍是并列的一级菜单，不是它的子菜单）：
-  // 它本质就是「按标签筛人口」，与人口档案同源，挨着放找起来顺手。
-  // 原先它排在「人口标签」之后，与人口档案中间隔着家庭/网格/标签三屏。
-  { path: '/key-groups', title: '重点人群', icon: 'Aim', perm: 'keygroup:view' },
-  { path: '/families', title: '家庭管理', icon: 'House', perm: 'family:view' },
-  { path: '/grids', title: '网格管理', icon: 'Grid', perm: 'grid:view' },
-  { path: '/tags', title: '人口标签', icon: 'CollectionTag', perm: 'tag:view' },
-  { path: '/ledgers', title: '专项台账', icon: 'Tickets', perm: 'ledger:view' },
-  { path: '/excel', title: 'Excel 导入导出', icon: 'Document', perm: 'excel:import' },
-  { path: '/pending', title: '待核查人员', icon: 'WarningFilled', perm: 'excel:import' },
-  { path: '/users', title: '用户与权限', icon: 'Setting', perm: 'user:view' },
-  { path: '/system', title: '系统设置', icon: 'Tools', perm: 'system:view' },
-];
-
-const visibleMenus = computed(() => menus.filter((m) => !m.perm || auth.hasPermission(m.perm)));
+/**
+ * 菜单直接由 NAV_ITEMS 派生（router/navigation.ts）。
+ * 不再在这里维护第二份 path/title/perm 清单——那样改权限时极易只改一处，
+ * 出现「菜单能点、进去被弹回」或「菜单消失、直接输 URL 却能进」。
+ */
+const visibleMenus = computed(() => NAV_ITEMS.filter((m) => !m.perm || auth.hasPermission(m.perm)));
 
 const activeMenu = computed(() => {
   const path = route.path;

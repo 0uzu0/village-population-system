@@ -104,6 +104,18 @@ const EXPORT_FIELDS: { key: string; label: string }[] = [
   { key: 'tags', label: '全部标签' },
 ];
 
+/**
+ * 导出可选字段目录。
+ *
+ * 为什么单独开这个接口：字段清单原先在两端各写了一份——后端 EXPORT_FIELDS、
+ * 前端 person/index.vue 里的 exportFields。两边已经漂移（前端少了「所属村庄」、
+ * 重点人群标志列与「全部标签」），用户勾不到这些列，而后端其实一直支持。
+ * 现在前端与 MCP 都从这里取，加字段只改 EXPORT_FIELDS 一处。
+ */
+router.get('/export-fields', requirePermission('excel:export'), (_req: Request, res: Response) => {
+  return ok(res, EXPORT_FIELDS);
+});
+
 /** 创建导出任务（同步生成文件，记录任务状态与审计） */
 router.post('/export', requirePermission('excel:export'), async (req: Request, res: Response) => {
   const body = exportSchema.parse(req.body);
