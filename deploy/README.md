@@ -162,7 +162,7 @@ find data/uploads -name '2026-10-16-*' -exec cp {} ~/照片存档/ \;
    两边都应该是本次升级时间。**frontend 明显早于 backend，就是前端容器没被重建**
    （典型症状：后端接口报「接口不存在」，同时某个前端页面看起来「不见了」）。
 4. **强制重新拉取并重建容器**。注意 `docker compose up -d` 默认只在本地缺少镜像时才拉取，
-   等价于「不更新」：
+   等价于「不更新」——**正常升级就该直接带上 `--force-recreate`，不要等出问题才用**：
    ```bash
    VERSION=v1.0.0 docker compose pull frontend backend
    VERSION=v1.0.0 docker compose up -d --force-recreate frontend backend
