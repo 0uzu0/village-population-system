@@ -83,12 +83,6 @@ describe('V013 迁移：回填已有档案的出生日期', () => {
     expect(migSrc).toContain("'%Y-%m-%d') IS NOT NULL");
     expect(migSrc).toContain('CHAR_LENGTH(TRIM(`id_card`)) = 18');
   });
-
-  it('两个目录的迁移文件内容一致', () => {
-    const other = path.resolve(__dirname, '../../database/migrations/V013__person_birth_from_idcard.sql');
-    expect(fs.existsSync(other), 'database/migrations 下缺少 V013').toBe(true);
-    expect(fs.readFileSync(other, 'utf8').trim()).toBe(migSrc.trim());
-  });
 });
 
 describe('前端录入时即时带出（年龄随身份证更新）', () => {

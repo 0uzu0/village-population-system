@@ -32,12 +32,6 @@ describe('V012 村庄联系人迁移', () => {
   it('不显式插入 id（AUTO_INCREMENT，可重复执行）', () => {
     expect(/INSERT\s+INTO\s+`?village_contact`?\s*\(\s*`?id`?/i.test(migSrc)).toBe(false);
   });
-
-  it('两个目录的迁移文件内容一致', () => {
-    const other = path.resolve(__dirname, '../../database/migrations/V012__village_contact.sql');
-    expect(fs.existsSync(other), 'database/migrations 下缺少 V012').toBe(true);
-    expect(fs.readFileSync(other, 'utf8').trim()).toBe(migSrc.trim());
-  });
 });
 
 describe('村庄列表接口带出负责人/手机号', () => {

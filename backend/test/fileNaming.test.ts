@@ -331,22 +331,24 @@ describe('上传实现约束', () => {
 // ---------------------------------------------------------------------------
 
 describe('迁移脚本', () => {
-  const dirs = [
-    path.resolve(__dirname, '../src/db/migrations'),
-    path.resolve(__dirname, '../../database/migrations'),
-  ];
+  // 单一来源：backend/src/db/migrations。仓库根曾有一个 database/migrations 手抄镜像，
+  // 自 V016 起停更却没人发现，两份文件逐渐不一致——此后一律以本目录为准。
+  const dir = path.resolve(__dirname, '../src/db/migrations');
 
-  it('V014（captured_at）在两个迁移目录都存在且内容一致', () => {
-    const contents = dirs.map((d) => fs.readFileSync(path.join(d, 'V014__file_capture_time.sql'), 'utf8'));
-    expect(contents[0]).toBe(contents[1]);
-    expect(contents[0]).toContain('captured_at');
+  it('仓库根不再有 database/migrations 镜像目录', () => {
+    const legacy = path.resolve(__dirname, '../../database/migrations');
+    expect(fs.existsSync(legacy), '旧镜像目录又被加回来了：迁移只放 backend/src/db/migrations').toBe(false);
   });
 
-  it('V015（删除 data_scope）在两个迁移目录都存在且内容一致', () => {
-    const contents = dirs.map((d) => fs.readFileSync(path.join(d, 'V015__drop_role_data_scope.sql'), 'utf8'));
-    expect(contents[0]).toBe(contents[1]);
-    expect(contents[0]).toContain('DROP COLUMN `data_scope`');
+  it('V014（captured_at）存在且写入拍照时间', () => {
+    const sql = fs.readFileSync(path.join(dir, 'V014__file_capture_time.sql'), 'utf8');
+    expect(sql).toContain('captured_at');
+  });
+
+  it('V015（删除 data_scope）存在且用 MySQL 8 兼容语法', () => {
+    const sql = fs.readFileSync(path.join(dir, 'V015__drop_role_data_scope.sql'), 'utf8');
+    expect(sql).toContain('DROP COLUMN `data_scope`');
     // DROP COLUMN IF EXISTS 是 MariaDB 的扩展语法，MySQL 8 会直接语法报错
-    expect(contents[0]).not.toMatch(/DROP\s+COLUMN\s+IF\s+EXISTS/i);
+    expect(sql).not.toMatch(/DROP\s+COLUMN\s+IF\s+EXISTS/i);
   });
 });

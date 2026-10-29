@@ -60,12 +60,6 @@ describe('V009 人员删除权限', () => {
       '含 DDL 时 MySQL 会隐式提交，迁移失败无法回滚'
     ).toBe(false);
   });
-
-  it('两个目录的迁移文件内容一致', () => {
-    const other = path.resolve(__dirname, '../../database/migrations/V009__person_delete_permission.sql');
-    expect(fs.existsSync(other), 'database/migrations 下缺少 V009').toBe(true);
-    expect(fs.readFileSync(other, 'utf8').trim()).toBe(sql.trim());
-  });
 });
 
 describe('全部迁移的自引用子查询检查', () => {

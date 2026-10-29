@@ -7,9 +7,8 @@ coverage/
 # 锁文件由 npm 生成，格式化会和 npm 打架
 package-lock.json
 
-# 数据库迁移脚本：内容即契约，逐字对应 database/migrations，不做排版
+# 数据库迁移脚本：内容即契约（改一个空格都可能让重入判断失效），不做排版
 backend/src/db/migrations/
-database/migrations/
 
 # 导入数据目录可能含真实个人信息，不纳入版本控制，也不格式化
 导入数据/
