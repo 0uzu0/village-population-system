@@ -8,6 +8,7 @@ import { activeFamilySql, activeMemberCountSql } from '../utils/familySql';
 import { memberLeaveReason } from '../utils/familyMembership';
 import { isActiveStatus, STATUS_LABELS } from '../utils/personStatus';
 import { normalizeRelation } from '../utils/relation';
+import { reconcileFamily } from '../services/familyReconcile';
 import { z } from 'zod';
 
 const router = Router();
@@ -105,6 +106,18 @@ function pickHead(list: any[]): any {
   }
   return list[0];
 }
+
+/**
+ * 两表对账：人员档案的 family_id/relation 与 family_member 是否一致。
+ *
+ * 放在 `/:id` 之前，否则会被当成 id=reconcile 的详情请求。
+ * 只读、可重复执行：这类「历史数据错位」不是修一次就完的，每次大批量导入或
+ * 并户之后都值得再跑一遍，所以做成接口而不是一次性 SQL。
+ */
+router.get('/reconcile', requirePermission('family:view'), async (req: Request, res: Response) => {
+  const limit = Number(req.query.limit ?? 20);
+  return ok(res, await reconcileFamily(limit));
+});
 
 /**
  * 按门牌号自动归户：把同一门牌号的人员归入同一个家庭。

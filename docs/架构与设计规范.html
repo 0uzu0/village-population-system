@@ -102,7 +102,7 @@
       <span>后端 <b>Express + TS · 13 模块 · 约 12k 行</b></span>
       <span>前端 <b>Vue3 + Element Plus · 14 页</b></span>
       <span>权限码 <b>44</b></span>
-      <span>MCP 工具 <b>55（37 读 / 18 写）</b></span>
+      <span>MCP 工具 <b>56（38 读 / 18 写）</b></span>
       <span>状态 <b>已落地</b></span>
     </div>
   </div>
@@ -387,6 +387,7 @@
           <tr><td>台账条口</td><td><code>utils/ledger.ts</code> · <code>LEDGER_CATEGORIES</code></td><td>页面里写死下拉项</td><td>接口 <code>/ledgers/meta</code></td></tr>
           <tr><td>导入任务类型</td><td><code>services/specialImport.ts</code></td><td>重新编码 task_type</td><td>枚举校验</td></tr>
           <tr><td>与户主关系</td><td><code>utils/relation.ts</code> · <code>normalizeRelation</code>（后端）＋ <code>RELATION_OPTIONS</code>（前端）</td><td>导入里手写 <code>=== '户主' ? 'HEAD' : 原文</code>；页面各自维护 5 项映射</td><td><code>relation.test.ts</code>（TS ↔ 迁移 SQL ↔ 前端选项三方比对）</td></tr>
+          <tr><td>家庭归属与关系值的权威</td><td><code>family_member</code> 表；<code>person.family_id / relation</code> 是冗余副本</td><td>直接把 person.relation 当事实源改，家庭页对不上；历史导入只写了 person</td><td><code>services/familyReconcile.ts</code> 七类对账 + V029 回写 + <code>familyReconcile.test.ts</code>（接口判定 ↔ 迁移条件逐条比对）</td></tr>
         </tbody>
       </table>
     </div>
@@ -457,7 +458,7 @@
         <div class="arrow">→</div>
         <div class="box"><div class="lbl">② 协议层</div><div class="val">JSON-RPC · tools/list · tools/call</div></div>
         <div class="arrow">→</div>
-        <div class="box"><div class="lbl">③ 注册表</div><div class="val">55 个 ToolDef</div></div>
+        <div class="box"><div class="lbl">③ 注册表</div><div class="val">56 个 ToolDef</div></div>
       </div>
       <div class="arch-row">
         <div class="box"><div class="lbl">④ 转发</div><div class="val">携带调用者 token 的 HTTP</div></div>
@@ -568,7 +569,7 @@
 
   <!-- 10 -->
   <section id="s10">
-    <h2><span class="n">10</span>工具目录：55 个工具覆盖 13 个域</h2>
+    <h2><span class="n">10</span>工具目录：56 个工具覆盖 13 个域</h2>
     <p class="lead">只读 37 个默认开放；写入 18 个默认关闭。<code>danger</code> 等级已预留，当前没有工具使用——删除类操作暂不开放给 AI。</p>
 
     <div class="tbl-wrap">
@@ -603,6 +604,7 @@
           <tr><td colspan="4" style="background:#FAFBFC;font-weight:600;color:#1A1D23">家庭 family（5）</td></tr>
           <tr><td><code>family_search</code></td><td>查在册家庭户</td><td><code>family:view</code></td><td><span class="badge b-read">读</span></td></tr>
           <tr><td><code>family_get</code></td><td>户详情与成员名单</td><td><code>family:view</code></td><td><span class="badge b-read">读</span></td></tr>
+          <tr><td><code>family_reconcile</code></td><td>人员档案与家庭成员表两表对账（七类错位）</td><td><code>family:view</code></td><td><span class="badge b-read">读</span></td></tr>
           <tr><td><code>family_create</code></td><td>新建家庭户</td><td><code>family:manage</code></td><td><span class="badge b-write">写</span></td></tr>
           <tr><td><code>family_add_member</code></td><td>人员加入家庭</td><td><code>family:manage</code></td><td><span class="badge b-write">写</span></td></tr>
           <tr><td><code>family_auto_group</code></td><td>按门牌号自动归户（默认仅预览）</td><td><code>family:manage</code></td><td><span class="badge b-write">写</span></td></tr>
@@ -718,13 +720,14 @@
       <table>
         <thead><tr><th style="width:34%">闸门</th><th style="width:34%">拦住什么</th><th style="width:32%">当前规模</th></tr></thead>
         <tbody>
-          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>45 个文件 / 577 条</td></tr>
+          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>46 个文件 / 590 条</td></tr>
           <tr><td><code>apiRouteCoverage</code></td><td>前端调用了后端不存在的接口</td><td>静态扫描全量</td></tr>
           <tr><td><code>mcpToolPaths</code></td><td>工具里写的内部路径在后端不存在（含「被 <code>:id</code> 兜住」的假通过）</td><td>静态全量比对</td></tr>
           <tr><td><code>personStatus</code> 全项目扫描</td><td>有人又手写状态列表</td><td>本次拦下 MCP 一处</td></tr>
           <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码、内部转发地址</td><td>37 条</td></tr>
           <tr><td><code>mcpToken.test</code></td><td>明文入库、令牌冒充 JWT 打业务接口、只读令牌拿到写工具、改密码不失效</td><td>25 条（含 5 条静态守卫）</td></tr>
           <tr><td><code>mcpConfig.test</code></td><td>开关写法差一个空格/引号/<code>\r</code> 就静默退回默认值；别处又手写严格比较</td><td>44 条（含 2 条静态守卫）</td></tr>
+          <tr><td><code>familyReconcile.test</code></td><td>对账接口报的那批人与迁移修的那批人不是同一批；<code>/reconcile</code> 被 <code>/:id</code> 吃成详情请求</td><td>13 条</td></tr>
           <tr><td><code>mcp:smoke</code>（线上）</td><td>单测结构上够不到的那层：真实 HTTP、真实权限、真实数据</td><td>37 个工具逐个打</td></tr>
           <tr><td><code>frontend: vue-tsc</code></td><td>路由/组件/接口类型不一致</td><td>全量</td></tr>
           <tr><td><code>frontend: eslint</code></td><td>未使用变量、any 滥用、导入顺序</td><td>全量</td></tr>

@@ -47,6 +47,22 @@ export const familyTools: ToolDef[] = [
     },
   },
   {
+    name: 'family_reconcile',
+    title: '家庭成员两表对账',
+    description:
+      '检查人员档案（family_id / relation）与家庭成员表是否一致，按七类错位分别给出数量与前若干条明细：' +
+      '关系值不一致、在户却无家庭归属、有归属却无在户记录、两表指向不同家庭、一人在多户、户主数不是 1、' +
+      '已迁出却仍标记在户。只读，可反复执行。',
+    domain: 'family',
+    scope: 'read',
+    permission: 'family:view',
+    note: 'family_member 是权威，person.relation 是冗余副本。autoFixable=true 的两类可由迁移修复，其余需人工确认。',
+    params: [{ key: 'limit', type: 'integer', desc: '每类返回多少条明细，默认 20，上限 200', default: 20, min: 1, max: 200 }],
+    async exec(ctx, args) {
+      return shape(await ctx.call('/families/reconcile', { limit: args.limit ?? 20 }));
+    },
+  },
+  {
     name: 'family_create',
     title: '新建家庭户',
     description: '新建一个家庭户。户号由系统生成，不需要填。可同时指定户主，被指定人会挂到该户并置为户主关系。',
