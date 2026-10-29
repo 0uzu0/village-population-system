@@ -711,11 +711,13 @@
       <table>
         <thead><tr><th style="width:34%">闸门</th><th style="width:34%">拦住什么</th><th style="width:32%">当前规模</th></tr></thead>
         <tbody>
-          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>42 个文件 / 484 条</td></tr>
+          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>43 个文件 / 493 条</td></tr>
           <tr><td><code>apiRouteCoverage</code></td><td>前端调用了后端不存在的接口</td><td>静态扫描全量</td></tr>
+          <tr><td><code>mcpToolPaths</code></td><td>工具里写的内部路径在后端不存在（含「被 <code>:id</code> 兜住」的假通过）</td><td>静态全量比对</td></tr>
           <tr><td><code>personStatus</code> 全项目扫描</td><td>有人又手写状态列表</td><td>本次拦下 MCP 一处</td></tr>
-          <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码</td><td>30 条</td></tr>
+          <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码、内部转发地址</td><td>37 条</td></tr>
           <tr><td><code>mcpToken.test</code></td><td>明文入库、令牌冒充 JWT 打业务接口、只读令牌拿到写工具、改密码不失效</td><td>25 条（含 5 条静态守卫）</td></tr>
+          <tr><td><code>mcp:smoke</code>（线上）</td><td>单测结构上够不到的那层：真实 HTTP、真实权限、真实数据</td><td>37 个工具逐个打</td></tr>
           <tr><td><code>frontend: vue-tsc</code></td><td>路由/组件/接口类型不一致</td><td>全量</td></tr>
           <tr><td><code>frontend: eslint</code></td><td>未使用变量、any 滥用、导入顺序</td><td>全量</td></tr>
           <tr><td><code>frontend: build</code></td><td>构建期错误（含 Element Plus 按需引入）</td><td>必须通过</td></tr>
@@ -725,14 +727,23 @@
 
     <h3>本次验证结果</h3>
     <ul>
-      <li>后端类型检查通过；全量 <strong>484 条测试通过</strong>（MCP 协议 30 条 + 长期令牌 25 条）。</li>
+      <li>后端类型检查通过；全量 <strong>493 条测试通过</strong>（MCP 协议 37 条 + 长期令牌 25 条 + 路径一致性 2 条）。</li>
       <li>前端 <code>vue-tsc</code>、<code>eslint</code>、<code>build</code> 全部通过。</li>
       <li>「令牌不能冒充 JWT 打业务接口」这条守卫做过反向验证：在 <code>authMiddleware</code> 里加一行相关引用，测试立刻报红。</li>
-      <li>MCP 端到端（真实登录 → 工具调用）未在本地执行：这台机器没有可用的 MySQL，无法起后端。协议层与工具映射由单测覆盖，部署前建议在 NAS 上跑一次冒烟。</li>
+      <li><strong>线上真实冒烟已执行</strong>：37 个只读工具逐个调用，37/37 通过；写入工具在只读令牌下连 <code>tools/list</code> 都不出现，点名调用返回「未知工具」。</li>
+      <li>口径一致性实测：<code>person_search</code> 的 total 与 <code>stats_dashboard</code> 的在册总数同为 7605，说明两条链路走的是同一套 <code>activeSql</code>。</li>
     </ul>
 
+    <div class="note warn">
+      <b>为什么必须有线上冒烟：</b>MCP 工具不直接查库，而是回请求自己的 REST。单测在 <code>ctx.call</code> 那层就 mock 掉了，
+      于是「路径拼错、前缀漏了」在单测里一律表现为绿色。真实事故：内部转发用 <code>new URL(path, baseUrl())</code> 拼地址，
+      path 以 <code>/</code> 开头把 <code>/api</code> 整段吃掉，37 个工具全部 404，而 484 条单测全绿。
+      凡「拼字符串去请求别人」的代码，必须有一条不断言 mock、只断言最终地址的测试。
+    </div>
+
     <div class="note danger">
-      <b>部署前必做：</b>在 NAS 上确认 <code>/api/mcp</code> 经 nginx 转发正常（现有 <code>location /api/</code> 已覆盖），并用一个有 <code>person:view</code> 的账号跑一次 <code>initialize → tools/list → tools/call</code>。默认 <code>MCP_WRITE_LEVEL=off</code>，先只读跑通再考虑放开写入。
+      <b>部署前必做：</b>在 NAS 上确认 <code>/api/mcp</code> 经 nginx 转发正常（现有 <code>location /api/</code> 已覆盖），然后跑
+      <code>MCP_URL=… MCP_TOKEN=… npm run mcp:smoke</code>（退出码非 0 即代表有工具坏了）。默认 <code>MCP_WRITE_LEVEL=off</code>，先只读跑通再考虑放开写入。
     </div>
   </section>
 

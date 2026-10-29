@@ -13,7 +13,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.cjs\" \"*.mjs\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.cjs\" \"*.mjs\"",
     "migrate": "tsx src/db/migrate.ts",
-    "explain": "node scripts/explain-baseline.cjs"
+    "explain": "node scripts/explain-baseline.cjs",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
