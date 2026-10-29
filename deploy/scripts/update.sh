@@ -31,10 +31,19 @@ if [ -f .env ]; then
   grep -q '^VERSION=' .env || echo "VERSION=${IMG_VERSION}" >> .env.tmp
   mv .env.tmp .env
 fi
-VERSION="$IMG_VERSION" docker compose up -d frontend backend
+# ⚠️ 必须带 --force-recreate。`up -d` 的判断依据是「本地有没有这个 tag 的镜像」：
+# tag 没变（latest，或同一个版本号重发镜像）而 digest 变了时，它会认为无需变更、
+# 原地不动，且**不报任何错**。表现就是「部署成功，但新功能一个都没上线」——
+# 2026-10-29 那次就是这样：GHCR 上 latest 已指向新提交，容器还跑着一天前的镜像。
+# 无条件重建的代价只是十几秒停机，比判断「该不该重建」可靠。
+VERSION="$IMG_VERSION" docker compose up -d --force-recreate frontend backend
 
 echo "[update] 4/4 等待服务就绪并健康检查..."
 sleep 15
 "$SCRIPT_DIR/healthcheck.sh"
+
+# 打印两个容器的创建时间与镜像，供人工核对「两边都换过了」（README 第 3 条）
+docker inspect vp-frontend --format '[update] frontend 创建于 {{.Created}}  镜像 {{.Config.Image}}' 2>/dev/null || true
+docker inspect vp-backend --format '[update] backend  创建于 {{.Created}}  镜像 {{.Config.Image}}' 2>/dev/null || true
 
 echo "[update] 升级完成。如需回滚请使用 ./rollback.sh <旧版本号>"
