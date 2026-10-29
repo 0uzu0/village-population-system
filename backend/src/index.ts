@@ -5,6 +5,7 @@ import { pool, queryOne, withTransaction } from './config/db';
 import { hashPassword } from './utils/crypto';
 import { markStaleImportTasks } from './services/importTask';
 import { checkSystemTags } from './services/systemTagHealth';
+import { mcpConfigWarnings } from './modules/mcp/config';
 import { logger } from './utils/logger';
 
 // 双保险：即使有未被路由层捕获的 Promise 拒绝，也只记录日志而不打崩进程
@@ -57,6 +58,13 @@ async function main(): Promise<void> {
     await checkSystemTags();
   } catch (err) {
     logger.warn('system-tag-check-failed', { message: err instanceof Error ? err.message : String(err) });
+  }
+
+  // MCP 开关自检：取值写错（带引号 / 尾随空格 / .env 是 CRLF / 大小写不对）时
+  // 会静默退回更安全的默认值 mask 与 off —— 不报错、功能却不对，用户只会觉得
+  // 「我明明改了怎么没生效」。这种失败必须在启动日志里说出来。
+  for (const warning of mcpConfigWarnings()) {
+    logger.warn('mcp-config-unrecognized', { message: warning });
   }
 
   const app = createApp();

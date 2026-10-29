@@ -8,6 +8,7 @@
  */
 
 import { env } from '../../config/env';
+import { piiMode } from './config';
 import { ToolRunError } from './types';
 
 /**
@@ -142,10 +143,10 @@ export function normalizeKeys(value: any): any {
   return value;
 }
 
-/** 脱敏模式：默认 mask。full 仅供自建可信模型使用，通过环境变量显式开启 */
-function piiMode(): 'mask' | 'full' {
-  return process.env.MCP_PII_MODE === 'full' ? 'full' : 'mask';
-}
+/**
+ * 脱敏模式由 config.ts 统一解析（会容忍 .env 里的引号、空格、\r 与大小写），
+ * 这里不再自己比较环境变量——写法稍有出入就会静默退回 mask，排查成本极高。
+ */
 
 /** 身份证：保留前 6 位（地区码）与后 4 位，中间打码。既可用于核对，又不泄露完整号 */
 function maskIdCard(v: string): string {

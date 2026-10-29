@@ -6,6 +6,8 @@
  */
 
 import { ToolDef, ToolScope } from './types';
+import { destructiveAllowed, writeLevel } from './config';
+import type { WriteLevel } from './config';
 import { metaTools } from './tools/meta';
 import { personTools } from './tools/person';
 import { keygroupTools } from './tools/keygroup';
@@ -33,24 +35,14 @@ export const ALL_TOOLS: ToolDef[] = [
   ...adminTools,
 ];
 
-/** 写入开关。默认 off：绝大多数使用场景是「查」，写操作应当由部署方显式开启 */
-export type WriteLevel = 'off' | 'basic' | 'full';
-
-export function writeLevel(): WriteLevel {
-  const raw = (process.env.MCP_WRITE_LEVEL || 'off').toLowerCase();
-  return raw === 'basic' || raw === 'full' ? raw : 'off';
-}
-
 /**
- * 危险操作是否放行。
+ * 写入开关与删除开关的**实现**在 config.ts，这里只转出，保持工具层的导入路径不变。
  *
- * 与 MCP_WRITE_LEVEL 分开成两个开关是刻意的：删除人员、删台账、批量改状态这类
- * 动作（danger）一旦误触发无法撤销。只开 basic/full 表示「允许 AI 建档、记账」，
- * 不等于「允许它删数据」。要删必须再显式写一行 MCP_ALLOW_DESTRUCTIVE=true。
+ * 不在本文件里直接读 process.env 的原因见 config.ts 顶部：
+ * 手写的 .env 会带引号/空格/\r/大小写差异，严格相等比较会静默退回默认值。
  */
-function destructiveAllowed(): boolean {
-  return process.env.MCP_ALLOW_DESTRUCTIVE === 'true';
-}
+export { destructiveAllowed, writeLevel } from './config';
+export type { WriteLevel } from './config';
 
 /** 该等级下是否注册此工具 */
 export function isEnabled(tool: ToolDef, level: WriteLevel = writeLevel()): boolean {

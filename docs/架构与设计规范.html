@@ -486,6 +486,10 @@
         <div class="h">写操作三级开关</div>
         <div class="d"><code>MCP_WRITE_LEVEL=off|basic|full</code> 控制读写；删除类（danger）还需要额外的 <code>MCP_ALLOW_DESTRUCTIVE=true</code>。</div>
       </div>
+      <div class="card">
+        <div class="h">开关解析集中在一处</div>
+        <div class="d">三个 <code>MCP_*</code> 开关只在 <code>modules/mcp/config.ts</code> 读，先归一（去引号/空白/CRLF、转小写）再比较。手写的 <code>.env</code> 差一个空格就曾让 <code>full</code> 静默退回 <code>mask</code>：不报错、只是打码照旧。取值认不出来时启动日志打 <code>mcp-config-unrecognized</code>，<code>/manifest</code> 同时给出 <code>piiRaw</code> 与 <code>piiRecognized</code>。</div>
+      </div>
     </div>
 
     <h3>长期令牌：为什么不能直接用 JWT</h3>
@@ -714,12 +718,13 @@
       <table>
         <thead><tr><th style="width:34%">闸门</th><th style="width:34%">拦住什么</th><th style="width:32%">当前规模</th></tr></thead>
         <tbody>
-          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>43 个文件 / 493 条</td></tr>
+          <tr><td><code>backend: vitest</code></td><td>口径、状态、家庭、导入、安全、MCP 协议</td><td>45 个文件 / 577 条</td></tr>
           <tr><td><code>apiRouteCoverage</code></td><td>前端调用了后端不存在的接口</td><td>静态扫描全量</td></tr>
           <tr><td><code>mcpToolPaths</code></td><td>工具里写的内部路径在后端不存在（含「被 <code>:id</code> 兜住」的假通过）</td><td>静态全量比对</td></tr>
           <tr><td><code>personStatus</code> 全项目扫描</td><td>有人又手写状态列表</td><td>本次拦下 MCP 一处</td></tr>
           <tr><td><code>mcp.test</code></td><td>工具重名、越权可见、脱敏失效、协议错误码、内部转发地址</td><td>37 条</td></tr>
           <tr><td><code>mcpToken.test</code></td><td>明文入库、令牌冒充 JWT 打业务接口、只读令牌拿到写工具、改密码不失效</td><td>25 条（含 5 条静态守卫）</td></tr>
+          <tr><td><code>mcpConfig.test</code></td><td>开关写法差一个空格/引号/<code>\r</code> 就静默退回默认值；别处又手写严格比较</td><td>44 条（含 2 条静态守卫）</td></tr>
           <tr><td><code>mcp:smoke</code>（线上）</td><td>单测结构上够不到的那层：真实 HTTP、真实权限、真实数据</td><td>37 个工具逐个打</td></tr>
           <tr><td><code>frontend: vue-tsc</code></td><td>路由/组件/接口类型不一致</td><td>全量</td></tr>
           <tr><td><code>frontend: eslint</code></td><td>未使用变量、any 滥用、导入顺序</td><td>全量</td></tr>

@@ -16,6 +16,7 @@ import { authMiddleware } from '../../middleware/auth';
 import { writeAudit } from '../../middleware/audit';
 import { fail, ok, AppError } from '../../utils/response';
 import { createToken, listTokens, revokeAllTokens, revokeToken, type McpTokenRow } from './tokens';
+import { piiMode, writeLevel } from './config';
 
 const router = Router();
 
@@ -63,8 +64,8 @@ router.get('/', async (req: Request, res: Response) => {
     items,
     total: items.length,
     // 开关状态随列表返回：用户看到「只读」时才明白为什么写了没生效
-    writeLevel: (process.env.MCP_WRITE_LEVEL || 'off').toLowerCase(),
-    piiMode: process.env.MCP_PII_MODE === 'full' ? 'full' : 'mask',
+    writeLevel: writeLevel(),
+    piiMode: piiMode(),
     scopedToAll: all,
     maxPerUser: 20,
   });

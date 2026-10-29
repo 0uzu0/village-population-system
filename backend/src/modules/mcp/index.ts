@@ -16,6 +16,7 @@ import { writeAudit } from '../../middleware/audit';
 import { ok } from '../../utils/response';
 import { logger } from '../../utils/logger';
 import { groupByDomain, visibleTools, writeLevel } from './registry';
+import { piiMode, switchInfo } from './config';
 import { PROTOCOL_VERSION, SERVER_INFO, handleRpc, rpcError } from './protocol';
 import { request } from './invoke';
 import { mcpAuth, tokenWriteCeiling } from './mcpAuth';
@@ -88,6 +89,7 @@ function makeCtx(req: Request, tools: ToolDef[]): ToolCtx {
  */
 router.get('/manifest', (req: Request, res: Response) => {
   const tools = toolsFor(req);
+  const pii = switchInfo('MCP_PII_MODE');
   return ok(res, {
     server: SERVER_INFO,
     protocol: PROTOCOL_VERSION,
@@ -95,7 +97,11 @@ router.get('/manifest', (req: Request, res: Response) => {
     writeLevel: writeLevel(),
     // 令牌自身的上限比全局更低时，实际生效的是令牌的
     effectiveWriteLevel: tokenWriteCeiling(req) ?? writeLevel(),
-    piiMode: process.env.MCP_PII_MODE === 'full' ? 'full' : 'mask',
+    piiMode: piiMode(),
+    // 生效值之外再给出原始值与识别结果：手写的 .env 带引号/空格/\r 时会
+    // 「改了没生效」，只有把 raw 摆出来才能一眼看出是写法问题还是根本没重启
+    piiRaw: pii.raw,
+    piiRecognized: pii.recognized,
     // 用长期令牌访问时告诉调用方「你是哪枚令牌、什么等级」，便于自检
     token: req.mcpToken ? { id: req.mcpToken.id, name: req.mcpToken.name, scope: req.mcpToken.scope } : null,
     total: tools.length,
