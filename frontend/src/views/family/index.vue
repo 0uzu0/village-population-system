@@ -78,10 +78,34 @@
     <el-drawer v-model="detailVisible" :title="`家庭详情 - ${detail?.family_no || ''}`" size="560px">
       <div v-if="detail">
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="户主">{{ detail.head_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="户主">
+            <span>{{ detail.head_name || '—' }}</span>
+            <el-tag v-if="headVacant" size="small" type="danger" effect="plain" style="margin-left: 6px">已离户</el-tag>
+            <el-button
+              v-if="headVacant && auth.hasPermission('family:manage')"
+              link
+              type="primary"
+              size="small"
+              style="margin-left: 6px"
+              @click="openHeadDialog"
+            >
+              改选户主
+            </el-button>
+          </el-descriptions-item>
           <el-descriptions-item label="所属网格">{{ detail.grid_name || '—' }}</el-descriptions-item>
           <el-descriptions-item label="地址" :span="2">{{ detail.address || '—' }}</el-descriptions-item>
         </el-descriptions>
+
+        <!-- 户主离户：以前这里什么都不显示，家庭列表永远挂着已故者的姓名 -->
+        <el-alert
+          v-if="headVacant"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin: 10px 0"
+          title="本户户主已离户（死亡 / 迁出 / 移出），当前无人担任户主"
+          :description="`家庭列表与导出仍显示「${detail.head_name || '—'}」。请改选一位在册成员接任，否则按户统计与名单会一直挂着一个已离户的人。`"
+        />
 
         <div class="section-title">
           家庭成员
@@ -164,6 +188,32 @@
       </div>
     </el-drawer>
 
+    <!-- 改选户主：户主离户后唯一的补救入口 -->
+    <el-dialog v-model="headDialogVisible" :title="`改选户主 - ${detail?.family_no || ''}`" width="440px">
+      <el-alert
+        v-if="detail?.head_name"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 12px"
+        :title="`原户主：${detail.head_name}（已离户）`"
+      />
+      <el-select v-model="headPersonId" placeholder="选择继任户主" filterable style="width: 100%">
+        <el-option
+          v-for="m in detail?.members || []"
+          :key="m.person.id"
+          :label="`${m.person.name}（${relationLabel(m.relation)}）`"
+          :value="m.person.id"
+        />
+      </el-select>
+      <div class="head-note">
+        只能从本户在册成员中选。改选后新户主的关系会被置为「户主」，原户主保留在离户成员里，档案与变更记录不受影响。
+      </div>
+      <template #footer>
+        <el-button @click="headDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveHead">确认改选</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 按门牌号自动归户 -->
     <el-dialog v-model="autoVisible" title="按门牌号自动归户" width="680px">
       <el-alert
@@ -236,7 +286,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { familyApi, gridApi, personApi } from '@/api';
@@ -261,6 +311,39 @@ const form = reactive<any>({ id: null, address: '', gridId: null, headPersonId: 
 const detailVisible = ref(false);
 const detail = ref<any>(null);
 const memberForm = reactive({ personId: null as number | null, relation: 'OTHER' });
+
+/**
+ * 户主是否已离户（死亡/迁出/被移出）。
+ *
+ * `head_person_id` 只在「改选户主」或「有人被设为户主」时变，人员离户时没人动它，
+ * 于是家庭列表和导出里一直显示已故者当户主。这里就地提示，并给一个改选入口。
+ * 已灭户（members 为空）不提示改选——户里没人可当户主，那是另一回事。
+ */
+const headVacant = computed(() => {
+  if (!detail.value || detail.value.dissolved) return false;
+  const hid = Number(detail.value.head_person_id);
+  if (!hid) return true;
+  return !(detail.value.members || []).some((m: any) => Number(m.person?.id) === hid);
+});
+/** 默认选中项：关系已是「户主」的第一位，否则名单第一人 */
+const suggestedHeadId = computed<number | null>(() => {
+  const list = detail.value?.members || [];
+  return (list.find((m: any) => m.relation === 'HEAD') || list[0])?.person?.id ?? null;
+});
+const headDialogVisible = ref(false);
+const headPersonId = ref<number | null>(null);
+function openHeadDialog() {
+  headPersonId.value = suggestedHeadId.value;
+  headDialogVisible.value = true;
+}
+async function saveHead() {
+  if (!detail.value || !headPersonId.value) { ElMessage.warning('请选择继任户主'); return; }
+  await familyApi.changeHead(detail.value.id, { personId: headPersonId.value });
+  ElMessage.success('户主已变更');
+  headDialogVisible.value = false;
+  await openDetail({ id: detail.value.id });
+  load();
+}
 
 // 按门牌号自动归户
 const autoVisible = ref(false);
@@ -384,6 +467,10 @@ onMounted(async () => {
   ]);
   grids.value = g.data.list;
   persons.value = p.data.list;
+  // 从「户主已离户」提示跳过来的：?familyId=123 直接打开该户详情，
+  // 否则用户落到列表里还得自己搜编号，提示等于没给出口
+  const fid = Number(route.query.familyId);
+  if (Number.isInteger(fid) && fid > 0) openDetail({ id: fid });
 });
 </script>
 
@@ -404,4 +491,5 @@ onMounted(async () => {
 .sub-note { font-size: var(--font-size-xs); font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
 .former-table { opacity: 0.92; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
+.head-note { margin-top: 10px; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
 </style>

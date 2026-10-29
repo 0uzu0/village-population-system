@@ -22,10 +22,12 @@ import {
 import {
   countEmptiedFamilies,
   findFamiliesOfPersons,
+  findVacatedHeads,
   markFamilyMemberOnStatusChange,
   syncFamilyMemberOnStatusChange,
   syncPersonFamilyOnEdit,
   updateMemberRelation,
+  type VacatedHeadFamily,
 } from '../utils/familyMembership';
 
 const router = Router();
@@ -547,15 +549,28 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
     //   虽然回到人口统计里，却不在任何家庭的成员列表中（家庭成员数对不上）。
     // 家庭本身不删除：档案要留痕，是否计入家庭总数由 familySql 现算。
     const familySync = await syncFamilyMemberOnStatusChange(conn, id, status, effectiveDate);
+    // 户主离户检测：只做提示，不阻断。死亡/迁出登记必须能一次办完（现场就那一趟），
+    // 改选户主是随后的动作，需要人确认继任者，见 POST /families/:id/head。
+    // 放在同一事务里查，读到的是「关联已标记离开」之后的状态：remaining 不含他本人。
+    const headVacated = isInactiveStatus(status) ? await findVacatedHeads(conn, [id]) : [];
     // 人口归属标签随状态联动（v2.3）：迁出/死亡停用户籍/流动人口标签，
     // 改回在册时恢复最近一次被联动停用的那一枚。
     // 与 family_member 的标记放在同一事务：状态改成功而标签没改会造成口径矛盾。
     const tagSync = await syncPopulationTagsOnStatusChange(conn, id, status, req.user!.id);
-    return { familySync, tagSync };
+    return { familySync, tagSync, headVacated };
   });
-  const { familySync, tagSync } = sync;
+  const { familySync, tagSync, headVacated } = sync;
 
   await writeAudit({ userId: req.user!.id, username: req.user!.username, action: 'person:status', request: { id, status, statusDate: effectiveDate, reason }, result: 'SUCCESS', ip: req.ip });
+  // 户主离户必须说出来：不说的话，这一户从此「人在户籍、户主已故」，
+  // 要等下次对账或导出名单时才发现，解释起来还以为是数据错了。
+  // remaining=0 的不用提示改选——那是灭户，户里已经没人可当户主。
+  const needHead = headVacated.filter((h) => h.remaining > 0);
+  const headMsg = needHead.length
+    ? `；该户（${needHead[0].familyNo || '家庭'}）户主已离户，${
+        needHead[0].candidate ? `建议由${needHead[0].candidate.name}接任，` : ''
+      }请到家庭页改选户主`
+    : '';
   return ok(
     res,
     {
@@ -566,11 +581,12 @@ router.post('/:id/status', requirePermission('person:status'), async (req: Reque
       tagRestored: tagSync.restored,
       familyNo: familySync.familyNo,
       familyEmptied: familySync.familyEmptied,
+      headVacated,
     },
     // 灭户必须说出来：操作者看到「家庭总数少了 1」时，要能对上是谁造成的
-    familySync.familyEmptied
+    (familySync.familyEmptied
       ? `已变更为「${STATUS_LABELS[status]}」；该户（${familySync.familyNo || '家庭'}）已无在册成员，不再计入家庭总数`
-      : `已变更为「${STATUS_LABELS[status]}」`
+      : `已变更为「${STATUS_LABELS[status]}」`) + headMsg
   );
 });
 
@@ -604,6 +620,8 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
   // 变更前记下这批人所属的家庭：变更后一次性统计其中有多少户已无在册成员
   // （逐人算什么会多出 N 次 COUNT，500 人的批次上很明显）
   let familiesEmptied = 0;
+  // 这批人里有哪些是户主：同样是一次 IN 查询，不逐人问
+  let headVacated: VacatedHeadFamily[] = [];
 
   await withTransaction(async (conn) => {
     for (const pid of personIds) {
@@ -632,6 +650,7 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
     if (inactive) {
       const familyIds = await findFamiliesOfPersons(conn, personIds);
       familiesEmptied = await countEmptiedFamilies(conn, familyIds);
+      headVacated = await findVacatedHeads(conn, personIds);
     }
   });
 
@@ -640,10 +659,28 @@ router.post('/batch-status', requirePermission('person:status'), async (req: Req
   const baseMsg = skipped
     ? `已变更 ${changed} 人，${skipped} 人已是「${STATUS_LABELS[status]}」或不存在`
     : `已变更 ${changed} 人为「${STATUS_LABELS[status]}」`;
+  // 灭户的不提示改选（户里已经没人了）；剩下的才是「还有人、没户主」
+  const needHead = headVacated.filter((h) => h.remaining > 0);
   return ok(
     res,
-    { changed, skipped, status, tagCleared, tagRestored, familiesEmptied },
-    familiesEmptied ? `${baseMsg}；${familiesEmptied} 户已无在册成员，不再计入家庭总数` : baseMsg
+    {
+      changed,
+      skipped,
+      status,
+      tagCleared,
+      tagRestored,
+      familiesEmptied,
+      // 明细截 20 条够前端提示用；计数单独给，避免「提示里只有 20 户」被当成全部
+      headVacated: needHead.slice(0, 20),
+      headVacatedCount: needHead.length,
+    },
+    [
+      baseMsg,
+      familiesEmptied ? `${familiesEmptied} 户已无在册成员，不再计入家庭总数` : '',
+      needHead.length ? `${needHead.length} 户户主已离户，请到家庭页改选户主` : '',
+    ]
+      .filter(Boolean)
+      .join('；')
   );
 });
 

@@ -54,8 +54,10 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi } from '@/api';
+import { relationLabel } from '@/utils/format';
 import {
   PERSON_STATUSES,
   statusLabel,
@@ -69,6 +71,7 @@ const props = defineProps<{
   persons: { id: number; name: string; status?: string }[];
 }>();
 const emit = defineEmits<{ 'update:modelValue': [boolean]; done: [] }>();
+const router = useRouter();
 
 const saving = ref(false);
 const form = reactive<{ status: string; statusDate: string | null; reason: string }>({
@@ -105,6 +108,55 @@ watch(
   }
 );
 
+/**
+ * 提示语里的姓名/地址来自数据库，拼进 HTML 前必须转义。
+ * ElMessageBox 的 dangerouslyUseHTMLString 不转义就等于把库里的字符串当模板执行。
+ */
+function esc(v: unknown) {
+  const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return String(v ?? '').replace(/[&<>"']/g, (c) => map[c] as string);
+}
+
+/**
+ * 户主离户提示。
+ *
+ * 为什么要单独弹：死亡/迁出登记可以一次办完（现场就那一趟），但这一户从此
+ * 「还有人、没在册户主」，家庭列表与导出仍显示已故者姓名。以前这件事没有任何
+ * 提示，只能等下次对账或核对名单才发现，看起来像数据错了。
+ *
+ * 只提示、不阻断、不自动改：继任户主是业务决定（配偶？长子？），工具不能替人挑。
+ */
+async function promptVacatedHeads(rows: any[]) {
+  if (!rows?.length) return;
+  const shown = rows.slice(0, 5);
+  const lines = shown.map((h) => {
+    const who = h.headName ? `户主 ${esc(h.headName)} ` : '户主';
+    const cand = h.candidate
+      ? `，建议由 ${esc(h.candidate.name)}（${esc(relationLabel(h.candidate.relation))}）接任`
+      : '';
+    return `<li><b>${esc(h.familyNo || '家庭')}</b>${h.address ? `（${esc(h.address)}）` : ''}：${who}已离户，在册 ${
+      Number(h.remaining) || 0
+    } 人${cand}</li>`;
+  });
+  const more = rows.length > shown.length ? `<li>…另有 ${rows.length - shown.length} 户</li>` : '';
+  const html =
+    `<div style="line-height:1.7">这些户现在没有在册户主，家庭列表与导出仍显示已离户的人：` +
+    `<ul style="margin:8px 0 0 18px;padding:0">${lines.join('')}${more}</ul>` +
+    `<div style="margin-top:8px">现在去改选户主吗？</div></div>`;
+  try {
+    await ElMessageBox.confirm(html, `${rows.length} 户户主已离户`, {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '去改选户主',
+      cancelButtonText: '稍后处理',
+      type: 'warning',
+    });
+    // 单户直接打开该户详情抽屉（家庭页读 ?familyId），多户回列表自己挑
+    router.push(rows.length === 1 ? `/families?familyId=${rows[0].familyId}` : '/families');
+  } catch {
+    /* 用户选「稍后处理」，不打扰 */
+  }
+}
+
 async function submit() {
   if (!form.status) { ElMessage.warning('请选择要变更为的状态'); return; }
   if (!props.persons.length) return;
@@ -115,15 +167,14 @@ async function submit() {
       statusDate: isInactive.value ? form.statusDate || null : null,
       reason: form.reason || undefined,
     };
-    if (isBatch.value) {
-      const res: any = await personApi.batchStatus({ personIds: props.persons.map((p) => p.id), ...payload });
-      ElMessage.success(res?.message || '状态已更新');
-    } else {
-      const res: any = await personApi.changeStatus(props.persons[0].id, payload);
-      ElMessage.success(res?.message || '状态已更新');
-    }
+    const res: any = isBatch.value
+      ? await personApi.batchStatus({ personIds: props.persons.map((p) => p.id), ...payload })
+      : await personApi.changeStatus(props.persons[0].id, payload);
     emit('update:modelValue', false);
     emit('done');
+    ElMessage.success(res?.message || '状态已更新');
+    // 放在关闭之后弹：先关表单再问户主，避免两层弹窗叠在一起
+    await promptVacatedHeads(res?.data?.headVacated || []);
   } finally {
     saving.value = false;
   }

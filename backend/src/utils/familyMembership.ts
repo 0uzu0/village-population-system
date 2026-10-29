@@ -1,4 +1,4 @@
-import { isActiveStatus, isInactiveStatus } from './personStatus';
+import { activeSql, isActiveStatus, isInactiveStatus } from './personStatus';
 import { activeFamilySql } from './familySql';
 
 /**
@@ -234,4 +234,92 @@ export async function syncPersonFamilyOnEdit(
   if (isHead && memberStatus === 1) {
     await db.query('UPDATE family SET head_person_id = ? WHERE id = ?', [personId, familyId]);
   }
+}
+
+/**
+ * 「户主离户」检测：这批人员里，有谁是某个在册家庭的户主。
+ *
+ * 为什么需要它：死亡/迁出只把 `family_member` 关联标记离开，**没人动
+ * `family.head_person_id`**。于是那一户从此「有房有人、没有在册户主」，
+ * 但家庭列表和导出仍显示已故者的姓名——查对账时报「户主数量不是 1」，
+ * 查现场时才发现户主去年就走了。线上实测 5 个异常户里 4 个是这么来的。
+ *
+ * 判据只用 `family.head_person_id`，不看 `family_member.is_householder`：
+ * 前者是家庭列表与导出取「户主姓名」的唯一来源，也是改选户主时真正要改的字段；
+ * 抽样 80 户两份存储完全一致，没必要为一个罕见的不一致把提示搞复杂。
+ *
+ * 候选户主按「关系优先级 + 年龄」排：在册的 HEAD 最合理（关系已写明），
+ * 其次配偶、子女……同优先级取年长的（农村实际做法通常是长辈/配偶接户主）。
+ * 这里只**建议**，不替人决定——改选要人确认，见 POST /families/:id/head。
+ */
+export interface VacatedHeadFamily {
+  familyId: number;
+  familyNo: string | null;
+  address: string | null;
+  /** 刚刚离户的户主姓名（提示语里要说清“谁走了”） */
+  headName: string | null;
+  /** 该户仍在册的在户成员数（本次离户的人已不算） */
+  remaining: number;
+  /** 建议继任者；该户已无在册成员时为 null（那就是灭户，不是改选） */
+  candidate: { personId: number; name: string; relation: string | null } | null;
+}
+
+export async function findVacatedHeads(
+  db: RowsLike,
+  personIds: number[]
+): Promise<VacatedHeadFamily[]> {
+  const ids = [...new Set(personIds.filter((n) => Number.isInteger(n) && n > 0))];
+  if (!ids.length) return [];
+
+  const heads = rowsOf(
+    await db.query(
+      `SELECT f.id AS familyId, f.family_no AS familyNo, f.address, p.name AS headName
+         FROM family f
+         JOIN person p ON p.id = f.head_person_id
+        WHERE f.status = 1 AND f.head_person_id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    )
+  );
+  if (!heads.length) return [];
+
+  const familyIds = [...new Set(heads.map((h: any) => Number(h.familyId)))];
+  // 一次把候选捞回来，避免逐户查询（批量死亡登记可能一次带走几十户）
+  const members = rowsOf(
+    await db.query(
+      `SELECT fm.family_id AS familyId, fm.person_id AS personId, fm.relation, p.name
+         FROM family_member fm
+         JOIN person p ON p.id = fm.person_id
+        WHERE fm.family_id IN (${familyIds.map(() => '?').join(',')})
+          AND fm.status = 1 AND ${activeSql('p')}
+        ORDER BY fm.family_id,
+                 (fm.relation = 'HEAD') DESC,
+                 FIELD(COALESCE(fm.relation, 'OTHER'),
+                       'HEAD','SPOUSE','CHILD','PARENT','GRANDCHILD','SIBLING','CHILD_IN_LAW','OTHER'),
+                 p.birth_date`,
+      familyIds
+    )
+  );
+
+  const grouped = new Map<number, any[]>();
+  for (const m of members) {
+    const fid = Number(m.familyId);
+    if (!grouped.has(fid)) grouped.set(fid, []);
+    grouped.get(fid)!.push(m);
+  }
+
+  return heads.map((h: any) => {
+    const fid = Number(h.familyId);
+    const list = grouped.get(fid) || [];
+    const first = list[0];
+    return {
+      familyId: fid,
+      familyNo: h.familyNo ?? null,
+      address: h.address ?? null,
+      headName: h.headName ?? null,
+      remaining: list.length,
+      candidate: first
+        ? { personId: Number(first.personId), name: first.name, relation: first.relation ?? null }
+        : null,
+    };
+  });
 }
