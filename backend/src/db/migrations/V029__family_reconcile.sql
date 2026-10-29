@@ -20,20 +20,31 @@
 -- 判定条件必须与 services/familyReconcile.ts 的 relation_diff / member_without_family
 -- 保持一致，familyReconcile.test.ts 会逐条比对——只改一边，对账接口报的和迁移修的就
 -- 不是同一批人。
+--
+-- 口径收紧（2026-10-29 首次部署后复盘）：线上第一次跑完对账，「有归属却无在户记录」
+-- 报的 72 条**全部是 DEAD**。死亡/迁出只改状态、不置空 family_id，关联行则在状态变更时
+-- 关闭，于是他们被当成「人在户里、档案却没关联」。这是正常的历史形态，不是错位。
+-- 因此两条修复语句都限定在册人员，与 services/familyReconcile.ts 的 activeSql 过滤一致。
+-- 本文件已按“不限定状态”的版本在线上执行过一次；收紧只影响新环境，旧环境无需补跑
+-- （在册是原集合的子集，已被覆盖过）。
 
 -- ---------- 1. 关系值不一致：以家庭成员表回写人员档案 ----------
 -- 覆盖“person 有值但不同”与“person 为 NULL 而关联表有值”两种，
 -- 用 <=> 做 NULL 安全比较，普通 <> 会把 NULL 那半漏掉。
+-- 只处理在册人员：非在册人员的关系值不属于「错位」，改它等于给历史添噪声。
 UPDATE `person` p
   JOIN `family_member` fm ON fm.`person_id` = p.`id` AND fm.`status` = 1
   JOIN `family` f ON f.`id` = fm.`family_id`
    SET p.`relation` = fm.`relation`
  WHERE p.`family_id` = fm.`family_id`
+   AND p.`status` IN ('NORMAL','MOVED_IN')
    AND NOT (p.`relation` <=> fm.`relation`);
 
 -- ---------- 2. 在户却没有家庭归属：补 family_id 与 relation ----------
 -- 只处理“恰好只在一个家庭在户”的人。一人在多户属于歧义（对账接口的
 -- multi_family 会列出来），自动挑一户等于替人做主，这里不做。
+-- 只补在册人员：已死亡/迁出的人即使有在户残留行，补归属也只是给历史添噪声，
+-- 且那本身属于 status_drift（人员状态与关联不一致），该由人确认。
 UPDATE `person` p
   JOIN (
     SELECT fm.`person_id` AS person_id,
@@ -47,4 +58,5 @@ UPDATE `person` p
   ) x ON x.`person_id` = p.`id` AND x.n = 1
    SET p.`family_id` = x.`family_id`,
        p.`relation`  = x.`relation`
- WHERE p.`family_id` IS NULL;
+ WHERE p.`family_id` IS NULL
+   AND p.`status` IN ('NORMAL','MOVED_IN');

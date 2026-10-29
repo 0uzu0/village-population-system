@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { __diffSpecs } from '../src/services/familyReconcile';
 import { ALL_TOOLS } from '../src/modules/mcp/registry';
+import { activeSql } from '../src/utils/personStatus';
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -63,6 +64,33 @@ describe('对账项的声明', () => {
       expect(s, d.key).toMatch(/\bperson\b|\bfamily\b/);
     }
   });
+
+  /**
+   * 「非在册人员不是错位，是历史」。
+   *
+   * 首次线上实测的教训：family_without_member 报了 72 条，逐个查回去**全是 DEAD**——
+   * 死亡/迁出只改状态、不置空 family_id，关联行在状态变更时就关了。少了在册过滤，
+   * 对账立刻被史前数据灌满，运维看到 72 条待办、实际一条都不用管。
+   * 所以除 status_drift（它的职责就是抓这类人）以外，六类都必须带在册过滤。
+   */
+  it('除 status_drift 外，其余六类都带在册过滤', () => {
+    for (const d of __diffSpecs) {
+      const s = norm(d.sql);
+      if (d.key === 'status_drift') {
+        // 这一类反过来：只找“不在册却仍在户”的人
+        expect(s, d.key).toContain(`NOT (${norm(activeSql('p'))})`);
+        continue;
+      }
+      expect(s, d.key).toContain(norm(activeSql('p')));
+    }
+  });
+
+  it('户主异常只统计有在册成员的户——只剩死者的空壳户无人在册，不该催补户主', () => {
+    const s = norm(__diffSpecs.find((d) => d.key === 'head_anomaly')!.sql);
+    // 用 LEFT JOIN 会让“0 个在户成员”的户天然满足 headCount <> 1，全部误报
+    expect(s).not.toMatch(/LEFT\s+JOIN\s+family_member/i);
+    expect(s).toContain(`JOIN person p ON p.id = fm.person_id AND ${norm(activeSql('p'))}`);
+  });
 });
 
 describe('接口判定 与 迁移修复 必须同一口径', () => {
@@ -88,6 +116,14 @@ describe('接口判定 与 迁移修复 必须同一口径', () => {
     expect(migration).toContain('x.n = 1');
     // 计数列必须真的按人分组，否则 x.n 恒为该户成员的条数
     expect(migration).toContain('GROUP BY fm.person_id');
+  });
+
+  it('迁移的修复范围同样限定在册人员——否则新环境会把死者也“修”一遍', () => {
+    const raw = read('src/db/migrations/V029__family_reconcile.sql');
+    // 从行首 UPDATE 切到第一个分号：注释里提到 UPDATE 不算语句
+    const updates = raw.match(/^UPDATE\b[\s\S]*?;/gm) || [];
+    expect(updates).toHaveLength(2);
+    for (const u of updates) expect(norm(u)).toContain("p.status IN ('NORMAL','MOVED_IN')");
   });
 
   it('迁移是纯 DML 且两条 UPDATE 都带条件（可重跑）', () => {

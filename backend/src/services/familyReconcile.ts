@@ -19,6 +19,11 @@
  * - 这里的「在户」只取 `family_member.status = 1`（关联层在户）。人员本身是否在册
  *   **不混进其他分类**，而是单独列为 status_drift —— 否则「关系值不一致」会连带
  *   报出一堆早已过世的人，把真正需要处理的错位淹没掉。
+ * - 反过来，除 status_drift 以外的六类**都必须加在册过滤**（`activeSql`）：
+ *   死亡/迁出的人只改状态不删档案，`person.family_id` 会一直留着，而关联行已在
+ *   迁出/死亡时关闭。少了这层过滤，「有归属却无在户记录」会把**全部死者**报成错位
+ *   （线上实测 72 条全是 DEAD），「户主数不是 1」也会把只剩死者的空壳户全算进来。
+ *   一句话：**非在册人员不是错位，是历史**。
  * - **`family_member` 是权威**，`person.relation` 是它的冗余副本。这与
  *   family.ts / person.ts 现有的写同步方向一致（先写关联表再回写人员表）。
  *   所以能自动修的只有「人员表跟不上关联表」这一类，反向不做。
@@ -60,7 +65,7 @@ const DIFFS: DiffQuery[] = [
   {
     key: 'relation_diff',
     title: '关系值两表不一致',
-    why: '人员在户，但人员档案上的「与户主关系」与家庭成员表不同。人员列表、导出用的是 person，家庭页用的是 family_member，于是同一个人两处显示不同。',
+    why: '在册人员在户，但人员档案上的「与户主关系」与家庭成员表不同。人员列表、导出用的是 person，家庭页用的是 family_member，于是同一个人两处显示不同。',
     autoFixable: true,
     sql: `SELECT p.id AS personId, p.name, p.relation AS personRelation,
                  fm.relation AS memberRelation, fm.family_id AS familyId, f.family_no AS familyNo
@@ -68,57 +73,58 @@ const DIFFS: DiffQuery[] = [
             JOIN family_member fm ON fm.person_id = p.id AND fm.status = 1
             JOIN family f ON f.id = fm.family_id
            WHERE p.family_id = fm.family_id
+             AND ${activeSql('p')}
              AND NOT (p.relation <=> fm.relation)`,
     orderBy: 'p.id',
   },
   {
     key: 'member_without_family',
     title: '在户却没有家庭归属',
-    why: '家庭成员表说他在这一户，但人员档案的 family_id 是空的。表现是家庭页能看见他、人员列表按「未归户」筛却能筛出他。',
+    why: '家庭成员表说他在这一户，但人员档案的 family_id 是空的。表现是家庭页能看见他、人员列表按「未归户」筛却能筛出他。只统计在册人员。',
     autoFixable: true,
     sql: `SELECT p.id AS personId, p.name, p.relation, fm.family_id AS memberFamilyId,
                  f.family_no AS familyNo
             FROM person p
             JOIN family_member fm ON fm.person_id = p.id AND fm.status = 1
             JOIN family f ON f.id = fm.family_id
-           WHERE p.family_id IS NULL`,
+           WHERE p.family_id IS NULL AND ${activeSql('p')}`,
     orderBy: 'p.id',
   },
   {
     key: 'family_without_member',
     title: '有家庭归属却无在户记录',
-    why: '人员档案挂在这一户，但家庭成员表里没有他的在户行。家庭详情里看不到他，家庭人数少算，导出却算上了。',
+    why: '在册人员档案挂在这一户，但家庭成员表里没有他的在户行。家庭详情里看不到他，家庭人数少算，导出却算上了。已死亡/迁出的人不属于此类（他们本来就该关闭关联）。',
     autoFixable: false,
     sql: `SELECT p.id AS personId, p.name, p.family_id AS familyId, p.relation, f.family_no AS familyNo
             FROM person p
             LEFT JOIN family_member fm ON fm.person_id = p.id AND fm.status = 1
             LEFT JOIN family f ON f.id = p.family_id
-           WHERE p.family_id IS NOT NULL AND fm.id IS NULL`,
+           WHERE p.family_id IS NOT NULL AND fm.id IS NULL AND ${activeSql('p')}`,
     orderBy: 'p.id',
   },
   {
     key: 'family_conflict',
     title: '两表指向不同家庭',
-    why: '人员在户于 A 户，档案却挂在 B 户。无论按哪一边统计，另一边都是错的，必须人工确认他到底在哪一户。',
+    why: '在册人员在户于 A 户，档案却挂在 B 户。无论按哪一边统计，另一边都是错的，必须人工确认他到底在哪一户。',
     autoFixable: false,
     sql: `SELECT p.id AS personId, p.name, p.family_id AS personFamilyId,
                  fm.family_id AS memberFamilyId, f2.family_no AS memberFamilyNo
             FROM person p
             JOIN family_member fm ON fm.person_id = p.id AND fm.status = 1
             JOIN family f2 ON f2.id = fm.family_id
-           WHERE p.family_id IS NOT NULL AND fm.family_id <> p.family_id`,
+           WHERE p.family_id IS NOT NULL AND fm.family_id <> p.family_id AND ${activeSql('p')}`,
     orderBy: 'p.id',
   },
   {
     key: 'multi_family',
     title: '一人在多户在户',
-    why: '同一人在两个及以上家庭里都在户，家庭人数会重复计算。多半是并户/拆分时漏了关闭旧关联。',
+    why: '同一在册人员在两个及以上家庭里都在户，家庭人数会重复计算。多半是并户/拆分时漏了关闭旧关联。',
     autoFixable: false,
     sql: `SELECT p.id AS personId, p.name, COUNT(*) AS familyCount,
                  GROUP_CONCAT(DISTINCT fm.family_id) AS familyIds
             FROM family_member fm
             JOIN person p ON p.id = fm.person_id
-           WHERE fm.status = 1
+           WHERE fm.status = 1 AND ${activeSql('p')}
            GROUP BY p.id, p.name
           HAVING COUNT(*) > 1`,
     orderBy: 'familyCount DESC, p.id',
@@ -126,13 +132,14 @@ const DIFFS: DiffQuery[] = [
   {
     key: 'head_anomaly',
     title: '户主数量不是 1',
-    why: '一户没有户主（家庭页显示「—」，导出名单缺户主行）或有两个户主（谁是户主取决于查询顺序）。',
+    why: '有在册成员的户里，户主数量不是 1：没有户主（家庭页显示「—」，导出名单缺户主行）或有两个以上户主（谁是户主取决于查询顺序）。只剩已死亡/迁出人员的空壳户不计入——那种户本就无人在册，不该有人催补户主。',
     autoFixable: false,
     sql: `SELECT f.id AS familyId, f.family_no AS familyNo,
                  COALESCE(SUM(fm.is_householder = 1), 0) AS headCount,
                  COUNT(fm.id) AS memberCount
             FROM family f
-            LEFT JOIN family_member fm ON fm.family_id = f.id AND fm.status = 1
+            JOIN family_member fm ON fm.family_id = f.id AND fm.status = 1
+            JOIN person p ON p.id = fm.person_id AND ${activeSql('p')}
            WHERE f.status = 1
            GROUP BY f.id, f.family_no
           HAVING COALESCE(SUM(fm.is_householder = 1), 0) <> 1`,
