@@ -9,6 +9,7 @@ import { writeAudit } from '../../middleware/audit';
 import { upload, readRows, safeUnlink, WRITE_CHUNK, insertImportErrors } from './shared';
 import { markImportFailed } from '../../services/importTask';
 import { isActiveStatus, parsePersonStatus, PERSON_STATUS_HINT } from '../../utils/personStatus';
+import { normalizeRelation } from '../../utils/relation';
 import { loadPopulationTagDefs, parsePopulationTagCode, type PopulationTagDef } from '../../utils/populationTags';
 
 // ===== 以下内容自 modules/excel.ts 机械搬迁，未改动逻辑 =====
@@ -125,7 +126,9 @@ async function validateImportRow(
       village: row['所属村庄'] || null,
       grid_id: gridId,
       family_id: familyId,
-      relation: row['与户主关系'] ? (row['与户主关系'] === '户主' ? 'HEAD' : row['与户主关系']) : null,
+      // 户籍表里是「妻 / 长女 / 儿媳」这类自然语言，必须收敛成受控枚举，
+      // 否则同一列里混着中文和 HEAD/OTHER 两套写法（曾混入 56% 中文）。
+      relation: normalizeRelation(row['与户主关系']),
       status,
       population_code: populationCode,
     },
@@ -200,8 +203,9 @@ async function linkFamilyMembers(conn: PoolConnection, persons: any[], idByNo: M
     if (!p.family_id) continue;
     const personId = idByNo.get(String(p.person_no));
     if (!personId) continue;
-    // 保留 Excel 中填写的与户主关系（户主 / 妻 / 子 / 女 …）
-    const relation = p.relation || 'OTHER';
+    // 人员档案上存的是已归一的枚举码，这里再兜一次底：
+    // 老的导入批次可能留下中文，重新归户时不该把中文再写回 family_member
+    const relation = normalizeRelation(p.relation) ?? 'OTHER';
     // 迁出/死亡行不能挂成在户成员：家庭成员数与家庭是否在册都按 on-the-fly 口径算，
     // 这里写错会让「家庭详情里有他、人口统计里没有他」同时成立。
     const memberStatus = isActiveStatus(p.status || 'NORMAL') ? 1 : 0;

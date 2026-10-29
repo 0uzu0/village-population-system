@@ -9,6 +9,7 @@ import { formatDate } from '../utils/date';
 import { syncPersonTags } from '../services/personTags';
 import { PERSON_STATUSES, isActiveStatus } from '../utils/personStatus';
 import { pickPopulationTags } from '../utils/populationTags';
+import { normalizeRelation } from '../utils/relation';
 import { z } from 'zod';
 
 const router = Router();
@@ -193,7 +194,9 @@ router.post('/:id/confirm', requirePermission('excel:import'), async (req: Reque
     familyId = f.id;
   }
 
-  const relation = p.relation === '户主' ? 'HEAD' : p.relation || null;
+  // 待核查表里 relation 是「与户主关系原样」留存的（可能是「妻」「长女」），
+  // 转正入档前必须归一到受控枚举，否则中文会顺着这条路又流回人员档案
+  const relation = normalizeRelation(p.relation);
   // 出生日期以身份证为准（年龄口径）：确认入库前已校验身份证合法，优先按证上日期；
   // 证上日期不存在（如 02-30）时才回退到原表登记值。
   // 注意：回退写入 birth_date 时必须用按本地时区取值的 formatDate，不能用 toISOString()

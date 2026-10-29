@@ -214,7 +214,7 @@ import request from '@/api/request';
 import { parseFrom } from '@/utils/nav';
 import { useAuthStore } from '@/stores/auth';
 import { statusLabel, statusTagType } from '@/utils/personStatus';
-import { genderLabel } from '@/utils/format';
+import { genderLabel, relationLabel } from '@/utils/format';
 import TagPill from '@/components/TagPill.vue';
 import StatusChangeDialog from '@/components/StatusChangeDialog.vue';
 
@@ -248,7 +248,6 @@ const back = computed(() => parseFrom(route));
 function goBack() { router.push(back.value.path); }
 
 function statusTag(s?: string): any { return statusTagType(s); }
-function relationLabel(r?: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r || ''] || r || '—'; }
 function linkStatusLabel(s: string) { return { ACTIVE: '生效中', INACTIVE: '已失效', PENDING: '待审核' }[s] || s; }
 /** 发放金额：整数不显示小数位，非整数保留两位（台账金额多为整数） */
 function money(n?: number | null): string {

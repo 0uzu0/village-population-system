@@ -214,7 +214,7 @@
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" /></el-select></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="与户主关系"><el-select v-model="form.relation" clearable style="width: 100%"><el-option v-for="o in RELATION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" /></el-select></el-form-item></el-col>
               <el-col :span="12"><el-form-item label="所属村庄"><el-input v-model="form.village" /></el-form-item></el-col>
               <el-col :span="24"><el-form-item label="户籍地址"><el-input v-model="form.hukouAddress" /></el-form-item></el-col>
               <el-col :span="24"><el-form-item label="居住地址"><el-input v-model="form.liveAddress" /></el-form-item></el-col>
@@ -372,7 +372,7 @@ import { personApi, tagApi, gridApi, excelApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { toPersonDetail } from '@/utils/nav';
 import { STATUS_OPTIONS, statusLabel, statusTagType } from '@/utils/personStatus';
-import { formatTime, genderLabel } from '@/utils/format';
+import { formatTime, genderLabel, RELATION_OPTIONS } from '@/utils/format';
 import { DISABILITY_LEVELS, DISABILITY_TYPES } from '@/utils/disability';
 import { birthFromIdCard, genderFromIdCard } from '@/utils/idcard';
 import { useListUrlSync } from '@/composables/useListUrlSync';

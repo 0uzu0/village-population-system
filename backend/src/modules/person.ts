@@ -8,6 +8,7 @@ import { formatDate, today } from '../utils/date';
 import { genPersonNo } from '../utils/id';
 import { DISABILITY_LEVELS } from '../utils/disability';
 import { PERSON_STATUSES, STATUS_LABELS, isActiveStatus, isInactiveStatus } from '../utils/personStatus';
+import { normalizeRelation } from '../utils/relation';
 import { z } from 'zod';
 import { prepareIdentity, toPersonVO, listQuerySchema, buildPersonListQuery } from '../services/personQuery';
 import { syncPersonTags, resolveTagExclusivity } from '../services/personTags';
@@ -160,7 +161,14 @@ export const personSchema = z.object({
   village: z.string().max(128).nullable().optional(),
   gridId: z.coerce.number().nullable().optional(),
   familyId: z.coerce.number().nullable().optional(),
-  relation: z.string().nullable().optional(),
+  // 与户主关系：网页下拉传枚举码，导入补偿 / MCP 可能传「配偶」「长女」。
+  // 在 schema 这一层收口，三个落库点（person 主表、family_member、import_pending）
+  // 就都不会再各写各的写法
+  relation: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => (v === undefined ? undefined : normalizeRelation(v))),
   /**
    * 必须是合法状态枚举。此前用 z.string() 可写入任意脏值（含 V007 已废弃的
    * CANCELLED），这类值不在在册白名单里，该人会静默从所有人口统计中消失。

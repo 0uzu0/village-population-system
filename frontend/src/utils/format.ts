@@ -29,3 +29,31 @@ export function formatMoney(value?: number | null): string {
     maximumFractionDigits: 2,
   })}`;
 }
+
+/**
+ * 「与户主关系」的受控枚举——**前端唯一来源**。
+ *
+ * 必须与后端 `backend/src/utils/relation.ts` 的 RELATION_CODES 一致：
+ * 后端负责把「妻 / 长女 / 儿媳」这类自然语言（Excel 导入的原始写法）归一成这些码，
+ * 前端只认码、按这张表转中文。此前 3 个页面各自维护一份 5 项映射，
+ * 后端新增「孙辈 / 儿媳女婿 / 兄弟姐妹」后前端会直接显示英文码。
+ */
+export const RELATION_OPTIONS = [
+  { value: 'HEAD', label: '户主' },
+  { value: 'SPOUSE', label: '配偶' },
+  { value: 'CHILD', label: '子女' },
+  { value: 'CHILD_IN_LAW', label: '儿媳女婿' },
+  { value: 'GRANDCHILD', label: '孙辈' },
+  { value: 'PARENT', label: '父母' },
+  { value: 'SIBLING', label: '兄弟姐妹' },
+  { value: 'OTHER', label: '其他' },
+] as const;
+
+/**
+ * 与户主关系 → 中文。未知码原样返回（便于发现后端加了码前端没跟上），
+ * 空值给破折号，不留空白。
+ */
+export function relationLabel(code?: string | null): string {
+  if (!code) return '—';
+  return RELATION_OPTIONS.find((o) => o.value === code)?.label ?? code;
+}

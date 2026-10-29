@@ -7,6 +7,7 @@ import { writeAudit } from '../middleware/audit';
 import { activeFamilySql, activeMemberCountSql } from '../utils/familySql';
 import { memberLeaveReason } from '../utils/familyMembership';
 import { isActiveStatus, STATUS_LABELS } from '../utils/personStatus';
+import { normalizeRelation } from '../utils/relation';
 import { z } from 'zod';
 
 const router = Router();
@@ -204,7 +205,7 @@ router.post('/auto-group', requirePermission('family:manage'), async (req: Reque
 
       for (const m of g.members) {
         const isHead = m.id === head.id;
-        const relation = isHead ? 'HEAD' : m.relation || 'OTHER';
+        const relation = isHead ? 'HEAD' : (normalizeRelation(m.relation) ?? 'OTHER');
         await conn.query(
           `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)
            ON DUPLICATE KEY UPDATE relation = VALUES(relation), is_householder = VALUES(is_householder), status = 1, leave_date = NULL`,
@@ -338,7 +339,12 @@ router.put('/:id', requirePermission('family:manage'), async (req: Request, res:
 
 const memberSchema = z.object({
   personId: z.coerce.number(),
-  relation: z.string().min(1, '与户主关系必填'),
+  // 入口收口在 schema：网页下拉传 HEAD/SPOUSE…，MCP 工具可能传「配偶」「女儿」，
+  // 导入补偿也可能传中文。这里统一归一，下游不必再各自判断
+  relation: z
+    .string()
+    .min(1, '与户主关系必填')
+    .transform((v) => normalizeRelation(v) ?? 'OTHER'),
   isHouseholder: z.coerce.number().min(0).max(1).default(0),
 });
 

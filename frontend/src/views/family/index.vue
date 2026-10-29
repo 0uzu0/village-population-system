@@ -156,8 +156,8 @@
           <el-select v-model="memberForm.personId" placeholder="选择人员" filterable style="flex: 1">
             <el-option v-for="p in persons" :key="p.id" :label="personLabel(p)" :value="p.id" />
           </el-select>
-          <el-select v-model="memberForm.relation" placeholder="关系" style="width: 110px">
-            <el-option label="户主" value="HEAD" /><el-option label="配偶" value="SPOUSE" /><el-option label="子女" value="CHILD" /><el-option label="父母" value="PARENT" /><el-option label="其他" value="OTHER" />
+          <el-select v-model="memberForm.relation" placeholder="关系" style="width: 130px">
+            <el-option v-for="o in RELATION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
           <el-button type="primary" @click="addMember">添加</el-button>
         </div>
@@ -242,6 +242,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { familyApi, gridApi, personApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { isActiveStatus as isActive, statusLabel, type TagType } from '@/utils/personStatus';
+import { relationLabel, RELATION_OPTIONS } from '@/utils/format';
 import { toPersonDetail } from '@/utils/nav';
 
 const route = useRoute();
@@ -296,8 +297,6 @@ async function runAutoGroup() {
     load();
   } finally { autoRunning.value = false; }
 }
-
-function relationLabel(r: string) { return { HEAD: '户主', SPOUSE: '配偶', CHILD: '子女', PARENT: '父母', OTHER: '其他' }[r] || r; }
 
 /** 离户去向：书面语直接给村里看，不要出现 DEAD / REMOVED 这种编码 */
 function leaveReasonLabel(reason: string) {
