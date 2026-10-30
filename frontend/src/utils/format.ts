@@ -57,3 +57,14 @@ export function relationLabel(code?: string | null): string {
   if (!code) return '—';
   return RELATION_OPTIONS.find((o) => o.value === code)?.label ?? code;
 }
+
+/**
+ * HTML 转义——只用于 ElMessageBox 的 `dangerouslyUseHTMLString` 提示。
+ *
+ * 姓名、地址都是村里录进来的自由文本，拼进 HTML 不做转义等于给录入员
+ * 留了一个改页面的口子。纯文本提示（不加 HTML）不需要它。
+ */
+export function escapeHtml(v: unknown): string {
+  const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return String(v ?? '').replace(/[&<>"']/g, (c) => map[c] as string);
+}

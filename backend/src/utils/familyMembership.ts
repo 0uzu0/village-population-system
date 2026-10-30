@@ -73,6 +73,30 @@ export async function markFamilyMemberOnStatusChange(
   );
 }
 
+/**
+ * 把某人加进某个户之前，先关掉他在**其它户**的在册关系。
+ *
+ * 为什么必须做：`family_member` 的唯一键是 (family_id, person_id)，
+ * 同一个人在新户插一条并不冲突，旧户那条仍是 status = 1 —— 人就这样
+ * 同时出现在两个户里，正是对账里「一人在多户」那一类错位。
+ * 旧户那条**不删**，只标离户：原户的「已离户成员」要能查到去向。
+ *
+ * 与状态变更的联动（markFamilyMemberOnStatusChange）不同，这里只有
+ * 「换户」一种语义，所以限定 family_id <> 当前户，不碰本户已有的那条。
+ */
+export async function closeOtherMemberships(
+  db: RowsLike,
+  personId: number,
+  familyId: number,
+  leaveDate: string | null
+): Promise<void> {
+  await db.query(
+    `UPDATE family_member SET status = 0, leave_date = COALESCE(?, CURDATE())
+      WHERE person_id = ? AND family_id <> ? AND status = 1`,
+    [leaveDate, personId, familyId]
+  );
+}
+
 /** 该人员当前（按家庭成员关联，而非 person.family_id）所属的家庭 */
 export async function findPersonFamilyId(db: RowsLike, personId: number): Promise<number | null> {
   const row = rowsOf(
@@ -214,11 +238,7 @@ export async function syncPersonFamilyOnEdit(
     );
     return;
   }
-  await db.query(
-    `UPDATE family_member SET status = 0, leave_date = COALESCE(leave_date, CURDATE())
-      WHERE person_id = ? AND family_id <> ? AND status = 1`,
-    [personId, familyId]
-  );
+  await closeOtherMemberships(db, personId, familyId, null);
 
   // 2) 写入/更新目标家庭的关联（uk_fm 保证一人一户一行）
   const rel = relation || 'OTHER';

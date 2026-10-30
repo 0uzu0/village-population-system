@@ -66,7 +66,21 @@
       <el-form :model="form" label-width="90px">
         <el-form-item label="家庭地址"><el-input v-model="form.address" /></el-form-item>
         <el-form-item label="所属网格"><el-select v-model="form.gridId" filterable clearable style="width: 100%"><el-option v-for="g in grids" :key="g.id" :label="g.name" :value="g.id" /></el-select></el-form-item>
-        <el-form-item label="户主"><el-select v-model="form.headPersonId" filterable clearable style="width: 100%"><el-option v-for="p in persons" :key="p.id" :label="personLabel(p)" :value="p.id" /></el-select></el-form-item>
+        <el-form-item label="户主">
+          <el-select
+            v-model="form.headPersonId"
+            filterable
+            remote
+            reserve-keyword
+            clearable
+            :remote-method="headPicker.search"
+            :loading="headPicker.loading"
+            placeholder="输入姓名 / 身份证 / 手机号搜索"
+            style="width: 100%"
+          >
+            <el-option v-for="p in headPicker.list" :key="p.id" :label="personLabel(p)" :value="p.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -177,13 +191,32 @@
         </template>
 
         <div v-if="auth.hasPermission('family:manage')" class="add-member">
-          <el-select v-model="memberForm.personId" placeholder="选择人员" filterable style="flex: 1">
-            <el-option v-for="p in persons" :key="p.id" :label="personLabel(p)" :value="p.id" />
+          <el-select
+            v-model="memberForm.personId"
+            placeholder="输入姓名 / 身份证 / 手机号，全库检索"
+            filterable
+            remote
+            reserve-keyword
+            clearable
+            :remote-method="memberPicker.search"
+            :loading="memberPicker.loading"
+            style="flex: 1"
+          >
+            <el-option
+              v-for="p in memberPicker.list"
+              :key="p.id"
+              :label="memberOptionLabel(p)"
+              :value="p.id"
+              :disabled="isCurrentMember(p.id)"
+            />
           </el-select>
           <el-select v-model="memberForm.relation" placeholder="关系" style="width: 130px">
             <el-option v-for="o in RELATION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
           <el-button type="primary" @click="addMember">添加</el-button>
+        </div>
+        <div v-if="auth.hasPermission('family:manage')" class="add-note">
+          候选按姓名 / 身份证 / 手机号 / 地址在全库检索，不限本村。若此人已属于其他户，添加后会从原户迁出，原户留一条离户记录。
         </div>
       </div>
     </el-drawer>
@@ -292,7 +325,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { familyApi, gridApi, personApi } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { isActiveStatus as isActive, statusLabel, type TagType } from '@/utils/personStatus';
-import { relationLabel, RELATION_OPTIONS } from '@/utils/format';
+import { relationLabel, RELATION_OPTIONS, escapeHtml } from '@/utils/format';
 import { toPersonDetail } from '@/utils/nav';
 
 const route = useRoute();
@@ -303,7 +336,48 @@ const saving = ref(false);
 const list = ref<any[]>([]);
 const total = ref(0);
 const grids = ref<any[]>([]);
-const persons = ref<any[]>([]);
+
+/**
+ * 人员下拉的远端检索。
+ *
+ * 原先 onMounted 一次性拉 `pageSize: 200` 当候选，全库 7600 多人，那只是 id 最小的
+ * 两百个（北口村 + 仓门口村），于是「添加家庭成员」看起来只能加仓门口的人，
+ * 别的村一个都搜不到。现在改成按关键词到服务端查，姓名/身份证/手机号/地址都命中。
+ *
+ * seq 是防竞态用的：输入快时旧请求可能后到，只认最后一次的结果。
+ */
+function usePersonPicker() {
+  const list = ref<any[]>([]);
+  const loading = ref(false);
+  let seq = 0;
+  async function search(keyword: string) {
+    const kw = (keyword || '').trim();
+    const mine = ++seq;
+    if (!kw) {
+      list.value = [];
+      loading.value = false;
+      return;
+    }
+    loading.value = true;
+    try {
+      const res = await personApi.list({ keyword: kw, pageSize: 30 });
+      if (mine === seq) list.value = res.data.list;
+    } catch {
+      if (mine === seq) list.value = [];
+    } finally {
+      if (mine === seq) loading.value = false;
+    }
+  }
+  function reset() {
+    seq++;
+    list.value = [];
+    loading.value = false;
+  }
+  // reactive 包一层，模板里 memberPicker.list 才会自动解包成数组
+  return reactive({ list, loading, search, reset });
+}
+const memberPicker = usePersonPicker();
+const headPicker = usePersonPicker();
 
 const query = reactive({ page: 1, pageSize: 20, keyword: '', gridId: null as number | null });
 const formVisible = ref(false);
@@ -402,8 +476,23 @@ async function load() {
   } finally { loading.value = false; }
 }
 function doSearch() { query.page = 1; load(); }
-function openCreate() { Object.assign(form, { id: null, address: '', gridId: null, headPersonId: null }); formVisible.value = true; }
-function openEdit(row: any) { Object.assign(form, { id: row.id, address: row.address || '', gridId: row.grid_id, headPersonId: row.head_person_id }); formVisible.value = true; }
+function openCreate() {
+  Object.assign(form, { id: null, address: '', gridId: null, headPersonId: null });
+  headPicker.reset();
+  formVisible.value = true;
+}
+async function openEdit(row: any) {
+  Object.assign(form, { id: row.id, address: row.address || '', gridId: row.grid_id, headPersonId: row.head_person_id });
+  formVisible.value = true;
+  // 户主下拉是远端检索，回填时先按姓名查一次，否则下拉里只剩一个孤零零的 id
+  headPicker.reset();
+  if (form.headPersonId && row.head_name) {
+    await headPicker.search(row.head_name);
+    if (!headPicker.list.some((p: any) => p.id === form.headPersonId)) {
+      headPicker.list.unshift({ id: form.headPersonId, name: row.head_name });
+    }
+  }
+}
 async function saveForm() {
   saving.value = true;
   try {
@@ -445,12 +534,68 @@ async function openDetail(row: any) {
   const res = await familyApi.detail(row.id);
   detail.value = res.data;
   detailVisible.value = true;
+  // 换户了候选池就该清空，否则上一个户搜到的人还挂在下拉里
+  memberForm.personId = null;
+  memberPicker.reset();
+}
+/** 该人是否已在本户（已在本户的不能再加一遍，服务端会直接改关系，容易误操作） */
+function isCurrentMember(personId: number) {
+  return (detail.value?.members || []).some((m: any) => Number(m.person?.id) === Number(personId));
+}
+/** 下拉文案里带上「已在/在其他户」，避免把别人的家庭成员当成游离人口加进来 */
+function memberOptionLabel(p: any) {
+  if (!p) return '';
+  const base = personLabel(p);
+  if (isCurrentMember(p.id)) return `${base}（已在本户）`;
+  return p.familyId ? `${base}（现属 ${p.familyName || '其他户'}）` : base;
+}
+/**
+ * 原户没人当户主了：提示去改选。
+ * 跨户加人把原户主搬走后，原户会挂着一个已离户的户主名（和死亡/迁出同一个毛病）。
+ */
+async function promptVacatedHeads(rows: any[] | undefined) {
+  if (!rows?.length) return;
+  const shown = rows.slice(0, 5);
+  const lines = shown.map((h) => {
+    const cand = h.candidate ? `，建议由 ${escapeHtml(h.candidate.name)}（${escapeHtml(relationLabel(h.candidate.relation))}）接任` : '';
+    return `<li><b>${escapeHtml(h.familyNo || '家庭')}</b>${h.address ? `（${escapeHtml(h.address)}）` : ''}：原户主 ${
+      escapeHtml(h.headName || '—')
+    } 已迁入本户，该户在册 ${Number(h.remaining) || 0} 人${cand}</li>`;
+  });
+  const more = rows.length > shown.length ? `<li>…另有 ${rows.length - shown.length} 户</li>` : '';
+  const html =
+    `<div style="line-height:1.7">这些户现在没有在册户主：` +
+    `<ul style="margin:8px 0 0 18px;padding:0">${lines.join('')}${more}</ul>` +
+    `<div style="margin-top:8px">现在去改选户主吗？</div></div>`;
+  try {
+    await ElMessageBox.confirm(html, `${rows.length} 户户主已离户`, {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '去改选户主',
+      cancelButtonText: '稍后处理',
+      type: 'warning',
+    });
+    router.push(rows.length === 1 ? `/families?familyId=${rows[0].familyId}` : '/families');
+  } catch {
+    /* 用户选「稍后处理」，不打扰 */
+  }
 }
 async function addMember() {
   if (!detail.value || !memberForm.personId) { ElMessage.warning('请选择人员'); return; }
-  await familyApi.addMember(detail.value.id, { personId: memberForm.personId, relation: memberForm.relation });
+  const picked = memberPicker.list.find((p: any) => p.id === memberForm.personId);
+  if (picked?.familyId && Number(picked.familyId) !== Number(detail.value.id)) {
+    try {
+      await ElMessageBox.confirm(
+        `${picked.name} 现属于家庭 ${picked.familyName || picked.familyId}，添加后会从原户迁出（原户保留一条离户记录）。是否继续？`,
+        '跨户添加确认',
+        { type: 'warning', confirmButtonText: '确定迁入', cancelButtonText: '取消' }
+      );
+    } catch { return; }
+  }
+  const res = await familyApi.addMember(detail.value.id, { personId: memberForm.personId, relation: memberForm.relation });
   ElMessage.success('成员已添加');
-  openDetail({ id: detail.value.id });
+  await openDetail({ id: detail.value.id });
+  load();
+  await promptVacatedHeads(res?.data?.headVacated);
 }
 async function removeMember(memberId: number) {
   if (!detail.value) return;
@@ -461,12 +606,9 @@ async function removeMember(memberId: number) {
 
 onMounted(async () => {
   load();
-  const [g, p] = await Promise.all([
-    gridApi.list({ pageSize: 100 }),
-    personApi.list({ pageSize: 200 }),
-  ]);
+  // 人员不再预取：候选改为下拉里按关键词远程检索（见 usePersonPicker）
+  const g = await gridApi.list({ pageSize: 100 });
   grids.value = g.data.list;
-  persons.value = p.data.list;
   // 从「户主已离户」提示跳过来的：?familyId=123 直接打开该户详情，
   // 否则用户落到列表里还得自己搜编号，提示等于没给出口
   const fid = Number(route.query.familyId);
@@ -491,5 +633,6 @@ onMounted(async () => {
 .sub-note { font-size: var(--font-size-xs); font-weight: 400; color: var(--color-text-secondary); margin-left: 6px; }
 .former-table { opacity: 0.92; }
 .add-member { display: flex; gap: 8px; margin-top: 8px; }
+.add-note { margin-top: 6px; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
 .head-note { margin-top: 10px; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
 </style>

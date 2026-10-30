@@ -129,9 +129,11 @@ describe('前端入口', () => {
   it('状态变更成功后处理 headVacated 并给出改选入口', () => {
     expect(dialog).toContain('headVacated');
     expect(dialog).toContain('去改选户主');
-    // 拼 HTML 必须转义库里的姓名/地址
+    // 拼 HTML 必须转义库里的姓名/地址；转义实现统一放在 utils/format.ts，
+    // 弹窗里自己再写一份就是两份实现，改一处漏一处
     expect(dialog).toContain('dangerouslyUseHTMLString');
-    expect(dialog).toMatch(/function esc\(/);
+    expect(dialog).toMatch(/import \{[^}]*escapeHtml[^}]*\} from '@\/utils\/format'/);
+    expect(read('../frontend/src/utils/format.ts')).toMatch(/export function escapeHtml\(/);
   });
 
   it('家庭页支持 ?familyId= 直达，并提供改选户主对话框', () => {

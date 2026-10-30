@@ -57,7 +57,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { personApi } from '@/api';
-import { relationLabel } from '@/utils/format';
+import { relationLabel, escapeHtml } from '@/utils/format';
 import {
   PERSON_STATUSES,
   statusLabel,
@@ -112,11 +112,6 @@ watch(
  * 提示语里的姓名/地址来自数据库，拼进 HTML 前必须转义。
  * ElMessageBox 的 dangerouslyUseHTMLString 不转义就等于把库里的字符串当模板执行。
  */
-function esc(v: unknown) {
-  const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-  return String(v ?? '').replace(/[&<>"']/g, (c) => map[c] as string);
-}
-
 /**
  * 户主离户提示。
  *
@@ -130,11 +125,11 @@ async function promptVacatedHeads(rows: any[]) {
   if (!rows?.length) return;
   const shown = rows.slice(0, 5);
   const lines = shown.map((h) => {
-    const who = h.headName ? `户主 ${esc(h.headName)} ` : '户主';
+    const who = h.headName ? `户主 ${escapeHtml(h.headName)} ` : '户主';
     const cand = h.candidate
-      ? `，建议由 ${esc(h.candidate.name)}（${esc(relationLabel(h.candidate.relation))}）接任`
+      ? `，建议由 ${escapeHtml(h.candidate.name)}（${escapeHtml(relationLabel(h.candidate.relation))}）接任`
       : '';
-    return `<li><b>${esc(h.familyNo || '家庭')}</b>${h.address ? `（${esc(h.address)}）` : ''}：${who}已离户，在册 ${
+    return `<li><b>${escapeHtml(h.familyNo || '家庭')}</b>${h.address ? `（${escapeHtml(h.address)}）` : ''}：${who}已离户，在册 ${
       Number(h.remaining) || 0
     } 人${cand}</li>`;
   });

@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import {
   memberLeaveReason,
   markFamilyMemberOnStatusChange,
@@ -9,6 +11,7 @@ import {
   syncFamilyMemberOnStatusChange,
   syncPersonFamilyOnEdit,
   updateMemberRelation,
+  closeOtherMemberships,
 } from '../src/utils/familyMembership';
 
 interface Call {
@@ -174,7 +177,8 @@ describe('编辑人员时的家庭归属同步', () => {
     const leave = calls.find((c) => c.sql.startsWith('UPDATE family_member') && c.sql.includes('family_id <> ?'))!;
     expect(leave).toBeTruthy();
     expect(leave.sql).toContain('SET status = 0');
-    expect(leave.params).toEqual([7, 9]);
+    // 与「加成员」共用 closeOtherMemberships：签名是 (leaveDate, personId, familyId)
+    expect(leave.params).toEqual([null, 7, 9]);
 
     const ins = calls.find((c) => c.sql.startsWith('INSERT INTO family_member'))!;
     expect(ins).toBeTruthy();
@@ -224,5 +228,52 @@ describe('编辑人员时的家庭归属同步', () => {
     const head = calls.find((c) => c.sql.includes('UPDATE family SET head_person_id'))!;
     expect(head).toBeTruthy();
     expect(head.params).toEqual([7, 7]);
+  });
+});
+
+/**
+ * 换户：把某人加进另一个户时，必须先关掉他在原户的在册关系。
+ *
+ * 唯一键是 (family_id, person_id)，在新户插一条并不冲突，原户那条仍 status = 1，
+ * 人就会同时出现在两个户里（对账的「一人在多户」）。这条是那个前置动作的守卫。
+ */
+describe('closeOtherMemberships（换户前关闭原户关系）', () => {
+  it('只关其它户的在册行，不碰本户；留离户日期，不删行', async () => {
+    const { db, calls } = makeDb();
+    await closeOtherMemberships(db, 7, 9, '2026-10-30');
+    expect(calls).toHaveLength(1);
+    const { sql, params } = calls[0];
+    expect(sql).toContain('UPDATE family_member');
+    expect(sql).toContain('SET status = 0');
+    expect(sql).toContain('leave_date = COALESCE(?, CURDATE())');
+    expect(sql).toContain('person_id = ?');
+    expect(sql).toContain('family_id <> ?');
+    expect(sql).toContain('AND status = 1');
+    expect(sql).not.toContain('DELETE');
+    expect(params).toEqual(['2026-10-30', 7, 9]);
+  });
+
+  it('没有生效日期时退回数据库当天（与状态变更同一口径）', async () => {
+    const { db, calls } = makeDb();
+    await closeOtherMemberships(db, 7, 9, null);
+    expect(calls[0].params[0]).toBeNull();
+  });
+});
+
+/**
+ * 路由层守卫：光有函数不算修好，得证明接口真的先调了它。
+ * （这个项目踩过「工具函数写完了没人调用」，单测全绿但线上照旧。）
+ */
+describe('POST /families/:id/members 的调用顺序', () => {
+  it('先关闭其它户的在册关系，再插入本户成员', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '../src/modules/family.ts'), 'utf8');
+    const start = src.indexOf("router.post('/:id/members'");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf('\n});', start));
+    const close = body.indexOf('closeOtherMemberships(conn');
+    const insert = body.indexOf('INSERT INTO family_member');
+    expect(close).toBeGreaterThan(-1);
+    expect(insert).toBeGreaterThan(-1);
+    expect(close).toBeLessThan(insert);
   });
 });

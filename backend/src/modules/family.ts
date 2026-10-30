@@ -5,7 +5,13 @@ import { requirePermission } from '../middleware/rbac';
 import { ok, okPage, AppError, PageResult } from '../utils/response';
 import { writeAudit } from '../middleware/audit';
 import { activeFamilySql, activeMemberCountSql } from '../utils/familySql';
-import { memberLeaveReason } from '../utils/familyMembership';
+import {
+  closeOtherMemberships,
+  findVacatedHeads,
+  memberLeaveReason,
+  type VacatedHeadFamily,
+} from '../utils/familyMembership';
+import { today } from '../utils/date';
 import { isActiveStatus, STATUS_LABELS } from '../utils/personStatus';
 import { normalizeRelation } from '../utils/relation';
 import { reconcileFamily } from '../services/familyReconcile';
@@ -386,7 +392,10 @@ router.post('/:id/members', requirePermission('family:manage'), async (req: Requ
   const { personId, relation, isHouseholder } = memberSchema.parse(req.body);
   await assertActivePerson(personId, 'MEMBER');
 
-  await withTransaction(async (conn) => {
+  const vacated: VacatedHeadFamily[] = await withTransaction(async (conn) => {
+    // 换户：先关掉此人在其它户的在册关系。
+    // 漏了这一步，新户插一条、旧户那条仍 status=1，同一人同时挂在两个户下（对账「一人在多户」）。
+    await closeOtherMemberships(conn, personId, fid, today());
     await conn.query(
       `INSERT INTO family_member (family_id, person_id, relation, is_householder) VALUES (?,?,?,?)
        ON DUPLICATE KEY UPDATE relation = VALUES(relation), is_householder = VALUES(is_householder), status = 1, leave_date = NULL`,
@@ -396,8 +405,11 @@ router.post('/:id/members', requirePermission('family:manage'), async (req: Requ
     if (isHouseholder) {
       await conn.query('UPDATE family SET head_person_id = ? WHERE id = ?', [personId, fid]);
     }
+    // 被搬走的人如果原来是原户的户主，原户现在就没人当户主了，一并报给前端提示改选。
+    // 排除本户：isHouseholder=true 时新户的 head 就是他本人，那不是「离户」。
+    return (await findVacatedHeads(conn, [personId])).filter((h) => h.familyId !== fid);
   });
-  return ok(res, null, '成员已添加');
+  return ok(res, { headVacated: vacated, headVacatedCount: vacated.length }, '成员已添加');
 });
 
 /** 删除家庭（物理删除，事务内清理成员关系；成员人员档案保留，仅解除归属） */
