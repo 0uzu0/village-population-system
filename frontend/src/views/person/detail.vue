@@ -41,7 +41,12 @@
       <div class="vp-card">
         <div class="card-title">家庭与居住信息</div>
         <el-descriptions :column="3" border>
-          <el-descriptions-item label="所属家庭">{{ person?.familyName || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="所属家庭">
+            <el-link v-if="person?.familyId" type="primary" :underline="false" @click="openFamily">
+              {{ person.familyName || '查看家庭' }}
+            </el-link>
+            <span v-else>—</span>
+          </el-descriptions-item>
           <el-descriptions-item label="与户主关系">{{ relationLabel(person?.relation) }}</el-descriptions-item>
           <el-descriptions-item label="所属网格">{{ person?.gridName || '—' }}</el-descriptions-item>
           <el-descriptions-item label="所属村庄">{{ person?.village || '—' }}</el-descriptions-item>
@@ -246,6 +251,17 @@ const canRemovePhoto = computed(
 /** 来源页：从人口档案/重点人群等页面进来，返回时原样退回（含筛选条件） */
 const back = computed(() => parseFrom(route));
 function goBack() { router.push(back.value.path); }
+
+/**
+ * 家庭编号可点：跳到家庭页并直接打开这一户的详情抽屉。
+ * 家庭页读 ?familyId=（onMounted 里 openDetail），不带上这个参数，
+ * 用户落在一堆户号里还得自己搜一遍编号，等于没跳。
+ */
+function openFamily() {
+  const fid = Number(person.value?.familyId);
+  if (!Number.isInteger(fid) || fid <= 0) return;
+  router.push({ path: '/families', query: { familyId: fid } });
+}
 
 function statusTag(s?: string): any { return statusTagType(s); }
 function linkStatusLabel(s: string) { return { ACTIVE: '生效中', INACTIVE: '已失效', PENDING: '待审核' }[s] || s; }
