@@ -12,16 +12,33 @@ package com.village.population.util
  */
 object PersonText {
 
-    /** 与户主关系的编码 → 中文，顺序即下拉框顺序（与 PC 的 el-option 一致） */
+    /**
+     * 与户主关系的编码 → 中文，顺序即下拉框顺序（与 PC 的 `utils/format.ts` RELATION_OPTIONS 一致）。
+     *
+     * ⚠️ 必须是**八项**。这里原先只有五项（少了儿媳女婿 / 孙辈 / 兄弟姐妹），
+     * 而 V028 迁移已经把存量数据全部归一到了这八个码上——少一项的后果不是留空，
+     * 而是把 `GRANDCHILD` 这样的编码原样贴到界面上（见 [relation] 的 passthrough）。
+     */
     val RELATIONS: List<Pair<String, String>> = listOf(
         "HEAD" to "户主",
         "SPOUSE" to "配偶",
         "CHILD" to "子女",
+        "CHILD_IN_LAW" to "儿媳女婿",
+        "GRANDCHILD" to "孙辈",
         "PARENT" to "父母",
+        "SIBLING" to "兄弟姐妹",
         "OTHER" to "其他",
     )
 
     private val RELATION_MAP: Map<String, String> = RELATIONS.toMap()
+
+    /** 性别编码 → 中文。空值返回空串，未知值原样返回（与 relation 同一原则） */
+    fun gender(code: String?): String = when (code?.trim()?.uppercase()) {
+        "MALE" -> "男"
+        "FEMALE" -> "女"
+        null -> ""
+        else -> code.trim()
+    }
 
     /**
      * 与户主关系。

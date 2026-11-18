@@ -307,6 +307,10 @@ fun AppRoot() {
                             onBack = { navController.popBackStack() },
                             onEdit = { navController.navigate(Routes.personEdit(personId)) },
                             onCapture = { navController.navigate(Routes.capture(personId)) },
+                            // 同户成员互相切换：同一个路由换个参数，返回键仍退回上一个人
+                            onOpenPerson = { id ->
+                                if (id != personId) navController.navigate(Routes.personDetail(id))
+                            },
                         )
                     }
                 }

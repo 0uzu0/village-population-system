@@ -24,7 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Phone
@@ -59,8 +61,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.village.population.data.remote.dto.FamilyDetailDto
+import com.village.population.data.remote.dto.FamilyMemberDto
 import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.PersonDto
+import com.village.population.data.repository.FamilyRepository
 import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.PersonRepository
 import kotlinx.coroutines.CancellationException
@@ -104,10 +109,13 @@ data class PersonDetailUiState(
     val photosLoading: Boolean = false,
     /** 正在放大查看的那张（null = 没在看） */
     val viewing: FileDto? = null,
+    /** 同户成员所在的那个户；未归户或没权限时为 null，此时家庭卡只显示原有的两行 */
+    val family: FamilyDetailDto? = null,
 )
 
 class PersonDetailViewModel(
     private val repo: PersonRepository,
+    private val families: FamilyRepository,
     private val files: FileRepository,
     private val personId: Int,
 ) : ViewModel() {
@@ -128,9 +136,29 @@ class PersonDetailViewModel(
                         savedAt = result.savedAt,
                     )
                 }
+                loadFamily(result.value.familyId)
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = e.toUserMessage()) }
             }
+        }
+    }
+
+    /**
+     * 同户成员。
+     *
+     * **失败必须静默**：这个卡片是「顺带看一眼」的信息，
+     * 没有 family:view 权限、或者断网且没缓存过，都不该让整页变成错误页——
+     * 人物档案本身仍然是要看的。所以这里不用 try/catch 往外抛，直接丢掉。
+     */
+    private fun loadFamily(familyId: Int?) {
+        if (familyId == null || familyId <= 0) {
+            _state.update { it.copy(family = null) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { families.detail(familyId) }
+                .onSuccess { result -> _state.update { it.copy(family = result.value) } }
+                .onFailure { _state.update { it.copy(family = null) } }
         }
     }
 
@@ -183,12 +211,14 @@ fun PersonDetailScreen(
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onCapture: () -> Unit,
+    /** 点同户成员切到那个人：入户时「这家还有谁」是连着的，不该退出重搜 */
+    onOpenPerson: (Int) -> Unit,
 ) {
     val context = LocalContext.current
     val tokens = AppTheme.tokens
     val container = LocalAppContainer.current
     val vm: PersonDetailViewModel = com.village.population.ui.containerViewModel {
-        PersonDetailViewModel(it.personRepository, it.fileRepository, personId)
+        PersonDetailViewModel(it.personRepository, it.familyRepository, it.fileRepository, personId)
     }
     val state by vm.state.collectAsStateWithLifecycle()
 
@@ -453,12 +483,34 @@ fun PersonDetailScreen(
 
                 // 「与户主关系」只出现在家庭这一处。原先「户籍与居住」也重复列了一行，
                 // 同一个值在两处出现，改了其中一个字段会让人怀疑另一个怎么没变。
-                SectionCard(title = "家庭") {
+                //
+                // 同户成员（2026-11 加）：入户时站在门口最想知道的就是「这户还有谁」。
+                // 以前要退出去按地址重新搜，或者凭记忆翻户籍地址——现在直接列在这里，
+                // 点名字就切到那个人。只有自己一个人的户不展开，避免一行废话。
+                val family = state.family
+                val household = family?.members.orEmpty()
+                SectionCard(title = if (household.size > 1) "家庭（${household.size} 人）" else "家庭") {
                     InfoRows(
                         InfoEntry("所属家庭", person.familyName),
                         InfoEntry("与户主关系", PersonText.relation(person.relation)),
                         dense = true
                     )
+                    if (household.size > 1) {
+                        AppDivider(Modifier.padding(vertical = 10.dp))
+                        Text(
+                            "同户成员",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.ink3,
+                            modifier = Modifier.padding(bottom = 2.dp),
+                        )
+                        household.forEach { member ->
+                            HouseholdRow(
+                                member = member,
+                                isSelf = member.person.id == person.id,
+                                onClick = { onOpenPerson(member.person.id) },
+                            )
+                        }
+                    }
                 }
 
                 // 「重点人群」这一块 2026-10 按需求整块删掉：
@@ -805,5 +857,84 @@ private fun statusTag(status: String): Pair<String, androidx.compose.ui.graphics
         "NORMAL", "MOVED_IN" -> "在册" to tokens.green
         "DEAD" -> "已死亡" to tokens.red
         else -> "已迁出" to tokens.ink3
+    }
+}
+
+/**
+ * 同户成员一行。
+ *
+ * 本人那一行**不可点**（点了就是原地重进一个详情页，白涨一层返回栈），
+ * 但仍要显示——它交代了「我在这一户里是谁的什么人」，
+ * 少了它，剩下的人就不知道跟谁对应。
+ *
+ * 副行写「性别 · 年龄 · 在册状态」而不是身份证：入户核对时先看是不是那个老太太，
+ * 号码是下一步的事（详情点进去就有完整号码）。
+ */
+@Composable
+private fun HouseholdRow(
+    member: FamilyMemberDto,
+    isSelf: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = AppTheme.tokens
+    val p = member.person
+    val age = DateText.ageOf(p.birthDate)
+    val (statusLabel, statusColor) = statusTag(p.status)
+    val sub = listOfNotNull(
+        PersonText.gender(p.gender).takeIf { it.isNotBlank() },
+        age?.let { "$it 岁" },
+    ).joinToString(" · ")
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(AppShapes.control))
+            .clickableNoRipple(!isSelf, onClick)
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    p.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelf) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    PersonText.relation(member.relation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.ink2,
+                )
+                if (member.isHouseholder) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "户主",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.brandStrong,
+                        modifier = Modifier
+                            .background(tokens.brandLight, RoundedCornerShape(AppShapes.chip))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+                if (isSelf) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("本人", style = MaterialTheme.typography.bodySmall, color = tokens.ink3)
+                }
+            }
+            Text(
+                listOf(sub, statusLabel).filter { it.isNotBlank() }.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor,
+            )
+        }
+        if (!isSelf) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = tokens.ink3,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }

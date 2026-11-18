@@ -13,6 +13,8 @@ import com.village.population.data.remote.dto.AddTagRequest
 import com.village.population.data.remote.dto.PageData
 import com.village.population.data.remote.dto.PersonCreateRequest
 import com.village.population.data.remote.dto.PersonDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.IOException
 
@@ -28,22 +30,28 @@ class PersonRepository(
     private val exec: ApiExecutor,
     private val cache: JsonCache,
     private val queue: OfflineQueue,
+    /** 全量名单：有网时同步，断网时列表与详情都靠它救场 */
+    private val index: PersonIndex,
     private val json: Json = com.village.population.data.remote.AppJson,
 ) {
 
     /**
      * 人员列表。
-     * 有网走接口并顺手写缓存；**只有网络层失败**才降级到缓存，
+     * 有网走接口并顺手写缓存；**只有网络层失败**才降级，
      * 业务错误（如无权限 403）该报就报——拿旧数据掩盖权限问题会让人以为系统坏了。
+     *
+     * 降级顺序：同条件的页缓存 → 全量索引本地筛选 → 抛原异常。
+     * 中间那一层是这次补的：缓存只存「翻过的页」，换关键词就没了，
+     * 而现场搜人恰恰是换关键词的场景。
      */
-    suspend fun list(query: PersonQuery): Cached<PageData<PersonDto>> =
-        try {
+    suspend fun list(query: PersonQuery): Cached<PageData<PersonDto>> {
+        return try {
             val page = exec.page {
                 api.persons(
                     page = query.page,
                     pageSize = query.pageSize,
                     keyword = query.keyword.takeIf { it.isNotBlank() },
-                    village = query.village?.takeIf { it.isNotBlank() },
+                    villages = query.village?.takeIf { it.isNotBlank() },
                     gridId = query.gridId,
                     gender = query.gender?.takeIf { it.isNotBlank() },
                     status = query.status?.takeIf { it.isNotBlank() },
@@ -59,22 +67,89 @@ class PersonRepository(
         } catch (e: ApiException) {
             throw e
         } catch (e: IOException) {
-            val hit = cache.get<PageData<PersonDto>>(query.cacheKey) ?: throw e
-            Cached(hit.value, fromCache = true, savedAt = hit.savedAt)
+            val hit = cache.get<PageData<PersonDto>>(query.cacheKey)
+            if (hit != null) {
+                Cached(hit.value, fromCache = true, savedAt = hit.savedAt)
+            } else {
+                // 解析 5MB 主文件要在 IO 线程上做，不能挂在调用方（主线程）上
+                val local = withContext(Dispatchers.IO) { index.query(query) } ?: throw e
+                Cached(local, fromCache = true, savedAt = index.savedAt)
+            }
         }
+    }
 
-    /** 人员详情。看过的详情会留在本机，下次没信号也能点开 */
-    suspend fun detail(id: Int): Cached<PersonDto> =
-        try {
+    /** 人员详情。看过的详情会留在本机，其次查全量索引——没看过的也能断网打开 */
+    suspend fun detail(id: Int): Cached<PersonDto> {
+        return try {
             val person = exec.data { api.person(id) }
             cache.put(detailKey(id), person)
             Cached(person)
         } catch (e: ApiException) {
             throw e
         } catch (e: IOException) {
-            val hit = cache.get<PersonDto>(detailKey(id)) ?: throw e
-            Cached(hit.value, fromCache = true, savedAt = hit.savedAt)
+            val hit = cache.get<PersonDto>(detailKey(id))
+            if (hit != null) {
+                Cached(hit.value, fromCache = true, savedAt = hit.savedAt)
+            } else {
+                val local = withContext(Dispatchers.IO) { index.byId(id) } ?: throw e
+                Cached(local, fromCache = true, savedAt = index.savedAt)
+            }
         }
+    }
+
+    /**
+     * 下载全量人员名单到本机。
+     *
+     * 一次 200 条（后端 pageSize 上限），7600 人大约 39 个来回。**只有全部成功才落盘**：
+     * 中途断网就写进去的话，会得到一份「缺了几个村」的名单，比没有更危险——
+     * 现场搜不到人，会以为这个人不在村里。
+     *
+     * @param onProgress 已下载条数，用于界面上的进度文案
+     */
+    suspend fun syncIndex(onProgress: (Int) -> Unit = {}): Int = withContext(Dispatchers.IO) {
+        val all = mutableListOf<PersonDto>()
+        var page = 1
+        while (true) {
+            // activeOnly=false：死亡/迁出的历史档案也要能查，现场核对时经常需要
+            val res = exec.page {
+                api.persons(
+                    page = page,
+                    pageSize = SYNC_PAGE_SIZE,
+                    activeOnly = "false",
+                    sortBy = "id",
+                    sortOrder = "asc",
+                )
+            }
+            all += res.list
+            onProgress(all.size)
+            if (res.list.isEmpty() || res.list.size < SYNC_PAGE_SIZE || all.size >= res.total) break
+            page++
+        }
+        index.save(all)
+        all.size
+    }
+
+    /** 本地名单已缓存的人数；0 = 还没下载过 */
+    val indexCount: Int get() = index.size
+
+    /** 本地名单的同步时间；0 = 从未同步 */
+    val indexSavedAt: Long get() = index.savedAt
+
+    fun indexIsStale(): Boolean = index.isStale()
+
+    /**
+     * 名单过期就静默刷新一次。
+     *
+     * **只刷已经下载过的**：首次下载 7600 人要走 39 个来回、几 MB 流量，
+     * 必须由用户在「我的 → 离线名单」里显式点一次；之后每天自动续一次是合理的。
+     *
+     * @return 是否真的发起了刷新（用于测试与界面判断，不关心可不接）
+     */
+    suspend fun refreshIndexIfStale(): Boolean = withContext(Dispatchers.IO) {
+        if (index.isEmpty() || !index.isStale()) return@withContext false
+        syncIndex()
+        true
+    }
 
     /**
      * 新增人员。
@@ -154,4 +229,9 @@ class PersonRepository(
     }
 
     private fun detailKey(id: Int) = "person:$id"
+
+    private companion object {
+        /** 与后端 `/persons` 的 pageSize 上限（200）对齐，再多会被 zod 拒掉 */
+        const val SYNC_PAGE_SIZE = 200
+    }
 }

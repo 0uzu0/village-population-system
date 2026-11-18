@@ -6,6 +6,7 @@ import com.village.population.data.remote.dto.BatchIdsRequest
 import com.village.population.data.remote.dto.ChangePasswordRequest
 import com.village.population.data.remote.dto.ChangePasswordResponse
 import com.village.population.data.remote.dto.DashboardDto
+import com.village.population.data.remote.dto.FamilyDetailDto
 import com.village.population.data.remote.dto.FileDto
 import com.village.population.data.remote.dto.LoginRequest
 import com.village.population.data.remote.dto.LoginResponse
@@ -63,7 +64,12 @@ interface ApiService {
         @Query("page") page: Int,
         @Query("pageSize") pageSize: Int,
         @Query("keyword") keyword: String? = null,
-        @Query("village") village: String? = null,
+        /**
+         * 后端参数名是**复数** `villages`（逗号分隔，SQL 里是 `p.village IN (...)`）。
+         * 这里原先写成单数 `village`，zod 的 object 会把未知键直接丢掉、不报错，
+         * 于是「按村庄筛选」在手机上一直是**静默无效**的：选了村，返回的还是全量。
+         */
+        @Query("villages") villages: String? = null,
         @Query("gridId") gridId: Int? = null,
         @Query("gender") gender: String? = null,
         @Query("status") status: String? = null,
@@ -79,6 +85,14 @@ interface ApiService {
 
     @GET("api/persons/{id}")
     suspend fun person(@Path("id") id: Int): ApiEnvelope<PersonDto>
+
+    /**
+     * 家庭详情（含在户成员）。
+     * 人员详情里的「同户成员」用它——入户时看「这一家还有谁」是高频动作，
+     * 而要人退出去重新按地址搜索等于没做。
+     */
+    @GET("api/families/{id}")
+    suspend fun family(@Path("id") id: Int): ApiEnvelope<FamilyDetailDto>
 
     /**
      * 新增人员。

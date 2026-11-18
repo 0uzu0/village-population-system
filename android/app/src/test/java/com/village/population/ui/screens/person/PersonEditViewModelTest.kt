@@ -6,6 +6,7 @@ import com.village.population.data.remote.ApiExecutor
 import com.village.population.data.remote.ApiService
 import com.village.population.data.remote.AppJson
 import com.village.population.data.repository.MetaRepository
+import com.village.population.data.repository.PersonIndex
 import com.village.population.data.repository.PersonRepository
 import com.village.population.data.repository.SubmitResult
 import kotlinx.coroutines.Dispatchers
@@ -99,7 +100,7 @@ class PersonEditViewModelTest {
         val exec = ApiExecutor(json) { }
         val cache = JsonCache(File(root, "cache"), json)
         val queue = OfflineQueue(File(root, "offline"), json)
-        personRepo = PersonRepository(api, exec, cache, queue, json)
+        personRepo = PersonRepository(api, exec, cache, queue, PersonIndex(cache), json)
         metaRepo = MetaRepository(api, exec, cache, queue, json)
     }
 

@@ -104,7 +104,30 @@ data class PersonListUiState(
     val hasUserFilter: Boolean
         get() = !query.activeOnly || query.village != null || query.keyword.isNotBlank() ||
             query.tagIds.isNotEmpty() || query.minAge != null || query.maxAge != null ||
+            !query.gender.isNullOrBlank() || !query.status.isNullOrBlank() ||
             filterLabel != null
+
+    /**
+     * 当前状态筛选。三个可选值互相排斥，所以从 query 反推而不是另存一份状态——
+     * 另存就会出现「查询条件改回来了、chip 还亮着」的不一致。
+     */
+    val statusFilter: StatusFilter
+        get() = StatusFilter.entries.firstOrNull { it.status == query.status && it.activeOnly == query.activeOnly }
+            ?: StatusFilter.ACTIVE
+}
+
+/**
+ * 状态筛选：默认只看在册。
+ *
+ * 原来这里是一颗「仅看在册」开关，只能表达「在册 / 全部」两态；
+ * 而现场真正要查的是「这个人是不是已经死了」「迁走到哪去了」——
+ * 死亡与迁出是两种完全不同的去向，混在一个「全部」里查不出结论。
+ */
+enum class StatusFilter(val label: String, val status: String?, val activeOnly: Boolean) {
+    ACTIVE("在册", null, true),
+    DEAD("已死亡", "DEAD", true),
+    MOVED_OUT("已迁出", "MOVED_OUT", true),
+    ALL("全部状态", null, false),
 }
 
 class PersonListViewModel(
@@ -130,8 +153,23 @@ class PersonListViewModel(
 
     fun search() = load()
 
-    fun toggleActiveOnly() {
-        _state.update { it.copy(query = it.query.copy(activeOnly = !it.query.activeOnly, page = 1)) }
+    /**
+     * 状态筛选。传 status 时后端以它为准、activeOnly 不再生效（这一点与 PC 端同一口径），
+     * 所以「已死亡 / 已迁出」只需要设 status，「在册 / 全部」才动 activeOnly。
+     */
+    fun onStatus(filter: StatusFilter) {
+        _state.update { it.copy(query = it.query.copy(status = filter.status, activeOnly = filter.activeOnly, page = 1)) }
+        load()
+    }
+
+    fun onGender(value: String?) {
+        _state.update { it.copy(query = it.query.copy(gender = value, page = 1)) }
+        load()
+    }
+
+    /** 年龄段：minAge / maxAge 都是闭区间，且可以只给一边 */
+    fun onAgeRange(minAge: Int?, maxAge: Int?) {
+        _state.update { it.copy(query = it.query.copy(minAge = minAge, maxAge = maxAge, page = 1)) }
         load()
     }
 
@@ -182,9 +220,25 @@ class PersonListViewModel(
                         savedAt = page.savedAt,
                     )
                 }
+                // 名单太旧就顺手在后台刷新一遍，下次进村前不用记着手动点。
+                // 首次下载不在此列（见 PersonRepository.refreshIndexIfStale 的说明）。
+                if (!page.fromCache) refreshIndex()
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, loadingMore = false, error = e.toUserMessage()) }
             }
+        }
+    }
+
+    /**
+     * 静默刷新本地名单。
+     *
+     * 必须 runCatching 兜住：viewModelScope 没有 CoroutineExceptionHandler，
+     * 这里一旦抛出（Auth 过期、服务端 5xx），整个 App 会直接进程级闪退。
+     * 失败就算了——名单旧一天不影响查人，下次加载还会再试。
+     */
+    private fun refreshIndex() {
+        viewModelScope.launch {
+            runCatching { repo.refreshIndexIfStale() }
         }
     }
 
@@ -255,6 +309,10 @@ fun PersonListScreen(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var villagePickerOpen by remember { mutableStateOf(false) }
+    // 状态 / 性别 / 年龄三个筛选各自一个弹窗入口
+    var statusPickerOpen by remember { mutableStateOf(false) }
+    var genderPickerOpen by remember { mutableStateOf(false) }
+    var agePickerOpen by remember { mutableStateOf(false) }
     // rememberLazyListState 内部是 rememberSaveable：从详情返回时 NavHost 会按
     // 目的地恢复保存态，滚动位置跟着回来。少了它，每次重组都是从第 0 项开始。
     val listState = rememberLazyListState()
@@ -338,12 +396,37 @@ fun PersonListScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // 状态：默认「在册」，可切到已死亡 / 已迁出 / 全部。
+                    // 选中时跟一枚对勾（设计稿 .chip.on 里的 check）：
+                    // 「已选上」这件事不能只靠底色——色弱用户在户外更认形状
                     AppChip(
-                        text = "仅看在册",
-                        selected = state.query.activeOnly,
-                        onClick = { vm.toggleActiveOnly() },
-                        // 选中时跟一枚对勾（设计稿 .chip.on 里的 check）：
-                        // 「已选上」这件事不能只靠底色——色弱用户在户外更认形状
+                        text = state.statusFilter.label,
+                        selected = state.statusFilter != StatusFilter.ACTIVE,
+                        onClick = { statusPickerOpen = true },
+                        selectedIcon = Icons.Filled.Check,
+                    )
+                    // 性别、年龄段：现场核对时最常用的两个维度
+                    //（「是不是这家的老太太」「这个娃满 18 了没」）。
+                    // 有值时 chip 直接显示取值，不再显示「性别」，一眼能看出筛了什么
+                    AppChip(
+                        text = when (state.query.gender) {
+                            "MALE" -> "男"
+                            "FEMALE" -> "女"
+                            else -> "性别"
+                        },
+                        selected = !state.query.gender.isNullOrBlank(),
+                        onClick = { genderPickerOpen = true },
+                        selectedIcon = Icons.Filled.Check,
+                    )
+                    AppChip(
+                        text = when {
+                            state.query.minAge != null && state.query.minAge == 60 -> "60 岁以上"
+                            state.query.maxAge != null && state.query.maxAge == 17 -> "18 岁以下"
+                            state.query.minAge != null || state.query.maxAge != null -> "自定义年龄"
+                            else -> "年龄"
+                        },
+                        selected = state.query.minAge != null || state.query.maxAge != null,
+                        onClick = { agePickerOpen = true },
                         selectedIcon = Icons.Filled.Check,
                     )
                     AppChip(
@@ -454,6 +537,130 @@ fun PersonListScreen(
                 villagePickerOpen = false
             },
         )
+    }
+
+    if (statusPickerOpen) {
+        ChoiceDialog(
+            title = "人员状态",
+            options = listOf(
+                ChoiceItem("在册", "正常 + 迁入（默认）"),
+                ChoiceItem("已死亡", "只查死亡注销的档案"),
+                ChoiceItem("已迁出", "只查迁出本村的档案"),
+                ChoiceItem("全部状态", "含死亡与迁出的历史档案"),
+            ),
+            selectedIndex = StatusFilter.entries.indexOf(state.statusFilter),
+            onDismiss = { statusPickerOpen = false },
+            onSelect = { index ->
+                vm.onStatus(StatusFilter.entries[index])
+                statusPickerOpen = false
+            },
+        )
+    }
+
+    if (genderPickerOpen) {
+        ChoiceDialog(
+            title = "性别",
+            options = listOf(ChoiceItem("不限"), ChoiceItem("男"), ChoiceItem("女")),
+            selectedIndex = when (state.query.gender) {
+                "MALE" -> 1
+                "FEMALE" -> 2
+                else -> 0
+            },
+            onDismiss = { genderPickerOpen = false },
+            onSelect = { index ->
+                vm.onGender(listOf(null, "MALE", "FEMALE")[index])
+                genderPickerOpen = false
+            },
+        )
+    }
+
+    if (agePickerOpen) {
+        ChoiceDialog(
+            title = "年龄",
+            options = listOf(
+                ChoiceItem("不限"),
+                // 与后端 ELDERLY_MIN_AGE 一致；「18 岁以下」传 17，因为 maxAge 是闭区间
+                ChoiceItem("60 岁以上", "含 60 岁"),
+                ChoiceItem("18 岁以下", "不含 18 岁"),
+            ),
+            selectedIndex = when {
+                state.query.minAge == 60 -> 1
+                state.query.maxAge == 17 -> 2
+                else -> 0
+            },
+            onDismiss = { agePickerOpen = false },
+            onSelect = { index ->
+                when (index) {
+                    1 -> vm.onAgeRange(60, null)
+                    2 -> vm.onAgeRange(null, 17)
+                    else -> vm.onAgeRange(null, null)
+                }
+                agePickerOpen = false
+            },
+        )
+    }
+}
+
+/** 单选弹窗里的一行 */
+private data class ChoiceItem(val label: String, val hint: String? = null)
+
+/**
+ * 单选弹窗（状态 / 性别 / 年龄共用）。
+ *
+ * 三处交互完全一样：列几个互斥选项、当前项打勾、点完立刻筛选。
+ * 写成三份迟早会出现「有的能取消、有的不能」这种不一致，
+ * 而这三颗 chip 就在同一行上，任何一点不一致都会被并排对比出来。
+ */
+@Composable
+private fun ChoiceDialog(
+    title: String,
+    options: List<ChoiceItem>,
+    selectedIndex: Int,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    val tokens = AppTheme.tokens
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(AppShapes.card),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                options.forEachIndexed { index, option ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(index) }
+                            .padding(vertical = 14.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                option.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (index == selectedIndex) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            option.hint?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.ink3)
+                            }
+                        }
+                        if (index == selectedIndex) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = tokens.brand,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+                }
+            }
+        }
     }
 }
 

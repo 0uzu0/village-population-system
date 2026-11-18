@@ -76,3 +76,34 @@ class PersonQueryTest {
         assertTrue(PersonQuery(tagIds = listOf(1)).hasFilter)
     }
 }
+
+/**
+ * 缓存键必须覆盖**每一个**筛选字段。
+ *
+ * 漏一个的表现是：先按「男」筛出一页，再切成「女」，命中同一个缓存键、
+ * 直接返回上一批男性——列表看起来「筛选点了没反应」。
+ */
+class PersonQueryCacheKeyTest {
+
+    @Test
+    fun `性别与状态不同则缓存键不同`() {
+        val base = PersonQuery()
+        assertNotEquals(base.cacheKey, base.copy(gender = "MALE").cacheKey)
+        assertNotEquals(base.cacheKey, base.copy(status = "DEAD").cacheKey)
+        assertNotEquals(base.cacheKey, base.copy(activeOnly = false).cacheKey)
+    }
+
+    @Test
+    fun `年龄两端都进缓存键`() {
+        val base = PersonQuery()
+        assertNotEquals(base.cacheKey, base.copy(minAge = 60).cacheKey)
+        assertNotEquals(base.cacheKey, base.copy(maxAge = 17).cacheKey)
+    }
+
+    @Test
+    fun `新增筛选也算用户筛选过——重置按钮不能永远挂着`() {
+        assertTrue(PersonQuery(gender = "MALE").hasFilter)
+        assertTrue(PersonQuery(status = "DEAD").hasFilter)
+        assertFalse(PersonQuery().hasFilter)
+    }
+}

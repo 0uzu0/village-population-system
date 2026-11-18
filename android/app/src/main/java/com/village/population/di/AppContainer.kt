@@ -10,8 +10,10 @@ import com.village.population.data.remote.ApiExecutor
 import com.village.population.data.remote.ApiService
 import com.village.population.data.remote.AppJson
 import com.village.population.data.repository.AuthRepository
+import com.village.population.data.repository.FamilyRepository
 import com.village.population.data.repository.FileRepository
 import com.village.population.data.repository.MetaRepository
+import com.village.population.data.repository.PersonIndex
 import com.village.population.data.repository.PersonRepository
 import com.village.population.data.repository.UpdateRepository
 import com.village.population.data.sync.SyncEngine
@@ -64,6 +66,13 @@ class AppContainer(context: Context) {
 
     val cache = JsonCache(cacheDir, json)
 
+    /**
+     * 全量人员名单索引（离线搜索用）。刻意放在 cache 目录：
+     * 它是**派生数据**，「清空缓存」和退出登录都该把它一起清掉——
+     * 里面存着全村的身份证号与手机号。
+     */
+    val personIndex = PersonIndex(cache)
+
     val queue = OfflineQueue(File(offlineDir, "queue"), json)
 
     /**
@@ -77,7 +86,9 @@ class AppContainer(context: Context) {
 
     val authRepository = AuthRepository(api, executor, session)
 
-    val personRepository = PersonRepository(api, executor, cache, queue, json)
+    val personRepository = PersonRepository(api, executor, cache, queue, personIndex, json)
+
+    val familyRepository = FamilyRepository(api, executor, cache)
 
     val metaRepository = MetaRepository(api, executor, cache, queue, json)
 
@@ -125,5 +136,7 @@ class AppContainer(context: Context) {
     suspend fun logout() {
         session.clear()
         cache.clear()
+        // 内存里那份名单副本也要丢：否则换个人登录后，断网还能搜到上一个账号的全村档案
+        personIndex.clear()
     }
 }

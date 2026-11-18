@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
@@ -82,6 +83,12 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var showQueueDialog by remember { mutableStateOf(false) }
+    // 离线名单（P0-1）：进村前点一次，之后断网也能按姓名/身份证搜人
+    var showIndexDialog by remember { mutableStateOf(false) }
+    var indexCount by remember { mutableStateOf(container.personRepository.indexCount) }
+    var indexSavedAt by remember { mutableStateOf(container.personRepository.indexSavedAt) }
+    var indexSyncing by remember { mutableStateOf(false) }
+    var indexProgress by remember { mutableStateOf(0) }
     var showCrashDialog by remember { mutableStateOf(false) }
     var crashText by remember { mutableStateOf("") }
     var lastSyncAt by remember { mutableStateOf(0L) }
@@ -90,6 +97,33 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
     suspend fun refreshLocal() {
         ops = container.queue.all()
         lastSyncAt = runCatching { container.settings.lastSyncAtFlow.first() }.getOrDefault(0L)
+        // 这两个读的是几百字节的 meta 文件（见 PersonIndex 的说明），不会去解析 5MB 主文件
+        indexCount = container.personRepository.indexCount
+        indexSavedAt = container.personRepository.indexSavedAt
+    }
+
+    /**
+     * 下载全量名单。
+     *
+     * 只在这一个入口手点：7600 人要走 39 个来回、几 MB 流量，不该在用户不知情时发起。
+     * 下载完把人数与时间写回界面，用户能看到「到底存了多少人」——
+     * 只报一句「成功」的话，断网后搜不到人时没法判断是没下载完还是搜错了。
+     */
+    fun syncIndexNow() {
+        if (indexSyncing) return
+        indexSyncing = true
+        indexProgress = 0
+        scope.launch {
+            runCatching { container.personRepository.syncIndex { n -> indexProgress = n } }
+                .onSuccess { count ->
+                    indexCount = count
+                    indexSavedAt = container.personRepository.indexSavedAt
+                    showIndexDialog = false
+                    message = "离线名单已更新：$count 人，断网也能查了"
+                }
+                .onFailure { message = "离线名单下载失败：${it.toUserMessage()}" }
+            indexSyncing = false
+        }
     }
 
     LaunchedEffect(pendingOps, message, showQueueDialog) { refreshLocal() }
@@ -221,6 +255,19 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                         },
                         trailing = if (pendingOps > 0) "$pendingOps" else null,
                     ) { showQueueDialog = true }
+
+                    SettingDivider()
+
+                    SettingRow(
+                        icon = Icons.Filled.CloudDownload,
+                        title = "离线名单",
+                        subtitle = if (indexCount > 0) {
+                            "已缓存 $indexCount 人 · ${DateText.describeAge(indexSavedAt)}"
+                        } else {
+                            "未缓存：断网时只能看打开过的档案"
+                        },
+                        trailing = if (indexCount > 0) "$indexCount" else null,
+                    ) { showIndexDialog = true }
 
                     SettingDivider()
 
@@ -369,6 +416,50 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
         )
     }
 
+    if (showIndexDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!indexSyncing) showIndexDialog = false },
+            title = { Text("离线名单") },
+            text = {
+                Column {
+                    Text(
+                        if (indexCount > 0) {
+                            "已缓存 $indexCount 人\n上次下载：${DateText.formatDateTime(indexSavedAt)}"
+                        } else {
+                            "还没有下载过名单。下载后即使村里没有信号，也能按姓名、身份证号、手机号搜人，" +
+                                "打开任何人都是完整档案。"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = AppTheme.tokens.ink2,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "全量名单约 7600 人，要走 39 个来回、几 MB 流量，建议在村委会 WiFi 下下载。" +
+                            "之后每天会自动续一次。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppTheme.tokens.ink3,
+                    )
+                    if (indexSyncing) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "正在下载…已取回 $indexProgress 人",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppTheme.tokens.amber,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { syncIndexNow() }, enabled = !indexSyncing) {
+                    Text(if (indexCount > 0) "重新下载" else "开始下载")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showIndexDialog = false }, enabled = !indexSyncing) { Text("关闭") }
+            },
+        )
+    }
+
     if (showQueueDialog) {
         AlertDialog(
             onDismissRequest = { showQueueDialog = false },
@@ -401,6 +492,10 @@ fun ProfileScreen(onLoggedOut: () -> Unit) {
                                 scope.launch {
                                     message = runCatching {
                                         container.cache.clear()
+                                        // 内存里那份名单副本也要丢，否则「清空了」还能断网搜到人
+                                        container.personIndex.clear()
+                                        indexCount = 0
+                                        indexSavedAt = 0L
                                         "已清空本地缓存（未上传的数据保留）"
                                     }.getOrElse { it.toUserMessage() }
                                 }
