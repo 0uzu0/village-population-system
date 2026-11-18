@@ -140,12 +140,14 @@ jobs:
       # ---------------- debug 包：PR / push 都出，供测试机安装 ----------------
       - name: 构建 Debug APK
         run: |
-          # 版本号同样取自标签/run_number。以前这里直接用 gradle 的默认值，
-          # 于是任何一版 debug 包在「我的」页都显示写死的 2.2.3——
-          # 出了「装了新包却像旧界面」的问题时，没有任何办法从界面上判断
-          # 手上这个包到底是哪次构建。debug 变体另有 -debug 后缀，两者不冲突。
+          # 版本号：标签构建用标签，分支构建用 **backend/package.json 的版本**
+          # （全系统版本号的唯一来源，与 PC 端、Docker 镜像同号）。
+          # 以前分支构建用 0.0.<run_number>，「我的」页与网页侧栏对不上号，
+          # 排查「装了新包却像旧界面」时无从对照。构建序号仍留在 versionCode 里。
           VERSION_NAME="${GITHUB_REF_NAME#v}"
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then VERSION_NAME="0.0.${GITHUB_RUN_NUMBER}"; fi
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            VERSION_NAME=$(node -p "require('../backend/package.json').version")
+          fi
 
           ./gradlew assembleDebug --stacktrace \
             -PversionCode="${GITHUB_RUN_NUMBER}" \
@@ -204,9 +206,18 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # 版本号取自标签（v1.2.3 → 1.2.3），非标签触发时用 run_number
+          # 版本号取自标签（v1.2.3 → 1.2.3）；非标签构建与 debug 一样读 backend/package.json
           VERSION_NAME="${GITHUB_REF_NAME#v}"
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then VERSION_NAME="0.0.${GITHUB_RUN_NUMBER}"; fi
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            VERSION_NAME=$(node -p "require('../backend/package.json').version")
+          else
+            # 标签必须与代码里的版本一致，否则「网页 v2.3.0 / APK v2.2.9」这种错位会一直存在
+            PKG_VERSION=$(node -p "require('../backend/package.json').version")
+            if [ "$VERSION_NAME" != "$PKG_VERSION" ]; then
+              echo "::error::标签 v$VERSION_NAME 与 backend/package.json 的 $PKG_VERSION 不一致"
+              exit 1
+            fi
+          fi
           VERSION_CODE="${GITHUB_RUN_NUMBER}"
 
           ./gradlew assembleRelease --stacktrace \

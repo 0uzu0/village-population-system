@@ -16,15 +16,30 @@ plugins {
 val apiBaseUrl: String = (project.findProperty("apiBaseUrl") as String?) ?: "https://work.zerolin.fun:11127/"
 
 /**
- * 版本号由 CI 注入（run_number / tag），本地构建用默认值。
+ * 版本号由 CI 注入（tag / run_number），本地构建回落到**服务端版本**。
  *
- * ⚠️ 默认值故意写成 0.0.0 而不是某个真实版本号：以前这里写死 2.2.3，
- * 结果任何一版没传 -PversionName 的包（CI 的 debug 包就是）在「我的」页
+ * ⚠️ 以前这里写死 2.2.3，结果任何一版没传 -PversionName 的包在「我的」页
  * 都显示 2.2.3，排查「装了新包怎么还是旧界面」时完全没法靠界面判断版本。
- * 现在看到 0.0.0 就说明这是本地/未注入版本的构建，一眼能分辨。
+ * 所以默认值改成**读 backend/package.json**（全系统版本号的唯一来源），
+ * 读到什么就是什么，文件不在才退回 0.0.0——0.0.0 一眼能认出是没拿到版本的构建。
+ *
+ * 三端同号的约束由 backend/test/versionSync.test.ts 守着（改一处漏一处在 CI 就红）。
  */
+val unifiedVersionName: String = runCatching {
+    val manifest = rootProject.file("../backend/package.json")
+    if (!manifest.isFile) {
+        "0.0.0"
+    } else {
+        Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
+            .find(manifest.readText())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: "0.0.0"
+    }
+}.getOrDefault("0.0.0")
+
 val appVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val appVersionName: String = (project.findProperty("versionName") as String?) ?: "0.0.0"
+val appVersionName: String = (project.findProperty("versionName") as String?) ?: unifiedVersionName
 
 /**
  * 正式包签名从环境变量读取（CI 用 secrets 注入）。
